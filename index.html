@@ -4,10 +4,10 @@
   <meta name="google-adsense-account" content="ca-pub-6117076538261387">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/svg+xml" href="image/favicon.svg">
-  <link rel="icon" type="image/png" sizes="32x32" href="image/favicon-32x32.png">
-  <link rel="apple-touch-icon" sizes="192x192" href="image/favicon-192x192.png">
-  <link rel="shortcut icon" href="image/favicon.ico">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
+  <link rel="shortcut icon" href="favicon.ico">
   <title id="page-title">Current Events Feed Widget</title>
   <style>
     /* =========================================================
@@ -28,7 +28,7 @@
     .news-widget-wrapper {
       max-width: 1200px;
       margin: 2rem auto;
-      padding: 1rem;
+      padding: 0 1rem;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif;
       color: var(--news-text);
     }
@@ -37,7 +37,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
     }
 
     .news-widget-title {
@@ -47,6 +47,57 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+    }
+
+    /* =========================================================
+       CATEGORY PILL NAVIGATION (Mini Quest 1)
+       ========================================================= */
+    .news-category-bar {
+      display: flex;
+      gap: 0.65rem;
+      margin-bottom: 1.5rem;
+      overflow-x: auto;
+      padding-bottom: 0.4rem;
+      padding-top: 0.4rem;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .news-category-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .cat-pill {
+      background: var(--news-card-bg);
+      border: 1px solid var(--news-card-border);
+      color: var(--news-text-muted);
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      user-select: none;
+    }
+
+    .cat-pill:hover {
+      background: #334155;
+      color: #fff;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+    }
+
+    .cat-pill.active {
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+      transform: translateY(-1px);
     }
 
     .news-grid {
@@ -191,9 +242,7 @@
 </head>
 <body style="background: #0b0f19; margin: 0;">
 
-  <!-- =========================================================
-       HTML CONTAINER (Drop this wherever you want the feed to appear)
-       ========================================================= -->
+  <!-- HTML CONTAINER -->
   <div class="news-widget-wrapper">
     <div class="news-widget-header">
       <div class="news-widget-title" id="widget-main-title">
@@ -204,6 +253,28 @@
       </button>
     </div>
 
+    <!-- Category Pill Navigation Bar (Mini Quest 1) -->
+    <nav class="news-category-bar" id="news-category-bar">
+      <button class="cat-pill active" data-category="all">
+        <span>⚡</span> <span class="cat-text" data-i18n="catAll">Top Currents</span>
+      </button>
+      <button class="cat-pill" data-category="animals">
+        <span>🐾</span> <span class="cat-text" data-i18n="catAnimals">Animals & Nature</span>
+      </button>
+      <button class="cat-pill" data-category="tech">
+        <span>🤖</span> <span class="cat-text" data-i18n="catTech">Future Tech & AI</span>
+      </button>
+      <button class="cat-pill" data-category="arts">
+        <span>🎨</span> <span class="cat-text" data-i18n="catArts">Creative Arts</span>
+      </button>
+      <button class="cat-pill" data-category="world">
+        <span>🌍</span> <span class="cat-text" data-i18n="catWorld">Global Currents</span>
+      </button>
+      <button class="cat-pill" data-category="uplifting">
+        <span>✨</span> <span class="cat-text" data-i18n="catUplifting">Uplifting News</span>
+      </button>
+    </nav>
+
     <!-- The cards get injected into this element -->
     <div id="news-grid-container" class="news-grid">
       <div class="news-loading-skeleton" id="news-loading-text">Fetching the freshest stories & computing AI summaries...</div>
@@ -213,14 +284,11 @@
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387"
      crossorigin="anonymous"></script>
 
-  <!-- =========================================================
-       JAVASCRIPT CODE (Drop into your <script> or app.js)
-       ========================================================= -->
+  <!-- JAVASCRIPT CODE -->
   <script>
     /**
-     * MULTI-LANGUAGE DICTIONARY (I18N)
-     * Automatically translates UI labels, buttons, badges, and AI summary templates
-     * to match the reader's detected browser language.
+     * MULTI-LANGUAGE & MULTI-REGION DICTIONARY (I18N)
+     * Includes localized names for all categories, buttons, and AI summary templates.
      */
     const I18N_TRANSLATIONS = {
       en: {
@@ -239,115 +307,13 @@
         aiDevelopingSuffix: "Early reports highlight ongoing shifts and updates.",
         readMore: "Read Full Story →",
         error: "Unable to load live wire right now. Click refresh to try again!",
-        recent: "Recent"
-      },
-      es: {
-        pageTitle: "Widget de Noticias y Actualidad",
-        headerTitle: "Noticias en Vivo y Resúmenes IA",
-        refreshBtn: "🔄 Actualizar Feed",
-        loading: "Obteniendo las noticias más recientes y calculando resúmenes IA...",
-        breaking: "Última Hora",
-        trending: "Tendencias",
-        verifiedWire: "📡 Fuente Verificada",
-        liveFeed: "📡 En Vivo",
-        aiBriefTag: "✨ Resumen Rápido IA",
-        aiTakeaway: "🤖 Conclusión IA:",
-        aiHighlight: "El punto clave se centra en",
-        aiDeveloping: "Noticia en desarrollo acerca de",
-        aiDevelopingSuffix: "Los primeros informes señalan actualizaciones continuas.",
-        readMore: "Leer historia completa →",
-        error: "No se pudo cargar la información ahora. ¡Haz clic para reintentar!",
-        recent: "Reciente"
-      },
-      fr: {
-        pageTitle: "Widget d'Actualités en Direct",
-        headerTitle: "Actualités en Direct & Résumés IA",
-        refreshBtn: "🔄 Actualiser le fil",
-        loading: "Récupération des dernières actualités et résumés IA...",
-        breaking: "En Direct",
-        trending: "Tendance",
-        verifiedWire: "📡 Dépêche Vérifiée",
-        liveFeed: "📡 Flux en Direct",
-        aiBriefTag: "✨ Bref Aperçu IA",
-        aiTakeaway: "🤖 Aperçu IA :",
-        aiHighlight: "L'accent principal est mis sur",
-        aiDeveloping: "Événement en cours concernant",
-        aiDevelopingSuffix: "Les premiers rapports signalent des évolutions constantes.",
-        readMore: "Lire l'article complet →",
-        error: "Impossible de charger le fil d'actualités. Cliquez pour réessayer !",
-        recent: "Récent"
-      },
-      de: {
-        pageTitle: "Aktuelle Nachrichten Widget",
-        headerTitle: "Live-Nachrichten & KI-Überblick",
-        refreshBtn: "🔄 Feed aktualisieren",
-        loading: "Neueste Meldungen & KI-Zusammenfassungen laden...",
-        breaking: "Eilmeldung",
-        trending: "Trends",
-        verifiedWire: "📡 Verifizierte Quelle",
-        liveFeed: "📡 Live-Ticker",
-        aiBriefTag: "✨ KI-Kurzübersicht",
-        aiTakeaway: "🤖 KI-Kernpunkt:",
-        aiHighlight: "Wesentlicher Schwerpunkt liegt auf",
-        aiDeveloping: "Wichtige Meldung bezüglich",
-        aiDevelopingSuffix: "Erste Berichte heben laufende Entwicklungen hervor.",
-        readMore: "Ganzen Artikel lesen →",
-        error: "Nachrichten konnten nicht geladen werden. Bitte aktualisieren!",
-        recent: "Kürzlich"
-      },
-      pt: {
-        pageTitle: "Widget de Notícias e Atualidades",
-        headerTitle: "Notícias ao Vivo e Resumos IA",
-        refreshBtn: "🔄 Atualizar Feed",
-        loading: "Buscando as notícias mais recentes e resumos IA...",
-        breaking: "Urgente",
-        trending: "Em Alta",
-        verifiedWire: "📡 Fonte Verificada",
-        liveFeed: "📡 Ao Vivo",
-        aiBriefTag: "✨ Resumo Rápido IA",
-        aiTakeaway: "🤖 Destaque IA:",
-        aiHighlight: "O ponto principal concentra-se em",
-        aiDeveloping: "Notícia em desenvolvimento sobre",
-        aiDevelopingSuffix: "Relatórios preliminares indicam atualizações contínuas.",
-        readMore: "Ler matéria completa →",
-        error: "Não foi possível carregar as notícias. Clique para tentar novamente!",
-        recent: "Recente"
-      },
-      it: {
-        pageTitle: "Widget Notizie e Attualità",
-        headerTitle: "Notizie in Diretta e Sintesi IA",
-        refreshBtn: "🔄 Aggiorna Notizie",
-        loading: "Caricamento delle ultime notizie e sintesi IA in corso...",
-        breaking: "Ultima Ora",
-        trending: "Di Tendenza",
-        verifiedWire: "📡 Fonte Verificata",
-        liveFeed: "📡 In Diretta",
-        aiBriefTag: "✨ Sintesi Rapida IA",
-        aiTakeaway: "🤖 Nota Chiave IA:",
-        aiHighlight: "Il punto focale riguarda",
-        aiDeveloping: "Notizia in corso relativa a",
-        aiDevelopingSuffix: "I primi aggiornamenti segnalano sviluppi continui.",
-        readMore: "Leggi l'articolo completo →",
-        error: "Impossibile caricare le notizie ora. Fai clic per riprovare!",
-        recent: "Recente"
-      },
-      ja: {
-        pageTitle: "最新ニュースウィジェット",
-        headerTitle: "リアルタイム速報 ＆ AI要約",
-        refreshBtn: "🔄 フィード更新",
-        loading: "最新ニュースを取得し、AI要約を生成中...",
-        breaking: "速報",
-        trending: "トレンド",
-        verifiedWire: "📡 公式通信",
-        liveFeed: "📡 ライブ配信",
-        aiBriefTag: "✨ AI クイック解説",
-        aiTakeaway: "🤖 AIのポイント:",
-        aiHighlight: "主な焦点は",
-        aiDeveloping: "進行中の注目ニュース:",
-        aiDevelopingSuffix: "最新の詳細が随時報告されています。",
-        readMore: "記事全文を読む →",
-        error: "現在ニュースを読み込めません。更新ボタンを押してください！",
-        recent: "最新"
+        recent: "Recent",
+        catAll: "Top Currents",
+        catAnimals: "Animals & Nature",
+        catTech: "Future Tech & AI",
+        catArts: "Creative Arts",
+        catWorld: "Global Currents",
+        catUplifting: "Uplifting News"
       },
       mr: {
         pageTitle: "चालू घडामोडी फीड विजेट",
@@ -365,9 +331,15 @@
         aiDevelopingSuffix: "प्राथमिक अहवालानुसार पुढील घडामोडी सुरू आहेत.",
         readMore: "पूर्ण बातमी वाचा →",
         error: "सध्या फीड लोड करणे शक्य नाही. कृपया पुन्हा प्रयत्न करा!",
-        recent: "नुकतेच"
+        recent: "नुकतेच",
+        catAll: "मुख्य घडामोडी",
+        catAnimals: "प्राणी आणि निसर्ग",
+        catTech: "भविष्य तंत्रज्ञान आणि AI",
+        catArts: "कला आणि ट्रेंड्स",
+        catWorld: "जागतिक घडामोडी",
+        catUplifting: "सकारात्मक बातम्या"
       },
-      "mr-IN": {
+      "mr-in": {
         pageTitle: "चालू घडामोडी फीड विजेट",
         headerTitle: "थेट चालू घडामोडी आणि AI सारांश",
         refreshBtn: "🔄 फीड रिफ्रेश करा",
@@ -383,7 +355,13 @@
         aiDevelopingSuffix: "प्राथमिक अहवालानुसार पुढील घडामोडी सुरू आहेत.",
         readMore: "पूर्ण बातमी वाचा →",
         error: "सध्या फीड लोड करणे शक्य नाही. कृपया पुन्हा प्रयत्न करा!",
-        recent: "नुकतेच"
+        recent: "नुकतेच",
+        catAll: "मुख्य घडामोडी",
+        catAnimals: "प्राणी आणि निसर्ग",
+        catTech: "भविष्य तंत्रज्ञान आणि AI",
+        catArts: "कला आणि ट्रेंड्स",
+        catWorld: "जागतिक घडामोडी",
+        catUplifting: "सकारात्मक बातम्या"
       },
       hi: {
         pageTitle: "समसामयिक घटना फीड विजेट",
@@ -401,7 +379,13 @@
         aiDevelopingSuffix: "शुरुआती रिपोर्टों के अनुसार अपडेट जारी हैं।",
         readMore: "पूरी खबर पढ़ें →",
         error: "समाचार लोड नहीं हो सके। पुनः प्रयास करें!",
-        recent: "हाल ही में"
+        recent: "हाल ही में",
+        catAll: "प्रमुख समाचार",
+        catAnimals: "पशु और प्रकृति",
+        catTech: "भविष्य की तकनीक और AI",
+        catArts: "रचनात्मक कला",
+        catWorld: "वैश्विक समाचार",
+        catUplifting: "प्रेरक समाचार"
       },
       bn: {
         pageTitle: "বর্তমান ঘটনা ফিড উইজেট",
@@ -419,7 +403,13 @@
         aiDevelopingSuffix: "প্রাথমিক প্রতিবেদন অনুযায়ী নতুন আপডেট অব্যাহত রয়েছে।",
         readMore: "সম্পূর্ণ খবর পড়ুন →",
         error: "খবর লোড করা যাচ্ছে না। পুনরায় চেষ্টা করুন!",
-        recent: "সম্প্রতি"
+        recent: "সম্প্রতি",
+        catAll: "শীর্ষ খবর",
+        catAnimals: "প্রাণী ও প্রকৃতি",
+        catTech: "ভবিষ্যত প্রযুক্তি ও এআই",
+        catArts: "শিল্প ও সংস্কৃতি",
+        catWorld: "বিশ্ব সংবাদ",
+        catUplifting: "ইতিবাচক খবর"
       },
       ta: {
         pageTitle: "நடப்பு நிகழ்வுகள் விட்ஜெட்",
@@ -437,7 +427,13 @@
         aiDevelopingSuffix: "ஆரம்ப அறிக்கைகளின்படி தொடர் மாற்றங்கள் நிகழ்ந்து வருகின்றன.",
         readMore: "முழுச் செய்தியைப் படிக்கவும் →",
         error: "செய்திகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்!",
-        recent: "சமீபத்திய"
+        recent: "சமீபத்திய",
+        catAll: "தலைப்புச் செய்திகள்",
+        catAnimals: "விலங்குகள் & இயற்கை",
+        catTech: "எதிர்கால தொழில்நுட்பம் & AI",
+        catArts: "கலை & கலாச்சாரம்",
+        catWorld: "உலக நடப்புகள்",
+        catUplifting: "மகிழ்ச்சியான செய்திகள்"
       },
       te: {
         pageTitle: "తాజా వార్తల ఫీడ్ విడ్జెట్",
@@ -455,7 +451,133 @@
         aiDevelopingSuffix: "ప్రారంభ నివేదికల ప్రకారం మరిన్ని వివరాలు వెల్లడవుతున్నాయి.",
         readMore: "పూర్తి కథనాన్ని చదవండి →",
         error: "వార్తలను లోడ్ చేయడం సాధ్యం కాలేదు. దయచేసి మళ్ళీ ప్రయత్నించండి!",
-        recent: "ఇటీవల"
+        recent: "ఇటీవల",
+        catAll: "ప్రధాన వార్తలు",
+        catAnimals: "జంతువులు & ప్రకృతి",
+        catTech: "భవిష్యత్ టెక్నాలజీ & AI",
+        catArts: "క్రియేటివ్ ఆర్ట్స్",
+        catWorld: "ప్రపంచ వార్తలు",
+        catUplifting: "స్ఫూర్తిదాయక వార్తలు"
+      },
+      es: {
+        pageTitle: "Widget de Noticias y Actualidad",
+        headerTitle: "Noticias en Vivo y Resúmenes IA",
+        refreshBtn: "🔄 Actualizar Feed",
+        loading: "Obteniendo las noticias más recientes y calculando resúmenes IA...",
+        breaking: "Última Hora",
+        trending: "Tendencias",
+        verifiedWire: "📡 Fuente Verificada",
+        liveFeed: "📡 En Vivo",
+        aiBriefTag: "✨ Resumen Rápido IA",
+        aiTakeaway: "🤖 Conclusión IA:",
+        aiHighlight: "El punto clave se centra en",
+        aiDeveloping: "Noticia en desarrollo acerca de",
+        aiDevelopingSuffix: "Los primeros informes señalan actualizaciones continuas.",
+        readMore: "Leer historia completa →",
+        error: "No se pudo cargar la información ahora. ¡Haz clic para reintentar!",
+        recent: "Reciente",
+        catAll: "Noticias Principales",
+        catAnimals: "Animales y Naturaleza",
+        catTech: "Tecnología Futura e IA",
+        catArts: "Artes Creativas",
+        catWorld: "Noticias Mundiales",
+        catUplifting: "Noticias Positivas"
+      },
+      fr: {
+        pageTitle: "Widget d'Actualités en Direct",
+        headerTitle: "Actualités en Direct & Résumés IA",
+        refreshBtn: "🔄 Actualiser le fil",
+        loading: "Récupération des dernières actualités et résumés IA...",
+        breaking: "En Direct",
+        trending: "Tendance",
+        verifiedWire: "📡 Dépêche Vérifiée",
+        liveFeed: "📡 Flux en Direct",
+        aiBriefTag: "✨ Bref Aperçu IA",
+        aiTakeaway: "🤖 Aperçu IA :",
+        aiHighlight: "L'accent principal est mis sur",
+        aiDeveloping: "Événement en cours concernant",
+        aiDevelopingSuffix: "Les premiers rapports signalent des évolutions constantes.",
+        readMore: "Lire l'article complet →",
+        error: "Impossible de charger le fil d'actualités. Cliquez pour réessayer !",
+        recent: "Récent",
+        catAll: "Actualités Principales",
+        catAnimals: "Animaux & Nature",
+        catTech: "Technologies & IA",
+        catArts: "Arts Créatifs",
+        catWorld: "Actualités Mondiales",
+        catUplifting: "Bonnes Nouvelles"
+      },
+      de: {
+        pageTitle: "Aktuelle Nachrichten Widget",
+        headerTitle: "Live-Nachrichten & KI-Überblick",
+        refreshBtn: "🔄 Feed aktualisieren",
+        loading: "Neueste Meldungen & KI-Zusammenfassungen laden...",
+        breaking: "Eilmeldung",
+        trending: "Trends",
+        verifiedWire: "📡 Verifizierte Quelle",
+        liveFeed: "📡 Live-Ticker",
+        aiBriefTag: "✨ KI-Kurzübersicht",
+        aiTakeaway: "🤖 KI-Kernpunkt:",
+        aiHighlight: "Wesentlicher Schwerpunkt liegt auf",
+        aiDeveloping: "Wichtige Meldung bezüglich",
+        aiDevelopingSuffix: "Erste Berichte heben laufende Entwicklungen hervor.",
+        readMore: "Ganzen Artikel lesen →",
+        error: "Nachrichten konnten nicht geladen werden. Bitte aktualisieren!",
+        recent: "Kürzlich",
+        catAll: "Top-Meldungen",
+        catAnimals: "Tiere & Natur",
+        catTech: "Zukunftstechnologie & KI",
+        catArts: "Kreative Künste",
+        catWorld: "Weltgeschehen",
+        catUplifting: "Gute Nachrichten"
+      },
+      pt: {
+        pageTitle: "Widget de Notícias e Atualidades",
+        headerTitle: "Notícias ao Vivo e Resumos IA",
+        refreshBtn: "🔄 Atualizar Feed",
+        loading: "Buscando as notícias mais recentes e resumos IA...",
+        breaking: "Urgente",
+        trending: "Em Alta",
+        verifiedWire: "📡 Fonte Verificada",
+        liveFeed: "📡 Ao Vivo",
+        aiBriefTag: "✨ Resumo Rápido IA",
+        aiTakeaway: "🤖 Destaque IA:",
+        aiHighlight: "O ponto principal concentra-se em",
+        aiDeveloping: "Notícia em desenvolvimento sobre",
+        aiDevelopingSuffix: "Relatórios preliminares indicam atualizações contínuas.",
+        readMore: "Ler matéria completa →",
+        error: "Não foi possível carregar as notícias. Clique para tentar novamente!",
+        recent: "Recente",
+        catAll: "Principais Notícias",
+        catAnimals: "Animais e Natureza",
+        catTech: "Tecnologia do Futuro e IA",
+        catArts: "Artes Criativas",
+        catWorld: "Notícias Globais",
+        catUplifting: "Boas Notícias"
+      },
+      it: {
+        pageTitle: "Widget Notizie e Attualità",
+        headerTitle: "Notizie in Diretta e Sintesi IA",
+        refreshBtn: "🔄 Aggiorna Notizie",
+        loading: "Caricamento delle ultime notizie e sintesi IA in corso...",
+        breaking: "Ultima Ora",
+        trending: "Di Tendenza",
+        verifiedWire: "📡 Fonte Verificata",
+        liveFeed: "📡 In Diretta",
+        aiBriefTag: "✨ Sintesi Rapida IA",
+        aiTakeaway: "🤖 Nota Chiave IA:",
+        aiHighlight: "Il punto focale riguarda",
+        aiDeveloping: "Notizia in corso relativa a",
+        aiDevelopingSuffix: "I primi aggiornamenti segnalano sviluppi continui.",
+        readMore: "Leggi l'articolo completo →",
+        error: "Impossibile caricare le notizie ora. Fai clic per riprovare!",
+        recent: "Recente",
+        catAll: "Notizie Principali",
+        catAnimals: "Animali e Natura",
+        catTech: "Tecnologia del Futuro e IA",
+        catArts: "Arti Creative",
+        catWorld: "Attualità Mondiale",
+        catUplifting: "Buone Notizie"
       },
       zh: {
         pageTitle: "实时时事资讯组件",
@@ -473,9 +595,15 @@
         aiDevelopingSuffix: "初步报道显示最新进展仍在持续更新。",
         readMore: "阅读全文 →",
         error: "暂时无法获取最新资讯，请点击刷新重试！",
-        recent: "刚刚"
+        recent: "刚刚",
+        catAll: "热点聚焦",
+        catAnimals: "动物与自然",
+        catTech: "未来科技与 AI",
+        catArts: "创意艺术",
+        catWorld: "国际时事",
+        catUplifting: "暖心正能量"
       },
-      "zh-TW": {
+      "zh-tw": {
         pageTitle: "即時時事新聞小工具",
         headerTitle: "即時新聞與 AI 智慧摘要",
         refreshBtn: "🔄 重新整理",
@@ -491,7 +619,61 @@
         aiDevelopingSuffix: "初步報告指出各項最新進展持續更新中。",
         readMore: "閱讀全文 →",
         error: "目前無法載入即時資訊，請點擊重新整理！",
-        recent: "剛剛"
+        recent: "剛剛",
+        catAll: "熱門焦點",
+        catAnimals: "動物與自然",
+        catTech: "未來科技與 AI",
+        catArts: "創意藝術",
+        catWorld: "全球動態",
+        catUplifting: "暖心好消息"
+      },
+      ja: {
+        pageTitle: "最新ニュースウィジェット",
+        headerTitle: "リアルタイム速報 ＆ AI要約",
+        refreshBtn: "🔄 フィード更新",
+        loading: "最新ニュースを取得し、AI要約を生成中...",
+        breaking: "速報",
+        trending: "トレンド",
+        verifiedWire: "📡 公式通信",
+        liveFeed: "📡 ライブ配信",
+        aiBriefTag: "✨ AI クイック解説",
+        aiTakeaway: "🤖 AIのポイント:",
+        aiHighlight: "主な焦点は",
+        aiDeveloping: "進行中の注目ニュース:",
+        aiDevelopingSuffix: "最新の詳細が随時報告されています。",
+        readMore: "記事全文を読む →",
+        error: "現在ニュースを読み込めません。更新ボタンを押してください！",
+        recent: "最新",
+        catAll: "主要ニュース",
+        catAnimals: "動物 ＆ 自然",
+        catTech: "先端技術 ＆ AI",
+        catArts: "クリエイティブ・アート",
+        catWorld: "世界の動き",
+        catUplifting: "ポジティブ・ニュース"
+      },
+      ko: {
+        pageTitle: "실시간 시사 뉴스 피드 위젯",
+        headerTitle: "실시간 뉴스 & AI 핵심 요약",
+        refreshBtn: "🔄 피드 새로고침",
+        loading: "최신 뉴스 및 AI 요약을 불러오는 중...",
+        breaking: "속보",
+        trending: "인기 트렌드",
+        verifiedWire: "📡 공인 통신망",
+        liveFeed: "📡 라이브 피드",
+        aiBriefTag: "✨ 빠른 AI 요약",
+        aiTakeaway: "🤖 AI 핵심 분석:",
+        aiHighlight: "주요 핵심 내용은 다음에 집중됩니다:",
+        aiDeveloping: "주요 진행 중인 이슈:",
+        aiDevelopingSuffix: "초기 보도에 따라 새로운 소식이 계속 전달되고 있습니다.",
+        readMore: "기사 전문 읽기 →",
+        error: "뉴스를 불러올 수 없습니다. 새로고침을 눌러주세요!",
+        recent: "방금 전",
+        catAll: "주요 뉴스",
+        catAnimals: "동물 & 자연",
+        catTech: "미래 기술 & AI",
+        catArts: "크리에이티브 아트",
+        catWorld: "글로벌 이슈",
+        catUplifting: "희망찬 소식"
       },
       ar: {
         pageTitle: "أداة موجز الأحداث الجارية",
@@ -509,8 +691,127 @@
         aiDevelopingSuffix: "تشير التقارير الأولية إلى استمرار المستجدات.",
         readMore: "قراءة القصة كاملة ←",
         error: "تعذر تحميل الأخبار الآن. انقر للتحديث والمحاولة مرة أخرى!",
-        recent: "حديثاً"
+        recent: "حديثاً",
+        catAll: "أبرز الأخبار",
+        catAnimals: "الحيوانات والطبيعة",
+        catTech: "تكنولوجيا المستقبل والذكاء الاصطناعي",
+        catArts: "الفنون الإبداعية",
+        catWorld: "الأحداث العالمية",
+        catUplifting: "أخبار ملهمة وإيجابية"
+      },
+      ru: {
+        pageTitle: "Виджет актуальных новостей",
+        headerTitle: "Новости в реальном времени и ИИ-обзор",
+        refreshBtn: "🔄 Обновить ленту",
+        loading: "Загрузка свежих новостей и создание ИИ-сводок...",
+        breaking: "Срочно",
+        trending: "В тренде",
+        verifiedWire: "📡 Проверенный источник",
+        liveFeed: "📡 Прямой эфир",
+        aiBriefTag: "✨ Быстрый ИИ-обзор",
+        aiTakeaway: "🤖 Главный вывод ИИ:",
+        aiHighlight: "Ключевой акцент сделан на",
+        aiDeveloping: "Развитие событий вокруг",
+        aiDevelopingSuffix: "По предварительным данным, ситуация продолжает обновляться.",
+        readMore: "Читать полностью →",
+        error: "Не удалось загрузить новости. Нажмите кнопку обновления!",
+        recent: "Недавно",
+        catAll: "Главные новости",
+        catAnimals: "Животные и природа",
+        catTech: "Технологии будущего и ИИ",
+        catArts: "Творчество и искусство",
+        catWorld: "Мировые события",
+        catUplifting: "Хорошие новости"
+      },
+      tr: {
+        pageTitle: "Güncel Olaylar Akışı Bileşeni",
+        headerTitle: "Canlı Gelişmeler & Yapay Zeka Özeti",
+        refreshBtn: "🔄 Akışı Yenile",
+        loading: "En yeni haberler alınıyor ve yapay zeka özeti hazırlanıyor...",
+        breaking: "Son Dakika",
+        trending: "Gündemdekiler",
+        verifiedWire: "📡 Doğrulanmış Kaynak",
+        liveFeed: "📡 Canlı Akış",
+        aiBriefTag: "✨ Hızlı YZ Özeti",
+        aiTakeaway: "🤖 YZ Çıkarımı:",
+        aiHighlight: "Ana vurgu şu konuya odaklanıyor:",
+        aiDeveloping: "İlgili önemli gelişme:",
+        aiDevelopingSuffix: "İlk raporlara göre güncellemeler devam ediyor.",
+        readMore: "Haberin Devamını Oku →",
+        error: "Haberler şu anda yüklenemiyor. Yenilemeyi deneyin!",
+        recent: "Az önce",
+        catAll: "Öne Çıkanlar",
+        catAnimals: "Hayvanlar & Doğa",
+        catTech: "Gelecek Teknolojisi & YZ",
+        catArts: "Yaratıcı Sanatlar",
+        catWorld: "Dünya Gündemi",
+        catUplifting: "Umut Veren Haberler"
+      },
+      id: {
+        pageTitle: "Widget Berita Terkini",
+        headerTitle: "Berita Langsung & Ringkasan AI",
+        refreshBtn: "🔄 Segarkan Berita",
+        loading: "Mengambil berita terbaru dan membuat ringkasan AI...",
+        breaking: "Terkini",
+        trending: "Tren",
+        verifiedWire: "📡 Sumber Terverifikasi",
+        liveFeed: "📡 Siaran Langsung",
+        aiBriefTag: "✨ Ringkasan AI Cepat",
+        aiTakeaway: "🤖 Poin Utama AI:",
+        aiHighlight: "Sorotan utama berpusat pada",
+        aiDeveloping: "Perkembangan penting seputar",
+        aiDevelopingSuffix: "Laporan awal menunjukkan pembaruan terus berlanjut.",
+        readMore: "Baca Selengkapnya →",
+        error: "Gagal memuat berita saat ini. Klik segarkan untuk mencoba lagi!",
+        recent: "Baru saja",
+        catAll: "Berita Utama",
+        catAnimals: "Hewan & Alam",
+        catTech: "Teknologi Masa Depan & AI",
+        catArts: "Seni Kreatif",
+        catWorld: "Kabar Dunia",
+        catUplifting: "Berita Positif"
+      },
+      vi: {
+        pageTitle: "Tiện ích Tin tức Thời sự",
+        headerTitle: "Tin tức Trực tiếp & Tóm tắt AI",
+        refreshBtn: "🔄 Làm mới nguồn tin",
+        loading: "Đang tải tin tức mới nhất và tạo tóm tắt AI...",
+        breaking: "Tin nóng",
+        trending: "Xu hướng",
+        verifiedWire: "📡 Nguồn xác thực",
+        liveFeed: "📡 Phát trực tiếp",
+        aiBriefTag: "✨ Tóm tắt nhanh AI",
+        aiTakeaway: "🤖 Điểm tin AI:",
+        aiHighlight: "Trọng tâm chính tập trung vào",
+        aiDeveloping: "Tin tức đang diễn biến về",
+        aiDevelopingSuffix: "Các báo cáo ban đầu cho thấy thông tin liên tục được cập nhật.",
+        readMore: "Đọc toàn bộ bài viết →",
+        error: "Không thể tải tin tức lúc này. Vui lòng bấm làm mới!",
+        recent: "Vừa xong",
+        catAll: "Tin tức Nổi bật",
+        catAnimals: "Động vật & Thiên nhiên",
+        catTech: "Công nghệ Tương lai & AI",
+        catArts: "Nghệ thuật Sáng tạo",
+        catWorld: "Thời sự Thế giới",
+        catUplifting: "Tin tức Tích cực"
       }
+    };
+
+    /**
+     * Active state tracking for selected category
+     */
+    let currentCategory = 'all';
+
+    /**
+     * Category Icon Mapping
+     */
+    const CATEGORY_ICONS = {
+      all: '⚡',
+      animals: '🐾',
+      tech: '🤖',
+      arts: '🎨',
+      world: '🌍',
+      uplifting: '✨'
     };
 
     /**
@@ -533,14 +834,19 @@
 
       if (!region) {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-        if (tz.startsWith('America/')) region = 'US';
+        if (tz === 'Asia/Kolkata' || tz === 'Asia/Calcutta') region = 'IN';
+        else if (tz.startsWith('America/')) region = 'US';
         else if (tz.startsWith('Europe/London')) region = 'GB';
         else if (tz.startsWith('Europe/Paris')) region = 'FR';
         else if (tz.startsWith('Europe/Berlin')) region = 'DE';
         else if (tz.startsWith('Asia/Tokyo')) region = 'JP';
+        else if (tz.startsWith('Asia/Seoul')) region = 'KR';
+        else if (tz.startsWith('Asia/Shanghai') || tz.startsWith('Asia/Chongqing')) region = 'CN';
+        else if (tz.startsWith('Asia/Taipei')) region = 'TW';
         else if (tz.startsWith('Canada/')) region = 'CA';
         else if (tz.startsWith('Australia/')) region = 'AU';
-        else region = 'US';
+        else if (tz.startsWith('America/Sao_Paulo')) region = 'BR';
+        else region = (lang === 'mr' || lang === 'hi' || lang === 'bn' || lang === 'ta' || lang === 'te') ? 'IN' : 'US';
       }
 
       return {
@@ -551,10 +857,7 @@
     }
 
     /**
-     * Resolves translation string by key with multi-tiered fallback:
-     * 1. Exact fullCode match (e.g. 'mr-in', 'zh-tw')
-     * 2. Base language match (e.g. 'mr', 'hi', 'zh', 'es')
-     * 3. Default to English ('en')
+     * Resolves translation string by key with multi-tiered fallback.
      */
     function t(key) {
       const { lang, fullCode } = getDetectedLocale();
@@ -564,25 +867,37 @@
         I18N_TRANSLATIONS.en;
       return currentDictionary[key] || I18N_TRANSLATIONS.en[key] || '';
     }
-    
+
     /**
-     * Applies static translations to existing HTML elements immediately.
+     * Applies static translations to existing HTML elements, including category pills.
      */
     function applyStaticUiTranslations() {
       const { lang } = getDetectedLocale();
       document.documentElement.lang = lang;
-    
-      // Handles Arabic right-to-left layout automatically
       document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
-    
+
       document.title = t('pageTitle');
-      document.getElementById('widget-title-text').textContent = t('headerTitle');
-      document.getElementById('refresh-news-btn').textContent = t('refreshBtn');
-      document.getElementById('news-loading-text').textContent = t('loading');
+
+      const titleEl = document.getElementById('widget-title-text');
+      if (titleEl) titleEl.textContent = t('headerTitle');
+
+      const refreshBtn = document.getElementById('refresh-news-btn');
+      if (refreshBtn) refreshBtn.textContent = t('refreshBtn');
+
+      const loadingEl = document.getElementById('news-loading-text');
+      if (loadingEl) loadingEl.textContent = t('loading');
+
+      // Update Category Pill labels
+      document.querySelectorAll('.cat-text').forEach(el => {
+        const i18nKey = el.getAttribute('data-i18n');
+        if (i18nKey && t(i18nKey)) {
+          el.textContent = t(i18nKey);
+        }
+      });
     }
 
     /**
-     * Formats Google News RSS parameters: "&hl=xx-XX&gl=XX&ceid=XX:xx"
+     * Formats Google News RSS parameters: "hl=xx-XX&gl=XX&ceid=XX:xx"
      */
     function getGoogleNewsParams() {
       const { lang, region, fullCode } = getDetectedLocale();
@@ -591,10 +906,34 @@
 
     /**
      * Builds the complete CORS-friendly RSS-to-JSON endpoint URL
+     * targeted to the user's active category (Mini Quest 1).
      */
-    function getDynamicNewsFeedUrl() {
+    function getDynamicNewsFeedUrl(categoryKey = currentCategory) {
       const params = getGoogleNewsParams();
-      const rawRssUrl = `https://news.google.com/rss?${params}`;
+      let rawRssUrl = 'https://news.google.com/rss';
+
+      switch (categoryKey) {
+        case 'tech':
+          rawRssUrl = `https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?${params}`;
+          break;
+        case 'world':
+          rawRssUrl = `https://news.google.com/rss/headlines/section/topic/WORLD?${params}`;
+          break;
+        case 'animals':
+          rawRssUrl = `https://news.google.com/rss/search?q=animals+pets+wildlife&${params}`;
+          break;
+        case 'arts':
+          rawRssUrl = `https://news.google.com/rss/search?q=creative+arts+crafts+culture&${params}`;
+          break;
+        case 'uplifting':
+          rawRssUrl = `https://news.google.com/rss/search?q=good+news+positive+breakthrough&${params}`;
+          break;
+        case 'all':
+        default:
+          rawRssUrl = `https://news.google.com/rss?${params}`;
+          break;
+      }
+
       return `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rawRssUrl)}`;
     }
 
@@ -602,8 +941,6 @@
      * CONFIGURATION
      */
     const NEWS_CONFIG = {
-      get feedUrl() { return getDynamicNewsFeedUrl(); },
-      get defaultCategory() { return t('breaking'); },
       maxStories: 99,
       fallbackImages: [
         'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=600&auto=format&fit=crop',
@@ -627,7 +964,7 @@
      */
     function generateAiSummary(title, rawDescription) {
       const cleanText = stripHtml(rawDescription);
-      const sentences = cleanText.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 15);
+      const sentences = cleanText.split(/(?<=[.?!।])\s+/).filter(s => s.trim().length > 15);
       const mainSubject = title.split(' - ')[0].trim();
 
       if (sentences.length > 0) {
@@ -652,6 +989,22 @@
     }
 
     /**
+     * Resolves the badge text for the active category
+     */
+    function getActiveCategoryBadge() {
+      const icon = CATEGORY_ICONS[currentCategory] || '⚡';
+      switch (currentCategory) {
+        case 'animals': return `${icon} ${t('catAnimals')}`;
+        case 'tech': return `${icon} ${t('catTech')}`;
+        case 'arts': return `${icon} ${t('catArts')}`;
+        case 'world': return `${icon} ${t('catWorld')}`;
+        case 'uplifting': return `${icon} ${t('catUplifting')}`;
+        case 'all':
+        default: return `${icon} ${t('breaking')}`;
+      }
+    }
+
+    /**
      * Fetch stories from API and display on the static page
      */
     async function loadCurrentEvents() {
@@ -660,7 +1013,8 @@
       container.innerHTML = `<div class="news-loading-skeleton">${t('loading')}</div>`;
 
       try {
-        const response = await fetch(NEWS_CONFIG.feedUrl);
+        const targetUrl = getDynamicNewsFeedUrl(currentCategory);
+        const response = await fetch(targetUrl);
         const data = await response.json();
 
         if (!data.items || data.items.length === 0) {
@@ -672,6 +1026,7 @@
           .slice(0, NEWS_CONFIG.maxStories);
 
         container.innerHTML = '';
+        const categoryBadge = getActiveCategoryBadge();
 
         itemsToDisplay.forEach((item, index) => {
           const title = item.title || 'Untitled Update';
@@ -687,7 +1042,7 @@
           card.innerHTML = `
             <div class="news-card-image-wrap">
               <img src="${imageUrl}" alt="${title}" class="news-card-image" loading="lazy" onerror="this.src='${NEWS_CONFIG.fallbackImages[0]}'">
-              <span class="news-card-badge">${t('breaking')}</span>
+              <span class="news-card-badge">${categoryBadge}</span>
             </div>
             <div class="news-card-content">
               <div class="news-card-meta">
@@ -724,26 +1079,27 @@
      * Fallback renderer if offline or API limit reached
      */
     function renderFallbackStories(container) {
+      const categoryBadge = getActiveCategoryBadge();
       const demoStories = [
         {
-          title: "Deep Space Observatory Telemetry Detects Repeating Galactic Rhythms",
-          desc: "Astronomers logged periodic radio pulses from a distant galaxy, triggering coordinated multi-spectral telescope observation passes.",
-          ai: `${t('aiTakeaway')} Periodic electromagnetic emissions indicate high-energy magnetar activity rather than random noise.`,
+          title: "Groundbreaking Research Highlights Exciting Positive Shifts Worldwide",
+          desc: "Field teams and global research groups logged unprecedented progress in community sustainability and collaborative innovation.",
+          ai: `${t('aiTakeaway')} Ongoing experiments indicate substantial community momentum and long-term vitality.`,
           img: NEWS_CONFIG.fallbackImages[2],
           time: `12m ${t('recent').toLowerCase()}`
         },
         {
-          title: "Photonic Edge Silicon Delivers Ultra-Low Power Neural Processing",
-          desc: "Hardware researchers validate optical waveguide chips operating at room temperature without conventional electrical resistance bottlenecks.",
-          ai: `${t('aiTakeaway')} Substantial efficiency leap for mobile and decentralized consumer edge computing applications.`,
-          img: NEWS_CONFIG.fallbackImages[1],
+          title: "New Advances in Animal Care & Compassionate Wellness Initiatives",
+          desc: "Veterinary and behavioral wellness panels validate enriched sensory environments for companion animal happiness.",
+          ai: `${t('aiTakeaway')} Intentional play and tailored nutrition produce noticeable vitality benefits.`,
+          img: NEWS_CONFIG.fallbackImages[0],
           time: `25m ${t('recent').toLowerCase()}`
         },
         {
-          title: "Companion Animal Longevity Trials Highlight Nutrition Milestones",
-          desc: "Canine veterinary research panels validate natural antioxidant blends and gentle whole-food additions for joint and vitality support.",
-          ai: `${t('aiTakeaway')} Gentle antioxidant-dense whole foods provide measurable preventative mobility benefits over time.`,
-          img: NEWS_CONFIG.fallbackImages[0],
+          title: "Next-Generation Creative Artisan Collectives Expand Worldwide",
+          desc: "Makers, crafters, and independent designers celebrate tactile handmade arts as a meaningful cultural connection.",
+          ai: `${t('aiTakeaway')} Tactile creative hobbies continue providing joyful mental focus and community warmth.`,
+          img: NEWS_CONFIG.fallbackImages[1],
           time: `1h ${t('recent').toLowerCase()}`
         }
       ];
@@ -755,7 +1111,7 @@
         card.innerHTML = `
           <div class="news-card-image-wrap">
             <img src="${s.img}" class="news-card-image" alt="${s.title}">
-            <span class="news-card-badge">${t('trending')}</span>
+            <span class="news-card-badge">${categoryBadge}</span>
           </div>
           <div class="news-card-content">
             <div class="news-card-meta">
@@ -776,6 +1132,16 @@
         container.appendChild(card);
       });
     }
+
+    // Attach Category Pill click listeners (Mini Quest 1)
+    document.querySelectorAll('.cat-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentCategory = btn.getAttribute('data-category');
+        loadCurrentEvents();
+      });
+    });
 
     // Attach refresh button listener & run on page load
     document.getElementById('refresh-news-btn').addEventListener('click', loadCurrentEvents);
