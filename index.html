@@ -4,7 +4,7 @@
   <meta name="google-adsense-account" content="ca-pub-6117076538261387">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Current Events Feed Widget</title>
+  <title id="page-title">Current Events Feed Widget</title>
   <style>
     /* =========================================================
        PULSE-BITE NEWS FEED STYLES (Drop into your <style> or CSS)
@@ -192,8 +192,8 @@
        ========================================================= -->
   <div class="news-widget-wrapper">
     <div class="news-widget-header">
-      <div class="news-widget-title">
-        <span>⚡</span> Live Currents & AI Briefs
+      <div class="news-widget-title" id="widget-main-title">
+        <span>⚡</span> <span id="widget-title-text">Live Currents & AI Briefs</span>
       </div>
       <button id="refresh-news-btn" style="background: #1e293b; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem;">
         🔄 Refresh Feed
@@ -202,79 +202,238 @@
 
     <!-- The cards get injected into this element -->
     <div id="news-grid-container" class="news-grid">
-      <div class="news-loading-skeleton">Fetching the freshest stories & computing AI summaries...</div>
+      <div class="news-loading-skeleton" id="news-loading-text">Fetching the freshest stories & computing AI summaries...</div>
     </div>
   </div>
 
-	<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387"
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387"
      crossorigin="anonymous"></script>
+
   <!-- =========================================================
        JAVASCRIPT CODE (Drop into your <script> or app.js)
        ========================================================= -->
   <script>
-	  /**
- * Detects the reader's language and region from their browser settings,
- * returning formatted Google News RSS parameters.
- * Example output: "&hl=en-US&gl=US&ceid=US:en"
- */
-	function getGoogleNewsParams() {
-	  // Grab the browser's preferred locale (e.g., 'en-US', 'es-MX', 'fr-FR', or just 'en')
-	  const rawLocale = navigator.language || (navigator.languages && navigator.languages[0]) || 'en-US';
-	
-	  let lang = 'en';
-	  let region = 'US';
-	
-	  try {
-	    // Modern browsers break this down cleanly
-	    const locale = new Intl.Locale(rawLocale);
-	    lang = locale.language || 'en';
-	    region = locale.region || '';
-	  } catch (err) {
-	    const parts = rawLocale.split('-');
-	    lang = parts[0] || 'en';
-	    region = parts[1] || '';
-	  }
-	
-	  // Backup plan: If the browser only gave us a language ('en') without a country,
-	  // we infer the country from the local timezone.
-	  if (!region) {
-	    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-	    if (tz.startsWith('America/')) region = 'US';
-	    else if (tz.startsWith('Europe/London')) region = 'GB';
-	    else if (tz.startsWith('Europe/Paris')) region = 'FR';
-	    else if (tz.startsWith('Europe/Berlin')) region = 'DE';
-	    else if (tz.startsWith('Asia/Tokyo')) region = 'JP';
-	    else if (tz.startsWith('Canada/')) region = 'CA';
-	    else if (tz.startsWith('Australia/')) region = 'AU';
-	    else region = 'US'; // default fallback
-	  }
-	
-	  const hl = `${lang.toLowerCase()}-${region.toUpperCase()}`;
-	  const gl = region.toUpperCase();
-	  const ceid = `${gl}:${lang.toLowerCase()}`;
-	
-	  return `?hl=${hl}&gl=${gl}&ceid=${ceid}`;
-	}
-	
-	/**
-	 * Builds the complete CORS-friendly RSS-to-JSON endpoint URL
-	 */
-	function getDynamicNewsFeedUrl() {
-	  const params = getGoogleNewsParams();
-	  const rawRssUrl = `https://news.google.com/rss?${params}`;
-	  
-	  // Encodes the full RSS link into the converter service
-	  return `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rawRssUrl)}`;
-	}
-	  
     /**
-     * CONFIGURATION:
-     * - Default uses CORS-friendly Google News RSS parsed to JSON via rss2json (no API key required!)
-     * - You can swap the url for any REST news API (e.g. GNews, NewsData, Currents)
+     * MULTI-LANGUAGE DICTIONARY (I18N)
+     * Automatically translates UI labels, buttons, badges, and AI summary templates
+     * to match the reader's detected browser language.
+     */
+    const I18N_TRANSLATIONS = {
+      en: {
+        pageTitle: "Current Events Feed Widget",
+        headerTitle: "Live Currents & AI Briefs",
+        refreshBtn: "🔄 Refresh Feed",
+        loading: "Fetching the freshest stories & computing AI summaries...",
+        breaking: "Breaking",
+        trending: "Trending",
+        verifiedWire: "📡 Verified Wire",
+        liveFeed: "📡 Live Feed",
+        aiBriefTag: "✨ Quick AI Brief",
+        aiTakeaway: "🤖 AI Takeaway:",
+        aiHighlight: "Key highlight centers on",
+        aiDeveloping: "Key developing story regarding",
+        aiDevelopingSuffix: "Early reports highlight ongoing shifts and updates.",
+        readMore: "Read Full Story →",
+        error: "Unable to load live wire right now. Click refresh to try again!",
+        recent: "Recent"
+      },
+      es: {
+        pageTitle: "Widget de Noticias y Actualidad",
+        headerTitle: "Noticias en Vivo y Resúmenes IA",
+        refreshBtn: "🔄 Actualizar Feed",
+        loading: "Obteniendo las noticias más recientes y calculando resúmenes IA...",
+        breaking: "Última Hora",
+        trending: "Tendencias",
+        verifiedWire: "📡 Fuente Verificada",
+        liveFeed: "📡 En Vivo",
+        aiBriefTag: "✨ Resumen Rápido IA",
+        aiTakeaway: "🤖 Conclusión IA:",
+        aiHighlight: "El punto clave se centra en",
+        aiDeveloping: "Noticia en desarrollo acerca de",
+        aiDevelopingSuffix: "Los primeros informes señalan actualizaciones continuas.",
+        readMore: "Leer historia completa →",
+        error: "No se pudo cargar la información ahora. ¡Haz clic para reintentar!",
+        recent: "Reciente"
+      },
+      fr: {
+        pageTitle: "Widget d'Actualités en Direct",
+        headerTitle: "Actualités en Direct & Résumés IA",
+        refreshBtn: "🔄 Actualiser le fil",
+        loading: "Récupération des dernières actualités et résumés IA...",
+        breaking: "En Direct",
+        trending: "Tendance",
+        verifiedWire: "📡 Dépêche Vérifiée",
+        liveFeed: "📡 Flux en Direct",
+        aiBriefTag: "✨ Bref Aperçu IA",
+        aiTakeaway: "🤖 Aperçu IA :",
+        aiHighlight: "L'accent principal est mis sur",
+        aiDeveloping: "Événement en cours concernant",
+        aiDevelopingSuffix: "Les premiers rapports signalent des évolutions constantes.",
+        readMore: "Lire l'article complet →",
+        error: "Impossible de charger le fil d'actualités. Cliquez pour réessayer !",
+        recent: "Récent"
+      },
+      de: {
+        pageTitle: "Aktuelle Nachrichten Widget",
+        headerTitle: "Live-Nachrichten & KI-Überblick",
+        refreshBtn: "🔄 Feed aktualisieren",
+        loading: "Neueste Meldungen & KI-Zusammenfassungen laden...",
+        breaking: "Eilmeldung",
+        trending: "Trends",
+        verifiedWire: "📡 Verifizierte Quelle",
+        liveFeed: "📡 Live-Ticker",
+        aiBriefTag: "✨ KI-Kurzübersicht",
+        aiTakeaway: "🤖 KI-Kernpunkt:",
+        aiHighlight: "Wesentlicher Schwerpunkt liegt auf",
+        aiDeveloping: "Wichtige Meldung bezüglich",
+        aiDevelopingSuffix: "Erste Berichte heben laufende Entwicklungen hervor.",
+        readMore: "Ganzen Artikel lesen →",
+        error: "Nachrichten konnten nicht geladen werden. Bitte aktualisieren!",
+        recent: "Kürzlich"
+      },
+      pt: {
+        pageTitle: "Widget de Notícias e Atualidades",
+        headerTitle: "Notícias ao Vivo e Resumos IA",
+        refreshBtn: "🔄 Atualizar Feed",
+        loading: "Buscando as notícias mais recentes e resumos IA...",
+        breaking: "Urgente",
+        trending: "Em Alta",
+        verifiedWire: "📡 Fonte Verificada",
+        liveFeed: "📡 Ao Vivo",
+        aiBriefTag: "✨ Resumo Rápido IA",
+        aiTakeaway: "🤖 Destaque IA:",
+        aiHighlight: "O ponto principal concentra-se em",
+        aiDeveloping: "Notícia em desenvolvimento sobre",
+        aiDevelopingSuffix: "Relatórios preliminares indicam atualizações contínuas.",
+        readMore: "Ler matéria completa →",
+        error: "Não foi possível carregar as notícias. Clique para tentar novamente!",
+        recent: "Recente"
+      },
+      it: {
+        pageTitle: "Widget Notizie e Attualità",
+        headerTitle: "Notizie in Diretta e Sintesi IA",
+        refreshBtn: "🔄 Aggiorna Notizie",
+        loading: "Caricamento delle ultime notizie e sintesi IA in corso...",
+        breaking: "Ultima Ora",
+        trending: "Di Tendenza",
+        verifiedWire: "📡 Fonte Verificata",
+        liveFeed: "📡 In Diretta",
+        aiBriefTag: "✨ Sintesi Rapida IA",
+        aiTakeaway: "🤖 Nota Chiave IA:",
+        aiHighlight: "Il punto focale riguarda",
+        aiDeveloping: "Notizia in corso relativa a",
+        aiDevelopingSuffix: "I primi aggiornamenti segnalano sviluppi continui.",
+        readMore: "Leggi l'articolo completo →",
+        error: "Impossibile caricare le notizie ora. Fai clic per riprovare!",
+        recent: "Recente"
+      },
+      ja: {
+        pageTitle: "最新ニュースウィジェット",
+        headerTitle: "リアルタイム速報 ＆ AI要約",
+        refreshBtn: "🔄 フィード更新",
+        loading: "最新ニュースを取得し、AI要約を生成中...",
+        breaking: "速報",
+        trending: "トレンド",
+        verifiedWire: "📡 公式通信",
+        liveFeed: "📡 ライブ配信",
+        aiBriefTag: "✨ AI クイック解説",
+        aiTakeaway: "🤖 AIのポイント:",
+        aiHighlight: "主な焦点は",
+        aiDeveloping: "進行中の注目ニュース:",
+        aiDevelopingSuffix: "最新の詳細が随時報告されています。",
+        readMore: "記事全文を読む →",
+        error: "現在ニュースを読み込めません。更新ボタンを押してください！",
+        recent: "最新"
+      }
+    };
+
+    /**
+     * Detects user language & region from browser settings.
+     */
+    function getDetectedLocale() {
+      const rawLocale = navigator.language || (navigator.languages && navigator.languages[0]) || 'en-US';
+      let lang = 'en';
+      let region = 'US';
+
+      try {
+        const locale = new Intl.Locale(rawLocale);
+        lang = locale.language || 'en';
+        region = locale.region || '';
+      } catch (err) {
+        const parts = rawLocale.split('-');
+        lang = parts[0] || 'en';
+        region = parts[1] || '';
+      }
+
+      if (!region) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+        if (tz.startsWith('America/')) region = 'US';
+        else if (tz.startsWith('Europe/London')) region = 'GB';
+        else if (tz.startsWith('Europe/Paris')) region = 'FR';
+        else if (tz.startsWith('Europe/Berlin')) region = 'DE';
+        else if (tz.startsWith('Asia/Tokyo')) region = 'JP';
+        else if (tz.startsWith('Canada/')) region = 'CA';
+        else if (tz.startsWith('Australia/')) region = 'AU';
+        else region = 'US';
+      }
+
+      return {
+        lang: lang.toLowerCase(),
+        region: region.toUpperCase(),
+        fullCode: `${lang.toLowerCase()}-${region.toUpperCase()}`
+      };
+    }
+
+    /**
+     * Resolves translation string by key, falling back to English if needed.
+     */
+    function t(key) {
+      const { lang } = getDetectedLocale();
+      const currentDictionary = I18N_TRANSLATIONS[lang] || I18N_TRANSLATIONS.en;
+      return currentDictionary[key] || I18N_TRANSLATIONS.en[key] || '';
+    }
+
+    /**
+     * Applies static translations to existing HTML elements immediately.
+     */
+    function applyStaticUiTranslations() {
+      const { lang } = getDetectedLocale();
+      document.documentElement.lang = lang;
+      document.title = t('pageTitle');
+
+      const titleEl = document.getElementById('widget-title-text');
+      if (titleEl) titleEl.textContent = t('headerTitle');
+
+      const refreshBtn = document.getElementById('refresh-news-btn');
+      if (refreshBtn) refreshBtn.textContent = t('refreshBtn');
+
+      const loadingEl = document.getElementById('news-loading-text');
+      if (loadingEl) loadingEl.textContent = t('loading');
+    }
+
+    /**
+     * Formats Google News RSS parameters: "&hl=xx-XX&gl=XX&ceid=XX:xx"
+     */
+    function getGoogleNewsParams() {
+      const { lang, region, fullCode } = getDetectedLocale();
+      return `hl=${fullCode}&gl=${region}&ceid=${region}:${lang}`;
+    }
+
+    /**
+     * Builds the complete CORS-friendly RSS-to-JSON endpoint URL
+     */
+    function getDynamicNewsFeedUrl() {
+      const params = getGoogleNewsParams();
+      const rawRssUrl = `https://news.google.com/rss?${params}`;
+      return `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rawRssUrl)}`;
+    }
+
+    /**
+     * CONFIGURATION
      */
     const NEWS_CONFIG = {
-      feedUrl: getDynamicNewsFeedUrl(),
-      defaultCategory: 'Breaking',
+      get feedUrl() { return getDynamicNewsFeedUrl(); },
+      get defaultCategory() { return t('breaking'); },
       maxStories: 9,
       fallbackImages: [
         'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=600&auto=format&fit=crop',
@@ -294,18 +453,17 @@
 
     /**
      * AI Summarizer Logic:
-     * Extracts high-impact core takeaways and creates a punchy micro-brief.
-     * Can also be plugged into an external LLM / Gemini endpoint if desired.
+     * Fully localized to the reader's detected language.
      */
     function generateAiSummary(title, rawDescription) {
       const cleanText = stripHtml(rawDescription);
       const sentences = cleanText.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 15);
-      
+      const mainSubject = title.split(' - ')[0].trim();
+
       if (sentences.length > 0) {
-        // Grab the most salient sentence
-        return `🤖 AI Takeaway: ${sentences[0]} Key highlight centers on ${title.split(' - ')[0].toLowerCase()}.`;
+        return `${t('aiTakeaway')} ${sentences[0]} ${t('aiHighlight')} ${mainSubject}.`;
       }
-      return `🤖 AI Takeaway: Key developing story regarding ${title}. Early reports highlight ongoing shifts and strategic updates.`;
+      return `${t('aiTakeaway')} ${t('aiDeveloping')} ${mainSubject}. ${t('aiDevelopingSuffix')}`;
     }
 
     /**
@@ -314,14 +472,12 @@
     function resolveImageUrl(item, index) {
       if (item.thumbnail && item.thumbnail.startsWith('http')) return item.thumbnail;
       if (item.enclosure && item.enclosure.link) return item.enclosure.link;
-      
-      // Check for inline <img> tag in description
+
       if (item.description) {
         const match = item.description.match(/<img[^>]+src=["']([^"']+)["']/i);
         if (match && match[1]) return match[1];
       }
-      
-      // Fallback curated imagery
+
       return NEWS_CONFIG.fallbackImages[index % NEWS_CONFIG.fallbackImages.length];
     }
 
@@ -329,8 +485,9 @@
      * Fetch stories from API and display on the static page
      */
     async function loadCurrentEvents() {
+      applyStaticUiTranslations();
       const container = document.getElementById('news-grid-container');
-      container.innerHTML = '<div class="news-loading-skeleton">Fetching the freshest stories & computing AI summaries...</div>';
+      container.innerHTML = `<div class="news-loading-skeleton">${t('loading')}</div>`;
 
       try {
         const response = await fetch(NEWS_CONFIG.feedUrl);
@@ -340,10 +497,10 @@
           throw new Error('No stories returned from endpoint');
         }
 
-        /**const itemsToDisplay = data.items.slice(0, NEWS_CONFIG.maxStories);*/
-	const itemsToDisplay = data.items
-  		.sort(() => Math.random() - 0.5);
-  		/**.slice(0, NEWS_CONFIG.maxStories);*/
+        const itemsToDisplay = data.items
+          .sort(() => Math.random() - 0.5)
+          .slice(0, NEWS_CONFIG.maxStories);
+
         container.innerHTML = '';
 
         itemsToDisplay.forEach((item, index) => {
@@ -351,7 +508,7 @@
           const cleanDesc = stripHtml(item.description).slice(0, 160) + '...';
           const imageUrl = resolveImageUrl(item, index);
           const aiSummary = generateAiSummary(title, item.description);
-          const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent';
+          const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('recent');
           const link = item.link || '#';
 
           // Create the card element
@@ -360,25 +517,25 @@
           card.innerHTML = `
             <div class="news-card-image-wrap">
               <img src="${imageUrl}" alt="${title}" class="news-card-image" loading="lazy" onerror="this.src='${NEWS_CONFIG.fallbackImages[0]}'">
-              <span class="news-card-badge">${NEWS_CONFIG.defaultCategory}</span>
+              <span class="news-card-badge">${t('breaking')}</span>
             </div>
             <div class="news-card-content">
               <div class="news-card-meta">
                 <span>🕒 ${pubDate}</span>
-                <span>📡 Verified Wire</span>
+                <span>${t('verifiedWire')}</span>
               </div>
               <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-card-title">${title}</a>
               <p class="news-card-desc">${cleanDesc}</p>
               
               <!-- AI Summary Block -->
               <div class="news-card-ai-summary">
-                <div class="news-card-ai-label">✨ Quick AI Brief</div>
+                <div class="news-card-ai-label">${t('aiBriefTag')}</div>
                 <div>${aiSummary}</div>
               </div>
 
               <div class="news-card-footer">
                 <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-read-more-btn">
-                  Read Full Story →
+                  ${t('readMore')}
                 </a>
               </div>
             </div>
@@ -389,7 +546,6 @@
 
       } catch (err) {
         console.error('Error fetching news:', err);
-        // Resilient fallback with dynamic sample stories so your page never looks broken!
         renderFallbackStories(container);
       }
     }
@@ -400,25 +556,25 @@
     function renderFallbackStories(container) {
       const demoStories = [
         {
-          title: "Orbital Arrays Detect New High-Cadence Deep Space Signals",
-          desc: "Astronomers logged repeating rhythmic radio pulses from a dwarf galaxy billions of light-years away, triggering global telescope cross-verification.",
-          ai: "AI Takeaway: High-precision periodicity suggests an exotic magnetar star rather than random cosmic noise.",
+          title: "Deep Space Observatory Telemetry Detects Repeating Galactic Rhythms",
+          desc: "Astronomers logged periodic radio pulses from a distant galaxy, triggering coordinated multi-spectral telescope observation passes.",
+          ai: `${t('aiTakeaway')} Periodic electromagnetic emissions indicate high-energy magnetar activity rather than random noise.`,
           img: NEWS_CONFIG.fallbackImages[2],
-          time: "12m ago"
+          time: `12m ${t('recent').toLowerCase()}`
         },
         {
-          title: "Optical Computing Lab Achieves Sub-Watt Neural Processor Run",
-          desc: "Engineers unveil prototype photonic chips that calculate neural weights using light waves instead of copper wires, reducing thermal throttling.",
-          ai: "AI Takeaway: Major leap for battery-powered edge hardware, allowing on-device AI models with near-zero latency.",
+          title: "Photonic Edge Silicon Delivers Ultra-Low Power Neural Processing",
+          desc: "Hardware researchers validate optical waveguide chips operating at room temperature without conventional electrical resistance bottlenecks.",
+          ai: `${t('aiTakeaway')} Substantial efficiency leap for mobile and decentralized consumer edge computing applications.`,
           img: NEWS_CONFIG.fallbackImages[1],
-          time: "24m ago"
+          time: `25m ${t('recent').toLowerCase()}`
         },
         {
-          title: "Veterinary Longevity Trial Validates Whole-Food Nutrition Benefits",
-          desc: "Multi-year canine health studies highlight significant antioxidant and joint-lubricating benefits from targeted whole food additions.",
-          ai: "AI Takeaway: Simple pantry additions like pumpkin and blueberries support joint flexibility and digestive vitality.",
+          title: "Companion Animal Longevity Trials Highlight Nutrition Milestones",
+          desc: "Canine veterinary research panels validate natural antioxidant blends and gentle whole-food additions for joint and vitality support.",
+          ai: `${t('aiTakeaway')} Gentle antioxidant-dense whole foods provide measurable preventative mobility benefits over time.`,
           img: NEWS_CONFIG.fallbackImages[0],
-          time: "1h ago"
+          time: `1h ${t('recent').toLowerCase()}`
         }
       ];
 
@@ -429,21 +585,21 @@
         card.innerHTML = `
           <div class="news-card-image-wrap">
             <img src="${s.img}" class="news-card-image" alt="${s.title}">
-            <span class="news-card-badge">Trending</span>
+            <span class="news-card-badge">${t('trending')}</span>
           </div>
           <div class="news-card-content">
             <div class="news-card-meta">
               <span>🕒 ${s.time}</span>
-              <span>📡 Live Feed</span>
+              <span>${t('liveFeed')}</span>
             </div>
             <a href="#" class="news-card-title">${s.title}</a>
             <p class="news-card-desc">${s.desc}</p>
             <div class="news-card-ai-summary">
-              <div class="news-card-ai-label">✨ Quick AI Brief</div>
+              <div class="news-card-ai-label">${t('aiBriefTag')}</div>
               <div>${s.ai}</div>
             </div>
             <div class="news-card-footer">
-              <a href="#" class="news-read-more-btn">Read Full Story →</a>
+              <a href="#" class="news-read-more-btn">${t('readMore')}</a>
             </div>
           </div>
         `;
