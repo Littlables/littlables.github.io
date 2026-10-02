@@ -261,7 +261,7 @@
 	 */
 	function getDynamicNewsFeedUrl() {
 	  const params = getGoogleNewsParams();
-	  const rawRssUrl = `https://news.google.com/rss?${params.replace(/^&/, '')}`;
+	  const rawRssUrl = `https://news.google.com/rss?${params}`;
 	  
 	  // Encodes the full RSS link into the converter service
 	  return `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rawRssUrl)}`;
