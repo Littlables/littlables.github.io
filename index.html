@@ -212,13 +212,68 @@
        JAVASCRIPT CODE (Drop into your <script> or app.js)
        ========================================================= -->
   <script>
+	  /**
+ * Detects the reader's language and region from their browser settings,
+ * returning formatted Google News RSS parameters.
+ * Example output: "&hl=en-US&gl=US&ceid=US:en"
+ */
+	function getGoogleNewsParams() {
+	  // Grab the browser's preferred locale (e.g., 'en-US', 'es-MX', 'fr-FR', or just 'en')
+	  const rawLocale = navigator.language || (navigator.languages && navigator.languages[0]) || 'en-US';
+	
+	  let lang = 'en';
+	  let region = 'US';
+	
+	  try {
+	    // Modern browsers break this down cleanly
+	    const locale = new Intl.Locale(rawLocale);
+	    lang = locale.language || 'en';
+	    region = locale.region || '';
+	  } catch (err) {
+	    const parts = rawLocale.split('-');
+	    lang = parts[0] || 'en';
+	    region = parts[1] || '';
+	  }
+	
+	  // Backup plan: If the browser only gave us a language ('en') without a country,
+	  // we infer the country from the local timezone.
+	  if (!region) {
+	    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+	    if (tz.startsWith('America/')) region = 'US';
+	    else if (tz.startsWith('Europe/London')) region = 'GB';
+	    else if (tz.startsWith('Europe/Paris')) region = 'FR';
+	    else if (tz.startsWith('Europe/Berlin')) region = 'DE';
+	    else if (tz.startsWith('Asia/Tokyo')) region = 'JP';
+	    else if (tz.startsWith('Canada/')) region = 'CA';
+	    else if (tz.startsWith('Australia/')) region = 'AU';
+	    else region = 'US'; // default fallback
+	  }
+	
+	  const hl = `${lang.toLowerCase()}-${region.toUpperCase()}`;
+	  const gl = region.toUpperCase();
+	  const ceid = `${gl}:${lang.toLowerCase()}`;
+	
+	  return `?hl=${hl}&gl=${gl}&ceid=${ceid}`;
+	}
+	
+	/**
+	 * Builds the complete CORS-friendly RSS-to-JSON endpoint URL
+	 */
+	function getDynamicNewsFeedUrl() {
+	  const params = getGoogleNewsParams();
+	  const rawRssUrl = `https://news.google.com/rss?${params.replace(/^&/, '')}`;
+	  
+	  // Encodes the full RSS link into the converter service
+	  return `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rawRssUrl)}`;
+	}
+	  
     /**
      * CONFIGURATION:
      * - Default uses CORS-friendly Google News RSS parsed to JSON via rss2json (no API key required!)
      * - You can swap the url for any REST news API (e.g. GNews, NewsData, Currents)
      */
     const NEWS_CONFIG = {
-      feedUrl: 'https://api.rss2json.com/v1/api.json?rss_url=https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en',
+      feedUrl: 'https://api.rss2json.com/v1/api.json?rss_url=https://news.google.com/rss' + getDynamicNewsFeedUrl(),
       defaultCategory: 'Breaking',
       maxStories: 9,
       fallbackImages: [
