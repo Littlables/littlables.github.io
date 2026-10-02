@@ -273,7 +273,7 @@
      * - You can swap the url for any REST news API (e.g. GNews, NewsData, Currents)
      */
     const NEWS_CONFIG = {
-      feedUrl: 'https://api.rss2json.com/v1/api.json?rss_url=https://news.google.com/rss' + getDynamicNewsFeedUrl(),
+      feedUrl: getDynamicNewsFeedUrl(),
       defaultCategory: 'Breaking',
       maxStories: 9,
       fallbackImages: [
