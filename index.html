@@ -342,8 +342,8 @@
 
         /**const itemsToDisplay = data.items.slice(0, NEWS_CONFIG.maxStories);*/
 	const itemsToDisplay = data.items
-  		.sort(() => Math.random() - 0.5)
-  		.slice(0, NEWS_CONFIG.maxStories);
+  		.sort(() => Math.random() - 0.5);
+  		/**.slice(0, NEWS_CONFIG.maxStories);*/
         container.innerHTML = '';
 
         itemsToDisplay.forEach((item, index) => {
