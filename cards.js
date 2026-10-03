@@ -3,7 +3,6 @@
       const cleanDesc = item.description;
       const imageUrl = resolveImageUrl(item, index, currentCategory);
       const fallbackImg = getCategoryFallbackImage(currentCategory, index);
-      const aiSummary = generateAiSummary(title, item.description);
       const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('recent');
       const link = item.link || '#';
 
@@ -31,7 +30,7 @@
           <p class="news-card-desc">${cleanDesc}</p>
           <div class="news-card-ai-summary">
             <div class="news-card-ai-label">${t('aiBriefTag')}</div>
-            <div>${aiSummary}</div>
+            <div class="ai-summary-text" aria-live="polite">${t('aiGenerating')}</div>
           </div>
           <div class="news-card-footer">
             <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-read-more-btn">
@@ -51,6 +50,16 @@
           </div>
         </div>
       `;
+
+      const summaryElement = card.querySelector('.ai-summary-text');
+      generateAiSummary(title, cleanDesc, link)
+        .then(summary => {
+          summaryElement.textContent = summary;
+        })
+        .catch(err => {
+          console.error(`Could not generate summary for "${title}":`, err);
+          summaryElement.textContent = t('aiUnavailable');
+        });
 
       return card;
     }

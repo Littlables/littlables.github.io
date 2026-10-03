@@ -105,24 +105,4 @@
       }
     };
 
-    /**
-     * Profile sync hook: When user auth and profiles are enabled,
-     * this will persist the theme preference to the user's account in Supabase.
-     */
-    async function syncThemeToUserProfile(themeId) {
-      if (typeof supabaseClient !== 'undefined' && supabaseClient && supabaseClient.auth) {
-        try {
-          const { data } = await supabaseClient.auth.getUser();
-          if (data && data.user) {
-            await supabaseClient
-              .from('user_profiles')
-              .upsert({ user_id: data.user.id, preferred_theme: themeId, updated_at: new Date().toISOString() });
-          }
-        } catch (err) {
-          console.warn("User profile theme sync notice:", err);
-        }
-      }
-    }
-
     ThemeManager.init();
-

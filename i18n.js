@@ -13,6 +13,8 @@
         verifiedWire: "📡 Verified Wire",
         liveFeed: "📡 Live Feed",
         aiBriefTag: "✨ Quick AI Brief",
+        aiGenerating: "Generating AI summary…",
+        aiUnavailable: "AI summary unavailable right now.",
         aiTakeaway: "🤖 AI Takeaway:",
         aiHighlight: "Key highlight centers on",
         aiDeveloping: "Key developing story regarding",
