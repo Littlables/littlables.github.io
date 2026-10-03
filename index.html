@@ -38,7 +38,6 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1.25rem;
-      padding-top: 0.4rem;
     }
 
     .news-widget-title {
@@ -59,7 +58,6 @@
       margin-bottom: 1.5rem;
       overflow-x: auto;
       padding-bottom: 0.4rem;
-      padding-top: 0.4rem;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
     }
@@ -232,6 +230,58 @@
       color: #a5b4fc;
     }
 
+
+    /* =========================================================
+       IN-FEED NATIVE AD CARDS (Mini Quest 2)
+       ========================================================= */
+    .news-card-ad {
+      border: 1px dashed rgba(245, 158, 11, 0.45);
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+      position: relative;
+    }
+
+    .news-card-ad:hover {
+      border-color: #f59e0b;
+      box-shadow: 0 10px 25px rgba(245, 158, 11, 0.2);
+    }
+
+    .ad-badge {
+      background: #f59e0b !important;
+      color: #0b1120 !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.6px !important;
+    }
+
+    .ad-sponsor-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: #f59e0b;
+      letter-spacing: 0.8px;
+    }
+
+    .ad-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #fbbf24;
+      text-decoration: none;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      margin-top: auto;
+      width: fit-content;
+      transition: all 0.2s;
+    }
+
+    .ad-cta-btn:hover {
+      background: #f59e0b;
+      color: #0b1120;
+    }
+
     /* Loading state */
     .news-loading-skeleton {
       text-align: center;
@@ -314,7 +364,8 @@
         catTech: "Future Tech & AI",
         catArts: "Creative Arts",
         catWorld: "Global Currents",
-        catUplifting: "Uplifting News"
+        catUplifting: "Uplifting News",
+        sponsored: "Sponsored"
       },
       mr: {
         pageTitle: "चालू घडामोडी फीड विजेट",
@@ -338,7 +389,8 @@
         catTech: "भविष्य तंत्रज्ञान आणि AI",
         catArts: "कला आणि ट्रेंड्स",
         catWorld: "जागतिक घडामोडी",
-        catUplifting: "सकारात्मक बातम्या"
+        catUplifting: "सकारात्मक बातम्या",
+        sponsored: "प्रायोजित"
       },
       "mr-in": {
         pageTitle: "चालू घडामोडी फीड विजेट",
@@ -386,7 +438,8 @@
         catTech: "भविष्य की तकनीक और AI",
         catArts: "रचनात्मक कला",
         catWorld: "वैश्विक समाचार",
-        catUplifting: "प्रेरक समाचार"
+        catUplifting: "प्रेरक समाचार",
+        sponsored: "प्रायोजित"
       },
       bn: {
         pageTitle: "বর্তমান ঘটনা ফিড উইজেট",
@@ -410,7 +463,8 @@
         catTech: "ভবিষ্যত প্রযুক্তি ও এআই",
         catArts: "শিল্প ও সংস্কৃতি",
         catWorld: "বিশ্ব সংবাদ",
-        catUplifting: "ইতিবাচক খবর"
+        catUplifting: "ইতিবাচক খবর",
+        sponsored: "বিজ্ঞাপন"
       },
       ta: {
         pageTitle: "நடப்பு நிகழ்வுகள் விட்ஜெட்",
@@ -434,7 +488,8 @@
         catTech: "எதிர்கால தொழில்நுட்பம் & AI",
         catArts: "கலை & கலாச்சாரம்",
         catWorld: "உலக நடப்புகள்",
-        catUplifting: "மகிழ்ச்சியான செய்திகள்"
+        catUplifting: "மகிழ்ச்சியான செய்திகள்",
+        sponsored: "விளம்பரம்"
       },
       te: {
         pageTitle: "తాజా వార్తల ఫీడ్ విడ్జెట్",
@@ -458,7 +513,8 @@
         catTech: "భవిష్యత్ టెక్నాలజీ & AI",
         catArts: "క్రియేటివ్ ఆర్ట్స్",
         catWorld: "ప్రపంచ వార్తలు",
-        catUplifting: "స్ఫూర్తిదాయక వార్తలు"
+        catUplifting: "స్ఫూర్తిదాయక వార్తలు",
+        sponsored: "ప్రాయోజితం"
       },
       es: {
         pageTitle: "Widget de Noticias y Actualidad",
@@ -482,7 +538,8 @@
         catTech: "Tecnología Futura e IA",
         catArts: "Artes Creativas",
         catWorld: "Noticias Mundiales",
-        catUplifting: "Noticias Positivas"
+        catUplifting: "Noticias Positivas",
+        sponsored: "Patrocinado"
       },
       fr: {
         pageTitle: "Widget d'Actualités en Direct",
@@ -506,7 +563,8 @@
         catTech: "Technologies & IA",
         catArts: "Arts Créatifs",
         catWorld: "Actualités Mondiales",
-        catUplifting: "Bonnes Nouvelles"
+        catUplifting: "Bonnes Nouvelles",
+        sponsored: "Sponsorisé"
       },
       de: {
         pageTitle: "Aktuelle Nachrichten Widget",
@@ -530,7 +588,8 @@
         catTech: "Zukunftstechnologie & KI",
         catArts: "Kreative Künste",
         catWorld: "Weltgeschehen",
-        catUplifting: "Gute Nachrichten"
+        catUplifting: "Gute Nachrichten",
+        sponsored: "Gesponsert"
       },
       pt: {
         pageTitle: "Widget de Notícias e Atualidades",
@@ -554,7 +613,8 @@
         catTech: "Tecnologia do Futuro e IA",
         catArts: "Artes Criativas",
         catWorld: "Notícias Globais",
-        catUplifting: "Boas Notícias"
+        catUplifting: "Boas Notícias",
+        sponsored: "Patrocinado"
       },
       it: {
         pageTitle: "Widget Notizie e Attualità",
@@ -578,7 +638,8 @@
         catTech: "Tecnologia del Futuro e IA",
         catArts: "Arti Creative",
         catWorld: "Attualità Mondiale",
-        catUplifting: "Buone Notizie"
+        catUplifting: "Buone Notizie",
+        sponsored: "Sponsorizzato"
       },
       zh: {
         pageTitle: "实时时事资讯组件",
@@ -602,7 +663,8 @@
         catTech: "未来科技与 AI",
         catArts: "创意艺术",
         catWorld: "国际时事",
-        catUplifting: "暖心正能量"
+        catUplifting: "暖心正能量",
+        sponsored: "赞助内容"
       },
       "zh-tw": {
         pageTitle: "即時時事新聞小工具",
@@ -650,7 +712,8 @@
         catTech: "先端技術 ＆ AI",
         catArts: "クリエイティブ・アート",
         catWorld: "世界の動き",
-        catUplifting: "ポジティブ・ニュース"
+        catUplifting: "ポジティブ・ニュース",
+        sponsored: "スポンサー"
       },
       ko: {
         pageTitle: "실시간 시사 뉴스 피드 위젯",
@@ -674,7 +737,8 @@
         catTech: "미래 기술 & AI",
         catArts: "크리에이티브 아트",
         catWorld: "글로벌 이슈",
-        catUplifting: "희망찬 소식"
+        catUplifting: "희망찬 소식",
+        sponsored: "스폰서"
       },
       ar: {
         pageTitle: "أداة موجز الأحداث الجارية",
@@ -698,7 +762,8 @@
         catTech: "تكنولوجيا المستقبل والذكاء الاصطناعي",
         catArts: "الفنون الإبداعية",
         catWorld: "الأحداث العالمية",
-        catUplifting: "أخبار ملهمة وإيجابية"
+        catUplifting: "أخبار ملهمة وإيجابية",
+        sponsored: "إعلان ممول"
       },
       ru: {
         pageTitle: "Виджет актуальных новостей",
@@ -722,7 +787,8 @@
         catTech: "Технологии будущего и ИИ",
         catArts: "Творчество и искусство",
         catWorld: "Мировые события",
-        catUplifting: "Хорошие новости"
+        catUplifting: "Хорошие новости",
+        sponsored: "Реклама"
       },
       tr: {
         pageTitle: "Güncel Olaylar Akışı Bileşeni",
@@ -746,7 +812,8 @@
         catTech: "Gelecek Teknolojisi & YZ",
         catArts: "Yaratıcı Sanatlar",
         catWorld: "Dünya Gündemi",
-        catUplifting: "Umut Veren Haberler"
+        catUplifting: "Umut Veren Haberler",
+        sponsored: "Sponsorlu"
       },
       id: {
         pageTitle: "Widget Berita Terkini",
@@ -770,7 +837,8 @@
         catTech: "Teknologi Masa Depan & AI",
         catArts: "Seni Kreatif",
         catWorld: "Kabar Dunia",
-        catUplifting: "Berita Positif"
+        catUplifting: "Berita Positif",
+        sponsored: "Disponsori"
       },
       vi: {
         pageTitle: "Tiện ích Tin tức Thời sự",
@@ -794,7 +862,8 @@
         catTech: "Công nghệ Tương lai & AI",
         catArts: "Nghệ thuật Sáng tạo",
         catWorld: "Thời sự Thế giới",
-        catUplifting: "Tin tức Tích cực"
+        catUplifting: "Tin tức Tích cực",
+        sponsored: "Được tài trợ"
       }
     };
 
@@ -966,7 +1035,7 @@
      * CONFIGURATION
      */
     const NEWS_CONFIG = {
-      maxStories: 99,
+      maxStories: 9,
       fallbackImages: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
     };
 
@@ -1033,6 +1102,82 @@
     /**
      * Fetch stories from API and display on the static page
      */
+    /**
+     * Creates a native In-Feed Ad Card (Mini Quest 2)
+     * Matches the card grid layout and triggers Google AdSense fluid in-feed ads.
+     */
+    function createInFeedAdCard(adIndex) {
+      const adCard = document.createElement('article');
+      adCard.className = 'news-card news-card-ad';
+
+      const previewAds = [
+        {
+          title: "Nova Horizon Electric Longboards — Fall Cruising Series",
+          desc: "Smooth pneumatic wheels, regenerative braking, up to 34 miles range. Engineered for daily carve and commute thrill.",
+          img: "img/tech_1.jpg",
+          cta: "Explore Fleet →",
+          sponsor: "Nova Mobility Co."
+        },
+        {
+          title: "PawGentle Orthopedic Canine Wellness Beds",
+          desc: "Veterinarian-approved memory foam with joint-soothing pressure relief for deeply restorative pet sleep.",
+          img: "img/animals_1.jpg",
+          cta: "Shop Pet Beds →",
+          sponsor: "PawGentle Living"
+        },
+        {
+          title: "KandiCraft Neon Acrylic Bead Studio Set",
+          desc: "5,000+ vibrant glow-in-the-dark pony beads, reinforced elastic cord & organizing trays for makers.",
+          img: "img/arts_1.jpg",
+          cta: "Start Crafting →",
+          sponsor: "KandiCraft Studio"
+        }
+      ];
+
+      const currentAd = previewAds[adIndex % previewAds.length];
+      const sponsoredText = t('sponsored') || 'Sponsored';
+
+      adCard.innerHTML = `
+        <div class="news-card-image-wrap">
+          <img src="${currentAd.img}" alt="${currentAd.title}" class="news-card-image" loading="lazy">
+          <span class="news-card-badge ad-badge">${sponsoredText}</span>
+        </div>
+        <div class="news-card-content">
+          <div class="news-card-meta">
+            <span class="ad-sponsor-label">📢 ${currentAd.sponsor}</span>
+            <span style="color: #f59e0b; font-size: 0.7rem; font-weight: bold;">Google AdSense</span>
+          </div>
+          <div class="news-card-title" style="color: #f8fafc; font-size: 1.05rem;">
+            ${currentAd.title}
+          </div>
+          <p class="news-card-desc" style="color: #94a3b8;">
+            ${currentAd.desc}
+          </p>
+
+          <!-- Official Google AdSense In-Feed Responsive Fluid Tag -->
+          <ins class="adsbygoogle"
+               style="display:block"
+               data-ad-format="fluid"
+               data-ad-layout-key="-fb+5w+4e-db+86"
+               data-ad-client="ca-pub-6117076538261387"
+               data-ad-slot="1234567890"></ins>
+
+          <div class="news-card-footer">
+            <a href="#" class="ad-cta-btn" onclick="return false;">
+              ${currentAd.cta}
+            </a>
+          </div>
+        </div>
+      `;
+
+      // Trigger AdSense push for this inserted ad unit
+      try {
+        (adsbygoogle = window.adsbygoogle || []).push({});
+      } catch (err) {}
+
+      return adCard;
+    }
+
     async function loadCurrentEvents() {
       applyStaticUiTranslations();
       const container = document.getElementById('news-grid-container');
@@ -1094,6 +1239,11 @@
           `;
 
           container.appendChild(card);
+
+          // Mini Quest 2: Insert In-Feed Native Ad after 3rd and 6th story
+          if (index === 2 || index === 5) {
+            container.appendChild(createInFeedAdCard(Math.floor(index / 3)));
+          }
         });
 
       } catch (err) {
@@ -1157,6 +1307,9 @@
           </div>
         `;
         container.appendChild(card);
+        if (demoStories.indexOf(s) === 1) {
+          container.appendChild(createInFeedAdCard(0));
+        }
       });
     }
 
