@@ -1449,7 +1449,7 @@
 
         itemsToDisplay.forEach((item, index) => {
           const title = item.title || 'Untitled Update';
-          const cleanDesc = stripHtml(item.description).slice(0, 160) + '...';
+          const cleanDesc = item.description;
           const imageUrl = resolveImageUrl(item, index, currentCategory);
           const fallbackImg = getCategoryFallbackImage(currentCategory, index);
           const aiSummary = generateAiSummary(title, item.description);
