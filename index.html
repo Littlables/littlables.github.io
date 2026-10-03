@@ -1165,25 +1165,61 @@
      */
     /**
      * =========================================================
-     * SUPABASE CLOUD DATABASE CONFIG (Mini Quest 3)
+     * SUPABASE CLOUD DATABASE & REALTIME ENGINE (Hardened)
      * =========================================================
-     * Plug in your Supabase Project URL and public anon key below!
-     * When empty, the app runs smoothly in offline/localStorage mode so
-     * everything works immediately while you explore with Explorer Assistant AI!
+     * Safe for public anonymous voting: Uses atomic Postgres functions
+     * instead of raw client writes, with live Realtime synchronization!
      */
     const SUPABASE_CONFIG = {
-      url: 'https://vehbstectghtqqyiitmi.supabase.co',      // e.g. 'https://xyzcompany.supabase.co'
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlaGJzdGVjdGdodHFxeWlpdG1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NjQwMTYsImV4cCI6MjEwNjU0MDAxNn0.sqdrzQ0C0m3HlVDcXPMI9nUHAx_tRDfMKhWdMDlneNU',  // e.g. 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+      url: '',      // Paste your project URL here (e.g. 'https://xyzcompany.supabase.co')
+      anonKey: '',  // Paste your public anon key here
       tableName: 'article_reactions'
     };
 
     let supabaseClient = null;
+    let realtimeChannel = null;
+
     if (window.supabase && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
       try {
         supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-        console.log("⚡ Supabase Realtime connected for live reactions!");
+        console.log("⚡ Supabase Client initialized successfully!");
+        setupRealtimeSubscription();
       } catch (err) {
         console.warn("Supabase init note:", err);
+      }
+    }
+
+    /**
+     * Sets up live Realtime subscription so any other visitor's reaction
+     * pops and updates on the current user's screen in real time!
+     */
+    function setupRealtimeSubscription() {
+      if (!supabaseClient || realtimeChannel) return;
+      try {
+        realtimeChannel = supabaseClient
+          .channel('realtime_reactions')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: SUPABASE_CONFIG.tableName },
+            payload => {
+              const row = payload.new;
+              if (row && row.story_id && row.reaction_type) {
+                const countEl = document.querySelector(`.reaction-count[data-story="${row.story_id}"][data-type="${row.reaction_type}"]`);
+                if (countEl) {
+                  countEl.textContent = row.count;
+                  const pill = countEl.closest('.reaction-pill');
+                  if (pill) {
+                    pill.classList.add('pop-bounce');
+                    setTimeout(() => pill.classList.remove('pop-bounce'), 400);
+                  }
+                }
+                localStorage.setItem(`rec_${row.story_id}_${row.reaction_type}`, row.count);
+              }
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn("Realtime subscription note:", err);
       }
     }
 
@@ -1201,13 +1237,12 @@
     }
 
     /**
-     * Gets or seeds initial reaction count for a story
+     * Gets initial reaction count from local cache or natural seed
      */
     function getReactionCount(storyId, type, seedBase) {
       const key = `rec_${storyId}_${type}`;
       const stored = localStorage.getItem(key);
       if (stored !== null) return parseInt(stored, 10);
-      // Natural seed so cards always look engaging on first view
       const seed = Math.floor(Math.abs(seedBase * 7 + (type === 'love' ? 14 : type === 'mind' ? 9 : 21)) % 38) + 4;
       localStorage.setItem(key, seed);
       return seed;
@@ -1218,48 +1253,87 @@
     }
 
     /**
-     * Handles reaction button click (Haptic pop animation, optimistic UI, localStorage & Supabase sync)
+     * Syncs real database counts from Supabase for all currently displayed stories
+     */
+    async function syncReactionsFromSupabase(storyIds) {
+      if (!supabaseClient || !storyIds || !storyIds.length) return;
+      try {
+        const { data, error } = await supabaseClient
+          .from(SUPABASE_CONFIG.tableName)
+          .select('story_id, reaction_type, count')
+          .in('story_id', storyIds);
+
+        if (error) throw error;
+        if (data && data.length) {
+          data.forEach(row => {
+            const countEl = document.querySelector(`.reaction-count[data-story="${row.story_id}"][data-type="${row.reaction_type}"]`);
+            if (countEl) countEl.textContent = row.count;
+            localStorage.setItem(`rec_${row.story_id}_${row.reaction_type}`, row.count);
+          });
+        }
+      } catch (err) {
+        console.warn("Supabase fetch notice:", err);
+      }
+    }
+
+    /**
+     * Handles reaction button click:
+     * - Immediate optimistic UI feedback (bounce & local count)
+     * - Calls atomic Postgres RPC functions (increment_reaction / decrement_reaction)
+     * - Database governs the true count, preventing unauthorized tampering!
      */
     async function handleReaction(btn, storyId, type) {
       btn.classList.add('pop-bounce');
       setTimeout(() => btn.classList.remove('pop-bounce'), 450);
 
       const countEl = btn.querySelector('.reaction-count');
-      let count = parseInt(countEl.textContent, 10) || 0;
+      let localCount = parseInt(countEl.textContent, 10) || 0;
       const alreadyVoted = hasUserReacted(storyId, type);
 
       if (alreadyVoted) {
-        // Toggle off
-        count = Math.max(0, count - 1);
-        countEl.textContent = count;
+        // Toggle off (decrement)
         btn.classList.remove('voted');
         localStorage.removeItem(`voted_${storyId}_${type}`);
-        localStorage.setItem(`rec_${storyId}_${type}`, count);
-      } else {
-        // Toggle on
-        count++;
-        countEl.textContent = count;
-        btn.classList.add('voted');
-        localStorage.setItem(`voted_${storyId}_${type}`, 'true');
-        localStorage.setItem(`rec_${storyId}_${type}`, count);
+        countEl.textContent = Math.max(0, localCount - 1);
 
-        // If Supabase is configured, push to cloud table
         if (supabaseClient) {
           try {
-            await supabaseClient.from(SUPABASE_CONFIG.tableName).upsert({
-              story_id: storyId,
-              reaction_type: type,
-              count: count,
-              updated_at: new Date().toISOString()
+            const { data: dbCount, error } = await supabaseClient.rpc('decrement_reaction', {
+              p_story_id: storyId,
+              p_reaction_type: type
             });
+            if (!error && typeof dbCount === 'number') {
+              countEl.textContent = dbCount;
+              localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
+            }
           } catch (err) {
-            console.warn("Supabase reaction sync note:", err);
+            console.warn("RPC decrement notice:", err);
+          }
+        }
+      } else {
+        // Toggle on (increment)
+        btn.classList.add('voted');
+        localStorage.setItem(`voted_${storyId}_${type}`, 'true');
+        countEl.textContent = localCount + 1;
+
+        if (supabaseClient) {
+          try {
+            const { data: dbCount, error } = await supabaseClient.rpc('increment_reaction', {
+              p_story_id: storyId,
+              p_reaction_type: type
+            });
+            if (!error && typeof dbCount === 'number') {
+              countEl.textContent = dbCount;
+              localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
+            }
+          } catch (err) {
+            console.warn("RPC increment notice:", err);
           }
         }
       }
     }
 
-    function createInFeedAdCard(adIndex) {
+        function createInFeedAdCard(adIndex) {
       const adCard = document.createElement('article');
       adCard.className = 'news-card news-card-ad';
 
@@ -1398,13 +1472,13 @@
                 </a>
                 <div class="news-card-reactions">
                   <button class="reaction-pill ${votedLove ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'love')" title="Love it">
-                    <span>❤️</span> <span class="reaction-count">${loveCount}</span>
+                    <span>❤️</span> <span class="reaction-count" data-story="${storyId}" data-type="love">${loveCount}</span>
                   </button>
                   <button class="reaction-pill ${votedMind ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'mind')" title="Mind Blown">
-                    <span>🤯</span> <span class="reaction-count">${mindCount}</span>
+                    <span>🤯</span> <span class="reaction-count" data-story="${storyId}" data-type="mind">${mindCount}</span>
                   </button>
                   <button class="reaction-pill ${votedCozy ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'cozy')" title="Cozy">
-                    <span>🧸</span> <span class="reaction-count">${cozyCount}</span>
+                    <span>🧸</span> <span class="reaction-count" data-story="${storyId}" data-type="cozy">${cozyCount}</span>
                   </button>
                 </div>
               </div>
@@ -1418,6 +1492,10 @@
             container.appendChild(createInFeedAdCard(Math.floor(index / 3)));
           }
         });
+
+        // Fetch live database counts from Supabase
+        const displayedStoryIds = itemsToDisplay.map((item, idx) => getStoryId(item.title, item.link));
+        syncReactionsFromSupabase(displayedStoryIds);
 
       } catch (err) {
         console.error('Error fetching news:', err);
@@ -1478,13 +1556,13 @@
               <a href="#" class="news-read-more-btn">${t('readMore')}</a>
               <div class="news-card-reactions">
                 <button class="reaction-pill" onclick="handleReaction(this, 'fb_${demoStories.indexOf(s)}', 'love')" title="Love it">
-                  <span>❤️</span> <span class="reaction-count">${14 + demoStories.indexOf(s) * 3}</span>
+                  <span>❤️</span> <span class="reaction-count" data-story="fb_${demoStories.indexOf(s)}" data-type="love">${14 + demoStories.indexOf(s) * 3}</span>
                 </button>
                 <button class="reaction-pill" onclick="handleReaction(this, 'fb_${demoStories.indexOf(s)}', 'mind')" title="Mind Blown">
-                  <span>🤯</span> <span class="reaction-count">${9 + demoStories.indexOf(s) * 2}</span>
+                  <span>🤯</span> <span class="reaction-count" data-story="fb_${demoStories.indexOf(s)}" data-type="mind">${9 + demoStories.indexOf(s) * 2}</span>
                 </button>
                 <button class="reaction-pill" onclick="handleReaction(this, 'fb_${demoStories.indexOf(s)}', 'cozy')" title="Cozy">
-                  <span>🧸</span> <span class="reaction-count">${21 + demoStories.indexOf(s) * 4}</span>
+                  <span>🧸</span> <span class="reaction-count" data-story="fb_${demoStories.indexOf(s)}" data-type="cozy">${21 + demoStories.indexOf(s) * 4}</span>
                 </button>
               </div>
             </div>
