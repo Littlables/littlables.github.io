@@ -927,9 +927,18 @@
     };
 
     /**
-     * Active state tracking for selected category
+     * Active state tracking for selected category (persisted across visits)
      */
-    let currentCategory = 'all';
+    const SAVED_CATEGORY_KEY = 'selected_category';
+    let currentCategory = (function() {
+      try {
+        const saved = localStorage.getItem(SAVED_CATEGORY_KEY);
+        if (saved && ['all', 'animals', 'tech', 'arts', 'world', 'uplifting'].includes(saved)) {
+          return saved;
+        }
+      } catch (e) {}
+      return 'all';
+    })();
 
     /**
      * Category Icon Mapping
@@ -1587,19 +1596,37 @@
       });
     }
 
-    // Attach Category Pill click listeners (Mini Quest 1)
+    function restoreCategoryPills() {
+      const targetPill = document.querySelector(`.cat-pill[data-category="${currentCategory}"]`);
+      if (targetPill) {
+        document.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+        targetPill.classList.add('active');
+      }
+    }
+
+    // Attach Category Pill click listeners (Mini Quest 1 & persistence)
     document.querySelectorAll('.cat-pill').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentCategory = btn.getAttribute('data-category');
+        try {
+          localStorage.setItem(SAVED_CATEGORY_KEY, currentCategory);
+        } catch (e) {
+          console.warn('Could not save category to localStorage:', e);
+        }
         loadCurrentEvents();
       });
     });
 
+    restoreCategoryPills();
+
     // Attach refresh button listener & run on page load
     document.getElementById('refresh-news-btn').addEventListener('click', loadCurrentEvents);
-    document.addEventListener('DOMContentLoaded', loadCurrentEvents);
+    document.addEventListener('DOMContentLoaded', () => {
+      restoreCategoryPills();
+      loadCurrentEvents();
+    });
   </script>
 </body>
 </html>
