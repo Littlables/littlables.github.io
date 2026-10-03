@@ -1287,7 +1287,7 @@
       setTimeout(() => btn.classList.remove('pop-bounce'), 450);
 
       const countEl = btn.querySelector('.reaction-count');
-      let localCount = parseInt(countEl.textContent, 10) || 0;
+      const localCount = parseInt(countEl.textContent, 10) || 0;
       const alreadyVoted = hasUserReacted(storyId, type);
 
       if (alreadyVoted) {
@@ -1302,12 +1302,17 @@
               p_story_id: storyId,
               p_reaction_type: type
             });
-            if (!error && typeof dbCount === 'number') {
-              countEl.textContent = dbCount;
-              localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
+            if (error || typeof dbCount !== 'number') {
+              throw error || new Error('Invalid response from RPC');
             }
+            countEl.textContent = dbCount;
+            localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
           } catch (err) {
             console.warn("RPC decrement notice:", err);
+            // Roll back optimistic changes if RPC fails
+            btn.classList.add('voted');
+            localStorage.setItem(`voted_${storyId}_${type}`, 'true');
+            countEl.textContent = localCount;
           }
         }
       } else {
@@ -1322,12 +1327,17 @@
               p_story_id: storyId,
               p_reaction_type: type
             });
-            if (!error && typeof dbCount === 'number') {
-              countEl.textContent = dbCount;
-              localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
+            if (error || typeof dbCount !== 'number') {
+              throw error || new Error('Invalid response from RPC');
             }
+            countEl.textContent = dbCount;
+            localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
           } catch (err) {
             console.warn("RPC increment notice:", err);
+            // Roll back optimistic changes if RPC fails
+            btn.classList.remove('voted');
+            localStorage.removeItem(`voted_${storyId}_${type}`);
+            countEl.textContent = localCount;
           }
         }
       }
