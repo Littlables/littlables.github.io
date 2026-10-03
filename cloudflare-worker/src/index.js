@@ -3,6 +3,7 @@ const MAX_LINKS = 10;
 const MAX_PAGE_BYTES = 1_000_000;
 const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
+const GOOGLE_RETRY_DELAYS = [250, 750];
 const GOOGLE_NEWS_RESOLVE_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute';
 const SUMMARY_TABLE = 'ai_summaries';
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
@@ -186,22 +187,31 @@ async function getGoogleNewsSignature(info) {
   let url = new URL(`https://news.google.com/rss/articles/${encodeURIComponent(info.articleId)}`);
   for (const [key, value] of Object.entries(info.locale)) url.searchParams.set(key, value);
   let response;
-  for (let redirects = 0; redirects <= 3; redirects++) {
-    response = await fetch(url, {
-      redirect: 'manual',
-      headers: {
-        Accept: 'text/html,application/xhtml+xml',
-        'User-Agent': 'LittlablesSummaryBot/1.0'
+  for (let attempt = 0; attempt <= GOOGLE_RETRY_DELAYS.length; attempt++) {
+    let currentUrl = url;
+    for (let redirects = 0; redirects <= 3; redirects++) {
+      response = await fetch(currentUrl, {
+        redirect: 'manual',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'User-Agent': 'LittlablesSummaryBot/1.0'
+        }
+      });
+      if (response.status < 300 || response.status >= 400) break;
+      const location = response.headers.get('Location');
+      if (!location || redirects === 3) throw new Error('Too many redirects while resolving a Google News URL');
+      const nextUrl = new URL(location, currentUrl);
+      if (nextUrl.hostname !== 'news.google.com') {
+        throw new Error('Google News resolver redirected outside news.google.com');
       }
-    });
-    if (response.status < 300 || response.status >= 400) break;
-    const location = response.headers.get('Location');
-    if (!location || redirects === 3) throw new Error('Too many redirects while resolving a Google News URL');
-    const nextUrl = new URL(location, url);
-    if (nextUrl.hostname !== 'news.google.com') {
-      throw new Error('Google News resolver redirected outside news.google.com');
+      currentUrl = nextUrl;
     }
-    url = nextUrl;
+    if ((response.status === 429 || response.status >= 500) && attempt < GOOGLE_RETRY_DELAYS.length) {
+      await response.body?.cancel();
+      await new Promise(resolve => setTimeout(resolve, GOOGLE_RETRY_DELAYS[attempt]));
+      continue;
+    }
+    break;
   }
   if (!response.ok) throw new Error(`Google News resolver request failed (HTTP ${response.status})`);
   const html = await response.text();
@@ -231,20 +241,23 @@ function parseGoogleNewsResolution(responseText) {
 async function resolveStoryUrls(urls) {
   const resolved = new Array(urls.length);
   const wrappers = [];
-  const signatures = await Promise.all(urls.map(async (url, index) => {
+  const signatures = new Array(urls.length);
+  for (const [index, url] of urls.entries()) {
     const info = getGoogleNewsArticleInfo(url);
     if (!info) {
       if (isPublicWebUrl(url) && !isGoogleNewsUrl(url)) resolved[index] = url;
-      return null;
+      continue;
     }
     wrappers.push(index);
     try {
-      return await getGoogleNewsSignature(info);
+      signatures[index] = await getGoogleNewsSignature(info);
     } catch (err) {
       console.warn(`Unable to get Google News resolver data for ${url}:`, err);
-      return null;
     }
-  }));
+    if (info && urls.slice(index + 1).some(getGoogleNewsArticleInfo)) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
 
   const requests = wrappers
     .map(index => ({ index, info: signatures[index] }))
