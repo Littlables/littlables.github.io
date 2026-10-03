@@ -7,22 +7,177 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
+  <script>
+    // Early theme initialization to prevent any theme flash (FOUC)
+    (function() {
+      try {
+        var saved = localStorage.getItem('selected_theme');
+        var allowed = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+        if (saved && allowed.indexOf(saved) !== -1) {
+          document.documentElement.setAttribute('data-theme', saved);
+        } else {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
   <link rel="shortcut icon" href="favicon.ico">
   <title id="page-title">Littlables</title>
   <style>
     /* =========================================================
        PULSE-BITE NEWS FEED STYLES (Drop into your <style> or CSS)
        ========================================================= */
-    :root {
-      --news-bg: #0f172a;
+        /* =========================================================
+       THEME SYSTEM & PALETTES (Mini Quest: 6 Visual Themes)
+       ========================================================= */
+    :root, [data-theme="dark"] {
+      --news-bg: #0b0f19;
       --news-card-bg: #1e293b;
       --news-card-border: rgba(255, 255, 255, 0.08);
+      --news-card-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
       --news-text: #f8fafc;
       --news-text-muted: #94a3b8;
       --news-accent: #6366f1;
       --news-ai-bg: rgba(99, 102, 241, 0.12);
       --news-ai-border: #818cf8;
+      --news-ai-text: #e0e7ff;
+      --news-ai-label: #c7d2fe;
       --news-tag-bg: #ec4899;
+      --news-hover-bg: #334155;
+      --news-pill-active-bg: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      --news-pill-active-text: #ffffff;
+      --news-reaction-bg: rgba(255, 255, 255, 0.04);
+      --news-reaction-border: rgba(255, 255, 255, 0.08);
+      --news-voted-bg: rgba(99, 102, 241, 0.22);
+      --news-dropdown-bg: #1e293b;
+      --news-image-wrap-bg: #334155;
+      --news-divider: rgba(255, 255, 255, 0.05);
+      --news-ad-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+    }
+
+    [data-theme="dark-purple"] {
+      --news-bg: #0d051a;
+      --news-card-bg: #1b0d33;
+      --news-card-border: rgba(192, 132, 252, 0.2);
+      --news-card-shadow: 0 4px 18px rgba(13, 5, 26, 0.6);
+      --news-text: #fbf7ff;
+      --news-text-muted: #c084fc;
+      --news-accent: #c084fc;
+      --news-ai-bg: rgba(168, 85, 247, 0.14);
+      --news-ai-border: #a855f7;
+      --news-ai-text: #f3e8ff;
+      --news-ai-label: #e9d5ff;
+      --news-tag-bg: #9333ea;
+      --news-hover-bg: #2b144f;
+      --news-pill-active-bg: linear-gradient(135deg, #9333ea 0%, #d946ef 100%);
+      --news-pill-active-text: #ffffff;
+      --news-reaction-bg: rgba(168, 85, 247, 0.08);
+      --news-reaction-border: rgba(192, 132, 252, 0.2);
+      --news-voted-bg: rgba(168, 85, 247, 0.3);
+      --news-dropdown-bg: #1b0d33;
+      --news-image-wrap-bg: #281347;
+      --news-divider: rgba(192, 132, 252, 0.12);
+      --news-ad-bg: linear-gradient(135deg, rgba(27, 13, 51, 0.95) 0%, rgba(13, 5, 26, 0.98) 100%);
+    }
+
+    [data-theme="light"] {
+      --news-bg: #f1f5f9;
+      --news-card-bg: #ffffff;
+      --news-card-border: rgba(0, 0, 0, 0.08);
+      --news-card-shadow: 0 4px 15px rgba(100, 116, 139, 0.09);
+      --news-text: #0f172a;
+      --news-text-muted: #64748b;
+      --news-accent: #4f46e5;
+      --news-ai-bg: rgba(79, 70, 229, 0.06);
+      --news-ai-border: #6366f1;
+      --news-ai-text: #1e1b4b;
+      --news-ai-label: #4338ca;
+      --news-tag-bg: #db2777;
+      --news-hover-bg: #e2e8f0;
+      --news-pill-active-bg: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      --news-pill-active-text: #ffffff;
+      --news-reaction-bg: rgba(0, 0, 0, 0.04);
+      --news-reaction-border: rgba(0, 0, 0, 0.1);
+      --news-voted-bg: rgba(79, 70, 229, 0.15);
+      --news-dropdown-bg: #ffffff;
+      --news-image-wrap-bg: #e2e8f0;
+      --news-divider: rgba(0, 0, 0, 0.07);
+      --news-ad-bg: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    }
+
+    [data-theme="rainbow"] {
+      --news-bg: #080914;
+      --news-card-bg: #121324;
+      --news-card-border: rgba(255, 255, 255, 0.14);
+      --news-card-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      --news-text: #ffffff;
+      --news-text-muted: #cbd5e1;
+      --news-accent: #38bdf8;
+      --news-ai-bg: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(245, 158, 11, 0.12), rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.12));
+      --news-ai-border: #f43f5e;
+      --news-ai-text: #fef9c3;
+      --news-ai-label: #38bdf8;
+      --news-tag-bg: linear-gradient(90deg, #ef4444, #f59e0b, #10b981, #3b82f6);
+      --news-hover-bg: #1e203c;
+      --news-pill-active-bg: linear-gradient(90deg, #ef4444 0%, #f59e0b 25%, #10b981 50%, #3b82f6 75%, #8b5cf6 100%);
+      --news-pill-active-text: #ffffff;
+      --news-reaction-bg: rgba(255, 255, 255, 0.06);
+      --news-reaction-border: rgba(255, 255, 255, 0.14);
+      --news-voted-bg: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(139, 92, 246, 0.25));
+      --news-dropdown-bg: #121324;
+      --news-image-wrap-bg: #1d1e38;
+      --news-divider: rgba(255, 255, 255, 0.08);
+      --news-ad-bg: linear-gradient(135deg, rgba(18, 19, 36, 0.95) 0%, rgba(8, 9, 20, 0.98) 100%);
+    }
+
+    [data-theme="pastel-rainbow"] {
+      --news-bg: #fcf8ff;
+      --news-card-bg: #ffffff;
+      --news-card-border: rgba(216, 180, 254, 0.45);
+      --news-card-shadow: 0 4px 18px rgba(216, 180, 254, 0.2);
+      --news-text: #2e1045;
+      --news-text-muted: #7c3aed;
+      --news-accent: #ec4899;
+      --news-ai-bg: linear-gradient(135deg, rgba(254, 205, 211, 0.35), rgba(254, 240, 138, 0.28), rgba(187, 247, 208, 0.3), rgba(191, 219, 254, 0.35));
+      --news-ai-border: #f472b6;
+      --news-ai-text: #4c1d95;
+      --news-ai-label: #c026d3;
+      --news-tag-bg: linear-gradient(90deg, #f472b6, #fbbf24, #34d399, #60a5fa);
+      --news-hover-bg: #f5e8ff;
+      --news-pill-active-bg: linear-gradient(135deg, #f472b6 0%, #c084fc 50%, #60a5fa 100%);
+      --news-pill-active-text: #ffffff;
+      --news-reaction-bg: rgba(216, 180, 254, 0.15);
+      --news-reaction-border: rgba(216, 180, 254, 0.4);
+      --news-voted-bg: linear-gradient(135deg, rgba(244, 114, 182, 0.25), rgba(192, 132, 252, 0.25));
+      --news-dropdown-bg: #ffffff;
+      --news-image-wrap-bg: #fae8ff;
+      --news-divider: rgba(216, 180, 254, 0.25);
+      --news-ad-bg: linear-gradient(135deg, #fff1f2 0%, #fdf2f8 100%);
+    }
+
+    [data-theme="pink"] {
+      --news-bg: #1f0714;
+      --news-card-bg: #310d21;
+      --news-card-border: rgba(244, 114, 182, 0.25);
+      --news-card-shadow: 0 4px 18px rgba(31, 7, 20, 0.6);
+      --news-text: #fff1f2;
+      --news-text-muted: #f472b6;
+      --news-accent: #fb7185;
+      --news-ai-bg: rgba(244, 63, 94, 0.14);
+      --news-ai-border: #fb7185;
+      --news-ai-text: #ffe4e6;
+      --news-ai-label: #fda4af;
+      --news-tag-bg: #f43f5e;
+      --news-hover-bg: #461330;
+      --news-pill-active-bg: linear-gradient(135deg, #ec4899 0%, #f43f5e 50%, #fda4af 100%);
+      --news-pill-active-text: #ffffff;
+      --news-reaction-bg: rgba(244, 114, 182, 0.12);
+      --news-reaction-border: rgba(251, 113, 133, 0.3);
+      --news-voted-bg: rgba(244, 63, 94, 0.32);
+      --news-dropdown-bg: #310d21;
+      --news-image-wrap-bg: #44142f;
+      --news-divider: rgba(244, 114, 182, 0.14);
+      --news-ad-bg: linear-gradient(135deg, rgba(49, 13, 33, 0.95) 0%, rgba(31, 7, 20, 0.98) 100%);
     }
 
     .news-widget-wrapper {
@@ -33,12 +188,80 @@
       color: var(--news-text);
     }
 
+    
+    .news-header-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65rem;
+      flex-wrap: wrap;
+    }
+
+    .theme-picker-container {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--news-card-bg);
+      border: 1px solid var(--news-card-border);
+      border-radius: 9999px;
+      padding: 0.3rem 0.75rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      transition: all 0.2s ease;
+    }
+
+    .theme-picker-container:hover {
+      border-color: var(--news-accent);
+      box-shadow: 0 3px 12px rgba(99, 102, 241, 0.25);
+    }
+
+    .theme-select-icon {
+      font-size: 0.95rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .theme-dropdown-select {
+      background: transparent;
+      color: var(--news-text);
+      border: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .theme-dropdown-select option {
+      background: var(--news-dropdown-bg, #1e293b);
+      color: var(--news-text, #f8fafc);
+    }
+
+    .refresh-news-button {
+      background: var(--news-card-bg);
+      color: var(--news-text-muted);
+      border: 1px solid var(--news-card-border);
+      padding: 0.4rem 0.85rem;
+      border-radius: 9999px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    }
+
+    .refresh-news-button:hover {
+      background: var(--news-hover-bg, #334155);
+      color: var(--news-text);
+      transform: translateY(-1px);
+    }
+
     .news-widget-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1.25rem;
-      padding-top: 0.4rem;
     }
 
     .news-widget-title {
@@ -115,7 +338,7 @@
       display: flex;
       flex-direction: column;
       transition: transform 0.2s ease, box-shadow 0.2s ease;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+      box-shadow: var(--news-card-shadow, 0 4px 15px rgba(0, 0, 0, 0.25));
     }
 
     .news-card:hover {
@@ -126,7 +349,7 @@
     .news-card-image-wrap {
       width: 100%;
       height: 190px;
-      background: #334155;
+      background: var(--news-image-wrap-bg, #334155);
       position: relative;
       overflow: hidden;
     }
@@ -175,12 +398,13 @@
       font-size: 1.1rem;
       font-weight: 700;
       line-height: 1.35;
-      color: #fff;
+      color: var(--news-text);
       text-decoration: none;
+      transition: color 0.15s ease;
     }
 
     .news-card-title:hover {
-      color: #a5b4fc;
+      color: var(--news-accent);
     }
 
     .news-card-desc {
@@ -198,14 +422,14 @@
       padding: 0.65rem 0.85rem;
       font-size: 0.8rem;
       line-height: 1.45;
-      color: #e0e7ff;
+      color: var(--news-ai-text, #e0e7ff);
     }
 
     .news-card-ai-label {
       font-size: 0.68rem;
       font-weight: 800;
       text-transform: uppercase;
-      color: #c7d2fe;
+      color: var(--news-ai-label, #c7d2fe);
       margin-bottom: 0.25rem;
       display: flex;
       align-items: center;
@@ -220,7 +444,7 @@
       align-items: center;
       gap: 0.5rem;
       flex-wrap: wrap;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      border-top: 1px solid var(--news-divider, rgba(255, 255, 255, 0.05));
     }
 
     .news-read-more-btn {
@@ -244,7 +468,7 @@
        ========================================================= */
     .news-card-ad {
       border: 1px dashed rgba(245, 158, 11, 0.45);
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+      background: var(--news-ad-bg, linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%));
       position: relative;
     }
 
@@ -350,17 +574,30 @@
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
-<body style="background: #0b0f19; margin: 0;">
+<body style="background: var(--news-bg, #0b0f19); margin: 0; color: var(--news-text); transition: background-color 0.25s ease, color 0.25s ease;">
 
   <!-- HTML CONTAINER -->
   <div class="news-widget-wrapper">
     <div class="news-widget-header">
       <div class="news-widget-title" id="widget-main-title">
-        <span>🧸</span> <span id="widget-title-text">Littlables</span>
+        <span>⚡</span> <span id="widget-title-text">Littlables Feed</span>
       </div>
-      <button id="refresh-news-btn" style="background: #1e293b; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.8rem;">
-        🔄 Refresh Feed
-      </button>
+      <div class="news-header-controls">
+        <div class="theme-picker-container" title="Select Theme">
+          <span class="theme-select-icon" aria-hidden="true">🎨</span>
+          <select id="theme-select" class="theme-dropdown-select" aria-label="Select Theme">
+            <option value="dark">🌙 Dark Mode</option>
+            <option value="dark-purple">🔮 Dark Purple</option>
+            <option value="light">☀️ Light Mode</option>
+            <option value="rainbow">🌈 Rainbow</option>
+            <option value="pastel-rainbow">🦄 Pastel Rainbow</option>
+            <option value="pink">💖 Pretty Pink</option>
+          </select>
+        </div>
+        <button id="refresh-news-btn" class="refresh-news-button" title="Refresh Stories">
+          🔄 Refresh Feed
+        </button>
+      </div>
     </div>
 
     <!-- Category Pill Navigation Bar (Mini Quest 1) -->
@@ -1621,9 +1858,101 @@
 
     restoreCategoryPills();
 
+    /**
+     * =========================================================
+     * THEME MANAGER (Mini Quest: 6 Visual Themes & Profile Ready)
+     * =========================================================
+     * Manages visual theme selection, local storage persistence, and provides
+     * a clean integration hook for upcoming Supabase User Auth & Profiles.
+     */
+    const THEME_CONFIG = {
+      storageKey: 'selected_theme',
+      defaultTheme: 'dark',
+      availableThemes: [
+        { id: 'dark', name: 'Dark Mode', icon: '🌙' },
+        { id: 'dark-purple', name: 'Dark Purple', icon: '🔮' },
+        { id: 'light', name: 'Light Mode', icon: '☀️' },
+        { id: 'rainbow', name: 'Rainbow', icon: '🌈' },
+        { id: 'pastel-rainbow', name: 'Pastel Rainbow', icon: '🦄' },
+        { id: 'pink', name: 'Pretty Pink', icon: '💖' }
+      ]
+    };
+
+    const ThemeManager = {
+      getSavedTheme() {
+        try {
+          const saved = localStorage.getItem(THEME_CONFIG.storageKey);
+          if (saved && THEME_CONFIG.availableThemes.some(t => t.id === saved)) {
+            return saved;
+          }
+        } catch (e) {
+          console.warn("Theme storage read notice:", e);
+        }
+        return THEME_CONFIG.defaultTheme;
+      },
+
+      setTheme(themeId, syncToProfile = true) {
+        if (!THEME_CONFIG.availableThemes.some(t => t.id === themeId)) {
+          themeId = THEME_CONFIG.defaultTheme;
+        }
+
+        document.documentElement.setAttribute('data-theme', themeId);
+        try {
+          localStorage.setItem(THEME_CONFIG.storageKey, themeId);
+        } catch (e) {
+          console.warn("Theme storage save notice:", e);
+        }
+
+        const selectEl = document.getElementById('theme-select');
+        if (selectEl && selectEl.value !== themeId) {
+          selectEl.value = themeId;
+        }
+
+        // Future Profile / Auth sync hook
+        if (syncToProfile && typeof syncThemeToUserProfile === 'function') {
+          syncThemeToUserProfile(themeId);
+        }
+      },
+
+      init() {
+        const theme = this.getSavedTheme();
+        this.setTheme(theme, false);
+
+        const selectEl = document.getElementById('theme-select');
+        if (selectEl) {
+          selectEl.value = theme;
+          selectEl.addEventListener('change', (e) => {
+            this.setTheme(e.target.value, true);
+          });
+        }
+      }
+    };
+
+    /**
+     * Profile sync hook: When user auth and profiles are enabled,
+     * this will persist the theme preference to the user's account in Supabase.
+     */
+    async function syncThemeToUserProfile(themeId) {
+      if (typeof supabaseClient !== 'undefined' && supabaseClient && supabaseClient.auth) {
+        try {
+          const { data } = await supabaseClient.auth.getUser();
+          if (data && data.user) {
+            await supabaseClient
+              .from('user_profiles')
+              .upsert({ user_id: data.user.id, preferred_theme: themeId, updated_at: new Date().toISOString() });
+          }
+        } catch (err) {
+          console.warn("User profile theme sync notice:", err);
+        }
+      }
+    }
+
+    ThemeManager.init();
+
     // Attach refresh button listener & run on page load
     document.getElementById('refresh-news-btn').addEventListener('click', loadCurrentEvents);
     document.addEventListener('DOMContentLoaded', () => {
+      ThemeManager.init();
       restoreCategoryPills();
       loadCurrentEvents();
     });
