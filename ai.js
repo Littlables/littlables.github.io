@@ -26,6 +26,9 @@
       if (!response.ok) {
         throw new Error(result.error || `AI summary request failed (HTTP ${response.status})`);
       }
+      if (typeof result.error === 'string' && result.error) {
+        console.warn('AI summary used partial article sources:', result.error, result.unresolvedUrls || []);
+      }
       if (typeof result.summary !== 'string' || !result.summary.trim()) {
         throw new Error('AI summary service returned an empty summary');
       }
