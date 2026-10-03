@@ -212,7 +212,13 @@
 
     .news-card-footer {
       margin-top: auto;
-      padding-top: 0.5rem;
+      padding-top: 0.65rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
     }
 
     .news-read-more-btn {
@@ -282,6 +288,56 @@
       color: #0b1120;
     }
 
+
+    /* =========================================================
+       REACTIONS BAR & HAPTIC ANIMATIONS (Mini Quest 3)
+       ========================================================= */
+    .news-card-reactions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .reaction-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #94a3b8;
+      padding: 0.25rem 0.55rem;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      transition: all 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+      user-select: none;
+    }
+
+    .reaction-pill:hover {
+      background: rgba(255, 255, 255, 0.09);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+
+    .reaction-pill.voted {
+      background: rgba(99, 102, 241, 0.22);
+      border-color: var(--news-accent);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+    }
+
+    .reaction-pill.pop-bounce {
+      animation: reactionBounce 0.4s ease;
+    }
+
+    @keyframes reactionBounce {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.3); }
+      70% { transform: scale(0.95); }
+      100% { transform: scale(1); }
+    }
+
     /* Loading state */
     .news-loading-skeleton {
       text-align: center;
@@ -290,6 +346,7 @@
       font-size: 0.95rem;
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body style="background: #0b0f19; margin: 0;">
 
@@ -1106,6 +1163,102 @@
      * Creates a native In-Feed Ad Card (Mini Quest 2)
      * Matches the card grid layout and triggers Google AdSense fluid in-feed ads.
      */
+    /**
+     * =========================================================
+     * SUPABASE CLOUD DATABASE CONFIG (Mini Quest 3)
+     * =========================================================
+     * Plug in your Supabase Project URL and public anon key below!
+     * When empty, the app runs smoothly in offline/localStorage mode so
+     * everything works immediately while you explore with Explorer Assistant AI!
+     */
+    const SUPABASE_CONFIG = {
+      url: 'https://vehbstectghtqqyiitmi.supabase.co',      // e.g. 'https://xyzcompany.supabase.co'
+      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZlaGJzdGVjdGdodHFxeWlpdG1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NjQwMTYsImV4cCI6MjEwNjU0MDAxNn0.sqdrzQ0C0m3HlVDcXPMI9nUHAx_tRDfMKhWdMDlneNU',  // e.g. 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+      tableName: 'article_reactions'
+    };
+
+    let supabaseClient = null;
+    if (window.supabase && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
+      try {
+        supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+        console.log("⚡ Supabase Realtime connected for live reactions!");
+      } catch (err) {
+        console.warn("Supabase init note:", err);
+      }
+    }
+
+    /**
+     * Creates a stable, deterministic ID from story title and link
+     */
+    function getStoryId(title, link) {
+      const str = ((link || '') + (title || '')).toLowerCase().trim();
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return 's_' + Math.abs(hash).toString(36).slice(0, 10);
+    }
+
+    /**
+     * Gets or seeds initial reaction count for a story
+     */
+    function getReactionCount(storyId, type, seedBase) {
+      const key = `rec_${storyId}_${type}`;
+      const stored = localStorage.getItem(key);
+      if (stored !== null) return parseInt(stored, 10);
+      // Natural seed so cards always look engaging on first view
+      const seed = Math.floor(Math.abs(seedBase * 7 + (type === 'love' ? 14 : type === 'mind' ? 9 : 21)) % 38) + 4;
+      localStorage.setItem(key, seed);
+      return seed;
+    }
+
+    function hasUserReacted(storyId, type) {
+      return localStorage.getItem(`voted_${storyId}_${type}`) === 'true';
+    }
+
+    /**
+     * Handles reaction button click (Haptic pop animation, optimistic UI, localStorage & Supabase sync)
+     */
+    async function handleReaction(btn, storyId, type) {
+      btn.classList.add('pop-bounce');
+      setTimeout(() => btn.classList.remove('pop-bounce'), 450);
+
+      const countEl = btn.querySelector('.reaction-count');
+      let count = parseInt(countEl.textContent, 10) || 0;
+      const alreadyVoted = hasUserReacted(storyId, type);
+
+      if (alreadyVoted) {
+        // Toggle off
+        count = Math.max(0, count - 1);
+        countEl.textContent = count;
+        btn.classList.remove('voted');
+        localStorage.removeItem(`voted_${storyId}_${type}`);
+        localStorage.setItem(`rec_${storyId}_${type}`, count);
+      } else {
+        // Toggle on
+        count++;
+        countEl.textContent = count;
+        btn.classList.add('voted');
+        localStorage.setItem(`voted_${storyId}_${type}`, 'true');
+        localStorage.setItem(`rec_${storyId}_${type}`, count);
+
+        // If Supabase is configured, push to cloud table
+        if (supabaseClient) {
+          try {
+            await supabaseClient.from(SUPABASE_CONFIG.tableName).upsert({
+              story_id: storyId,
+              reaction_type: type,
+              count: count,
+              updated_at: new Date().toISOString()
+            });
+          } catch (err) {
+            console.warn("Supabase reaction sync note:", err);
+          }
+        }
+      }
+    }
+
     function createInFeedAdCard(adIndex) {
       const adCard = document.createElement('article');
       adCard.className = 'news-card news-card-ad';
@@ -1208,6 +1361,15 @@
           const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('recent');
           const link = item.link || '#';
 
+          // Mini Quest 3: Interactive Reactions & Unique Story ID
+          const storyId = getStoryId(title, link);
+          const loveCount = getReactionCount(storyId, 'love', index + 1);
+          const mindCount = getReactionCount(storyId, 'mind', index + 2);
+          const cozyCount = getReactionCount(storyId, 'cozy', index + 3);
+          const votedLove = hasUserReacted(storyId, 'love');
+          const votedMind = hasUserReacted(storyId, 'mind');
+          const votedCozy = hasUserReacted(storyId, 'cozy');
+
           // Create the card element
           const card = document.createElement('article');
           card.className = 'news-card';
@@ -1234,6 +1396,17 @@
                 <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-read-more-btn">
                   ${t('readMore')}
                 </a>
+                <div class="news-card-reactions">
+                  <button class="reaction-pill ${votedLove ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'love')" title="Love it">
+                    <span>❤️</span> <span class="reaction-count">${loveCount}</span>
+                  </button>
+                  <button class="reaction-pill ${votedMind ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'mind')" title="Mind Blown">
+                    <span>🤯</span> <span class="reaction-count">${mindCount}</span>
+                  </button>
+                  <button class="reaction-pill ${votedCozy ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'cozy')" title="Cozy">
+                    <span>🧸</span> <span class="reaction-count">${cozyCount}</span>
+                  </button>
+                </div>
               </div>
             </div>
           `;
@@ -1303,6 +1476,17 @@
             </div>
             <div class="news-card-footer">
               <a href="#" class="news-read-more-btn">${t('readMore')}</a>
+              <div class="news-card-reactions">
+                <button class="reaction-pill" onclick="handleReaction(this, 'fb_${demoStories.indexOf(s)}', 'love')" title="Love it">
+                  <span>❤️</span> <span class="reaction-count">${14 + demoStories.indexOf(s) * 3}</span>
+                </button>
+                <button class="reaction-pill" onclick="handleReaction(this, 'fb_${demoStories.indexOf(s)}', 'mind')" title="Mind Blown">
+                  <span>🤯</span> <span class="reaction-count">${9 + demoStories.indexOf(s) * 2}</span>
+                </button>
+                <button class="reaction-pill" onclick="handleReaction(this, 'fb_${demoStories.indexOf(s)}', 'cozy')" title="Cozy">
+                  <span>🧸</span> <span class="reaction-count">${21 + demoStories.indexOf(s) * 4}</span>
+                </button>
+              </div>
             </div>
           </div>
         `;
