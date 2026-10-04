@@ -3,7 +3,9 @@ const MAX_LINKS = 10;
 const MAX_PAGE_BYTES = 1_000_000;
 const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
-const GOOGLE_RETRY_DELAYS = [250, 750];
+const MAX_CONCURRENT_GOOGLE_LOOKUPS = 2;
+const GOOGLE_FETCH_TIMEOUT_MS = 6_000;
+const GOOGLE_RETRY_DELAYS = [300];
 const GOOGLE_NEWS_RESOLVE_URL = 'https://news.google.com/_/DotsSplashUi/data/batchexecute';
 const SUMMARY_TABLE = 'ai_summaries';
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
@@ -186,39 +188,53 @@ function isGoogleNewsUrl(value) {
 async function getGoogleNewsSignature(info) {
   let url = new URL(`https://news.google.com/rss/articles/${encodeURIComponent(info.articleId)}`);
   for (const [key, value] of Object.entries(info.locale)) url.searchParams.set(key, value);
-  let response;
   for (let attempt = 0; attempt <= GOOGLE_RETRY_DELAYS.length; attempt++) {
-    let currentUrl = url;
-    for (let redirects = 0; redirects <= 3; redirects++) {
-      response = await fetch(currentUrl, {
-        redirect: 'manual',
-        headers: {
-          Accept: 'text/html,application/xhtml+xml',
-          'User-Agent': 'LittlablesSummaryBot/1.0'
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort('Google News lookup timed out'), GOOGLE_FETCH_TIMEOUT_MS);
+    try {
+      let currentUrl = url;
+      let response;
+      for (let redirects = 0; redirects <= 3; redirects++) {
+        response = await fetch(currentUrl, {
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: {
+            Accept: 'text/html,application/xhtml+xml',
+            'Accept-Language': `${info.locale.hl},en;q=0.9`,
+            Referer: 'https://news.google.com/',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          }
+        });
+        if (response.status < 300 || response.status >= 400) break;
+        const location = response.headers.get('Location');
+        if (!location || redirects === 3) throw new Error('Too many redirects while resolving a Google News URL');
+        const nextUrl = new URL(location, currentUrl);
+        if (nextUrl.hostname !== 'news.google.com') {
+          throw new Error('Google News resolver redirected outside news.google.com');
         }
-      });
-      if (response.status < 300 || response.status >= 400) break;
-      const location = response.headers.get('Location');
-      if (!location || redirects === 3) throw new Error('Too many redirects while resolving a Google News URL');
-      const nextUrl = new URL(location, currentUrl);
-      if (nextUrl.hostname !== 'news.google.com') {
-        throw new Error('Google News resolver redirected outside news.google.com');
+        currentUrl = nextUrl;
       }
-      currentUrl = nextUrl;
+      if ((response.status === 429 || response.status >= 500) && attempt < GOOGLE_RETRY_DELAYS.length) {
+        await response.body?.cancel();
+        await new Promise(resolve => setTimeout(resolve, GOOGLE_RETRY_DELAYS[attempt]));
+        continue;
+      }
+      if (!response.ok) throw new Error(`Google News resolver request failed (HTTP ${response.status})`);
+      const html = await response.text();
+      const signature = html.match(/\bdata-n-a-sg=["']([^"']+)["']/i)?.[1];
+      const timestamp = html.match(/\bdata-n-a-ts=["']([^"']+)["']/i)?.[1];
+      if (!signature || !timestamp) throw new Error('Google News resolver did not return article signature data');
+      return { ...info, signature, timestamp };
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(`Google News resolver request timed out after ${GOOGLE_FETCH_TIMEOUT_MS}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-    if ((response.status === 429 || response.status >= 500) && attempt < GOOGLE_RETRY_DELAYS.length) {
-      await response.body?.cancel();
-      await new Promise(resolve => setTimeout(resolve, GOOGLE_RETRY_DELAYS[attempt]));
-      continue;
-    }
-    break;
   }
-  if (!response.ok) throw new Error(`Google News resolver request failed (HTTP ${response.status})`);
-  const html = await response.text();
-  const signature = html.match(/\bdata-n-a-sg=["']([^"']+)["']/i)?.[1];
-  const timestamp = html.match(/\bdata-n-a-ts=["']([^"']+)["']/i)?.[1];
-  if (!signature || !timestamp) throw new Error('Google News resolver did not return article signature data');
-  return { ...info, signature, timestamp };
+  throw new Error('Google News resolver request failed');
 }
 
 function parseGoogleNewsResolution(responseText) {
@@ -242,19 +258,23 @@ async function resolveStoryUrls(urls) {
   const resolved = new Array(urls.length);
   const wrappers = [];
   const signatures = new Array(urls.length);
-  for (const [index, url] of urls.entries()) {
-    const info = getGoogleNewsArticleInfo(url);
-    if (!info) {
-      if (isPublicWebUrl(url) && !isGoogleNewsUrl(url)) resolved[index] = url;
-      continue;
-    }
-    wrappers.push(index);
-    try {
-      signatures[index] = await getGoogleNewsSignature(info);
-    } catch (err) {
-      console.warn(`Unable to get Google News resolver data for ${url}:`, err);
-    }
-    if (info && urls.slice(index + 1).some(getGoogleNewsArticleInfo)) {
+  for (let start = 0; start < urls.length; start += MAX_CONCURRENT_GOOGLE_LOOKUPS) {
+    const batch = urls.slice(start, start + MAX_CONCURRENT_GOOGLE_LOOKUPS);
+    await Promise.all(batch.map(async (url, offset) => {
+      const index = start + offset;
+      const info = getGoogleNewsArticleInfo(url);
+      if (!info) {
+        if (isPublicWebUrl(url) && !isGoogleNewsUrl(url)) resolved[index] = url;
+        return;
+      }
+      wrappers.push(index);
+      try {
+        signatures[index] = await getGoogleNewsSignature(info);
+      } catch (err) {
+        console.warn(`Unable to get Google News resolver data for ${url}:`, err);
+      }
+    }));
+    if (start + MAX_CONCURRENT_GOOGLE_LOOKUPS < urls.length) {
       await new Promise(resolve => setTimeout(resolve, 250));
     }
   }
