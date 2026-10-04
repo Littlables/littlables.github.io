@@ -24,6 +24,14 @@ The JavaScript files are loaded in dependency order as classic scripts so their 
 2. From `cloudflare-worker/`, run `npx wrangler secret put SUPABASE_SECRET_KEY`, enter your Supabase `sb_secret_...` key, then run `npx wrangler deploy`. The project URL and Workers AI and rate-limit bindings are configured in `cloudflare-worker/wrangler.toml`. The secret key must stay in Cloudflare and must never be added to the website.
 3. Configure `AI_CONFIG.workerUrl` in `ai.js` if the Worker is deployed to a different URL.
 
+To test Google News URL resolution locally, without calling the deployed Worker, run:
+
+```sh
+node cloudflare-worker/test-resolver.mjs 'https://news.google.com/rss/articles/ARTICLE_ID?oc=5'
+```
+
+The script runs the same resolver module used by the Worker and prints the publisher URL if resolution succeeds. It requires Node.js with built-in `fetch` support and internet access.
+
 Replace `sb_publishable_REPLACE_WITH_PROJECT_KEY` in `supabase.js` with the project's publishable key (`sb_publishable_...`) to enable the existing reactions and profile sync. This key is public and safe to ship to browsers. It does not replace database security: keep Row Level Security enabled on `article_reactions`, allow clients to read reaction counts, deny direct client writes to counts, and permit reaction changes only through the existing validated `increment_reaction` and `decrement_reaction` RPCs. Do not use the Worker secret key in the browser.
 
 The Worker checks Supabase before generating a summary and saves a new summary by publisher article URL and language. For each story, it collects the main feed URL and links in the feed description, fetches Google News wrapper metadata with bounded concurrency, a short timeout, and one retry for transient rate-limit and server errors, resolves publisher URLs in one batch, fetches those publisher pages, strips common non-content HTML, and gives the extracted text to Workers AI; the model cannot browse arbitrary URLs directly. The website also limits concurrent summary requests to avoid flooding the resolver. Up to ten linked sources are supported. If some URLs fail to resolve, the Worker logs and reports those URLs while generating the summary from all successfully resolved sources; if none resolve, it returns an error. Requests and fetched pages are size-limited, redirects and private-network URLs are rejected, and a per-IP rate limit is applied. Summaries are returned as errors rather than replaced with fabricated text when generation fails.
