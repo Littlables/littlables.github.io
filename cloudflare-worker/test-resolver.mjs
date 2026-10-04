@@ -16,7 +16,8 @@ if (sourceUrls.length === 0) {
       console.log(`Resolved: ${publisherUrl}`);
     } else {
       failures++;
-      console.error(`Failed:   ${sourceUrl}`);
+      const error = resolvedByInput.find(result => result.sourceUrl === sourceUrl)?.error;
+      console.error(`Failed:   ${sourceUrl}${error ? `\n          ${error}` : ''}`);
     }
   }
 

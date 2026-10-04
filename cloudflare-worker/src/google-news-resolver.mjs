@@ -110,6 +110,7 @@ function parseGoogleNewsResolution(responseText) {
 
 export async function resolveGoogleNewsUrls(urls, { isAllowedUrl = isHttpUrl, logger = console } = {}) {
   const resolved = new Array(urls.length);
+  const failureReasons = new Array(urls.length);
   const wrappers = [];
   const signatures = new Array(urls.length);
 
@@ -126,7 +127,8 @@ export async function resolveGoogleNewsUrls(urls, { isAllowedUrl = isHttpUrl, lo
       try {
         signatures[index] = await getGoogleNewsSignature(info);
       } catch (err) {
-        logger.warn(`Unable to get Google News resolver data for ${url}:`, err);
+        failureReasons[index] = err instanceof Error ? err.message : String(err);
+        logger.warn(`Unable to get Google News resolver data for ${url}: ${failureReasons[index]}`);
       }
     }));
     if (start + MAX_CONCURRENT_GOOGLE_LOOKUPS < urls.length) {
@@ -168,13 +170,28 @@ export async function resolveGoogleNewsUrls(urls, { isAllowedUrl = isHttpUrl, lo
         }
       });
     } catch (err) {
-      logger.warn('Google News URL resolution failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn(`Google News URL resolution failed: ${errorMessage}`);
+      for (const { index } of requests) {
+        failureReasons[index] = errorMessage;
+      }
+    }
+
+    for (const { index } of requests) {
+      if (!resolved[index] && !failureReasons[index]) {
+        failureReasons[index] = 'Google returned no publisher URL for this article';
+        logger.warn(`Google returned no publisher URL for ${urls[index]}`);
+      }
     }
   }
 
   return {
     urls: [...new Set(resolved.filter(Boolean))],
     failedUrls: urls.filter((_, index) => !resolved[index]),
-    resolvedByInput: urls.map((sourceUrl, index) => ({ sourceUrl, publisherUrl: resolved[index] || null }))
+    resolvedByInput: urls.map((sourceUrl, index) => ({
+      sourceUrl,
+      publisherUrl: resolved[index] || null,
+      error: failureReasons[index] || null
+    }))
   };
 }
