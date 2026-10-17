@@ -28,34 +28,15 @@
       all: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
     };
 
-    const NEWS_CONFIG = { maxStories: 9 };
+    const NEWS_CONFIG = { maxStories: 9, provider: 'bing' };
 
     function getDynamicNewsFeedUrl(categoryKey = currentCategory) {
-      const params = getGoogleNewsParams();
-      let rawRssUrl = 'https://news.google.com/rss';
-
-      switch (categoryKey) {
-        case 'tech':
-          rawRssUrl = `https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?${params}`;
-          break;
-        case 'world':
-          rawRssUrl = `https://news.google.com/rss/headlines/section/topic/WORLD?${params}`;
-          break;
-        case 'animals':
-          rawRssUrl = `https://news.google.com/rss/search?q=animals+pets+wildlife&${params}`;
-          break;
-        case 'arts':
-          rawRssUrl = `https://news.google.com/rss/search?q=creative+arts+crafts+culture&${params}`;
-          break;
-        case 'uplifting':
-          rawRssUrl = `https://news.google.com/rss/search?q=good+news+positive+breakthrough&${params}`;
-          break;
-        case 'all':
-        default:
-          rawRssUrl = `https://news.google.com/rss?${params}`;
-      }
-
-      return `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rawRssUrl)}`;
+      const url = new URL(AI_CONFIG.workerUrl);
+      url.pathname = '/feed';
+      url.searchParams.set('provider', NEWS_CONFIG.provider);
+      url.searchParams.set('category', categoryKey);
+      url.searchParams.set('market', getDetectedLocale().fullCode);
+      return url.href;
     }
 
     function resolveImageUrl(item, index, categoryKey = currentCategory) {

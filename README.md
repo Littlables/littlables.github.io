@@ -13,10 +13,11 @@ Little snippets of current events
 - `fallback.js` renders the offline/API-error story cards.
 - `app.js` contains feed loading and category logic.
 - `cloudflare-worker/` contains the Workers AI summary API.
+- `cloudflare-worker/src/news-feeds.mjs` defines and parses the RSS providers.
 - `supabase/ai_summaries.sql` creates the persistent AI summary cache.
 
 The early theme initializer remains in `index.html` so the saved theme is applied before the page styles load.
-The JavaScript files are loaded in dependency order as classic scripts so their shared helpers are available to the app.
+The JavaScript files are loaded in dependency order as classic scripts so their shared helpers are available to the app. `NEWS_CONFIG.provider` in `app.js` selects the feed provider; provider feed URLs and link normalization live in `cloudflare-worker/src/news-feeds.mjs`.
 
 ## AI summary setup
 
@@ -34,4 +35,4 @@ The script runs the same resolver module used by the Worker and prints the publi
 
 Replace `sb_publishable_REPLACE_WITH_PROJECT_KEY` in `supabase.js` with the project's publishable key (`sb_publishable_...`) to enable the existing reactions and profile sync. This key is public and safe to ship to browsers. It does not replace database security: keep Row Level Security enabled on `article_reactions`, allow clients to read reaction counts, deny direct client writes to counts, and permit reaction changes only through the existing validated `increment_reaction` and `decrement_reaction` RPCs. Do not use the Worker secret key in the browser.
 
-The Worker checks Supabase before generating a summary and saves a new summary by publisher article URL and language. For each story, it collects the main feed URL and links in the feed description, fetches Google News wrapper metadata with bounded concurrency, a short timeout, and one retry for transient rate-limit and server errors, resolves publisher URLs in one batch, fetches those publisher pages, strips common non-content HTML, and gives the extracted text to Workers AI; the model cannot browse arbitrary URLs directly. The website also limits concurrent summary requests to avoid flooding the resolver. Up to ten linked sources are supported. If some URLs fail to resolve, the Worker logs and reports those URLs while generating the summary from all successfully resolved sources; if none resolve, it returns an error. Requests and fetched pages are size-limited, redirects and private-network URLs are rejected, and a per-IP rate limit is applied. Summaries are returned as errors rather than replaced with fabricated text when generation fails.
+The Worker exposes the selected RSS feed and returns normalized story links; Bing's `news/apiclick.aspx` links are unwrapped to their publisher URL before they are rendered or sent for AI summarization. Bing's RSS freshness option is not strict, so stories older than 30 days are filtered out. Add or change feed providers and their category queries in `cloudflare-worker/src/news-feeds.mjs`. The Worker checks Supabase before generating a summary and saves a new summary by publisher article URL and language. It fetches linked publisher pages, strips common non-content HTML, and gives the extracted text to Workers AI; the model cannot browse arbitrary URLs directly. Up to ten linked sources are supported. If some URLs fail to resolve, the Worker logs and reports those URLs while generating the summary from all successfully resolved sources; if none resolve, it returns an error. Requests and fetched pages are size-limited, redirects and private-network URLs are rejected, and a per-IP rate limit is applied. Summaries are returned as errors rather than replaced with fabricated text when generation fails.

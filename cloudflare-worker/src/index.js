@@ -1,4 +1,5 @@
 import { resolveGoogleNewsUrls } from './google-news-resolver.mjs';
+import { getNewsFeed } from './news-feeds.mjs';
 
 const MAX_REQUEST_BYTES = 16_000;
 const MAX_LINKS = 10;
@@ -10,7 +11,7 @@ const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400'
 };
@@ -20,6 +21,26 @@ function jsonResponse(body, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
   });
+}
+
+async function serveNewsFeed(request, env) {
+  const url = new URL(request.url);
+  try {
+    const limit = await env.SUMMARY_RATE_LIMITER.limit({
+      key: request.headers.get('CF-Connecting-IP') || 'unknown'
+    });
+    if (!limit.success) return jsonResponse({ error: 'News feed request rate limit exceeded' }, 429);
+
+    const feed = await getNewsFeed(
+      url.searchParams.get('provider') || '',
+      url.searchParams.get('category') || 'all',
+      url.searchParams.get('market') || ''
+    );
+    return jsonResponse(feed);
+  } catch (err) {
+    console.error('News feed request failed:', err);
+    return jsonResponse({ error: err instanceof Error ? err.message : 'Unable to load news feed' }, 502);
+  }
 }
 
 function isPublicWebUrl(value) {
@@ -327,6 +348,9 @@ export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+    if (request.method === 'GET' && new URL(request.url).pathname === '/feed') {
+      return serveNewsFeed(request, env);
     }
     if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405);
     return summarize(request, env);
