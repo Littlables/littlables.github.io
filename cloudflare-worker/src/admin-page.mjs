@@ -40,17 +40,37 @@ export function getAdminPage() {
     .provider p, .muted { color: #cbd5e1; }
     button { border: 0; border-radius: 8px; padding: .65rem 1rem; font: inherit; font-weight: 700; color: white; background: #4f46e5; cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
+    button.secondary { background: #475569; }
     a { color: #a5b4fc; }
-    #stories { display: grid; gap: .75rem; }
-    #pending-stories { display: grid; gap: .75rem; }
-    .story { display: grid; grid-template-columns: 72px 1fr; align-items: center; }
-    .story-main { display: flex; align-items: center; gap: 1rem; }
+    #stories, #pending-stories { display: grid; gap: .75rem; }
+    .story { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; }
+    .story-main, .story-details { min-width: 0; }
     .story img { width: 72px; height: 56px; object-fit: cover; border-radius: 6px; }
-    .story h3 { font-size: 1rem; margin: 0 0 .25rem; }
-    .story p { margin: 0; color: #cbd5e1; font-size: .85rem; }
+    .story h3 { font-size: 1rem; margin: 0 0 .4rem; overflow-wrap: anywhere; }
+    .story-meta { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .story-meta span { font-size: .8rem; font-weight: 650; }
+    .meta-provider { color: #c4b5fd; }
+    .meta-category { color: #7dd3fc; }
+    .meta-date { color: #86efac; }
+    .story-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+    .story-actions button { white-space: nowrap; }
+    .category-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+    .category-tab { padding: .5rem .75rem; background: #334155; }
+    .category-tab[aria-pressed="true"] { background: #4f46e5; }
+    .status { font-weight: 700; text-transform: capitalize; }
+    .status-succeeded { color: #86efac; }
+    .status-partial { color: #fcd34d; }
+    .status-failed { color: #fca5a5; }
+    .status-running { color: #7dd3fc; }
+    .status-never { color: #cbd5e1; }
     .error { color: #fca5a5 !important; }
     .success { color: #86efac !important; }
-    @media (max-width: 520px) { .toolbar, .provider-head { align-items: flex-start; flex-direction: column; } }
+    @media (max-width: 640px) {
+      .toolbar, .provider-head { align-items: flex-start; flex-direction: column; }
+      .story { grid-template-columns: 56px minmax(0, 1fr); gap: .75rem; }
+      .story img { width: 56px; height: 48px; }
+      .story-actions { grid-column: 2; justify-content: flex-start; }
+    }
   </style>
 </head>
 <body>
@@ -59,26 +79,44 @@ export function getAdminPage() {
     <button id="refresh" type="button">Refresh data</button>
     <button id="logout" type="button">Sign out</button>
   </header>
+  <section class="summary" aria-live="polite">
+    <h2>Saved story records: <span id="total">—</span></h2>
+    <p id="message" class="muted">Loading database status…</p>
+  </section>
   <section aria-labelledby="providers-title">
     <h2 id="providers-title">News providers</h2>
     <div id="providers" class="providers" aria-live="polite"></div>
   </section>
   <section aria-labelledby="pending-title">
     <h2 id="pending-title">Stories awaiting approval <span id="pending-count"></span></h2>
+    <nav id="approval-categories" class="category-tabs" aria-label="Filter pending stories by category"></nav>
     <div id="pending-stories" aria-live="polite"></div>
-  </section>
-  <section class="summary" aria-live="polite">
-    <h2>Saved story records: <span id="total">—</span></h2>
-    <p id="message" class="muted">Loading database status…</p>
   </section>
   <section aria-labelledby="stories-title">
     <h2 id="stories-title">Last 10 saved stories</h2>
     <div id="stories"></div>
   </section>
   <script>
-    const state = { busy: new Set(), approving: new Set(), providers: [], pendingStories: [] };
+    const categories = [
+      { id: 'all', label: 'Top Currents', icon: '⚡' },
+      { id: 'childcare', label: 'Childcare & Family', icon: '👨‍👩‍👧' },
+      { id: 'animals', label: 'Animals & Nature', icon: '🐾' },
+      { id: 'arts', label: 'Creative Arts', icon: '🎨' },
+      { id: 'tech', label: 'Future Tech & AI', icon: '🤖' },
+      { id: 'world', label: 'Global Currents', icon: '🌍' },
+      { id: 'uplifting', label: 'Uplifting News', icon: '✨' }
+    ];
+    const state = {
+      busy: new Set(),
+      approving: new Set(),
+      ignored: new Set(),
+      activeCategory: 'all',
+      providers: [],
+      pendingStories: []
+    };
     const providersEl = document.getElementById('providers');
     const messageEl = document.getElementById('message');
+    const categoryEl = document.getElementById('approval-categories');
     const text = (value) => value == null || value === '' ? '—' : String(value);
     const formatDate = (value) => value ? new Date(value).toLocaleString() : 'Never';
 
@@ -105,7 +143,11 @@ export function getAdminPage() {
         button.addEventListener('click', () => updateProvider(provider.id));
         head.append(title, button);
         const status = document.createElement('p');
-        status.textContent = 'Status: ' + text(provider.status);
+        status.append('Status: ');
+        const statusValue = document.createElement('span');
+        statusValue.className = 'status status-' + String(provider.status).toLowerCase();
+        statusValue.textContent = text(provider.status);
+        status.append(statusValue);
         const updated = document.createElement('p');
         updated.textContent = 'Last updated: ' + formatDate(provider.last_success_at);
         const saved = document.createElement('p');
@@ -121,10 +163,32 @@ export function getAdminPage() {
       });
     }
 
+    function renderCategoryTabs() {
+      categoryEl.replaceChildren();
+      categories.forEach((category) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'category-tab';
+        button.setAttribute('aria-pressed', String(state.activeCategory === category.id));
+        button.textContent = category.icon + ' ' + category.label;
+        button.addEventListener('click', () => {
+          state.activeCategory = category.id;
+          renderCategoryTabs();
+          renderStories(state.pendingStories, { pending: true });
+        });
+        categoryEl.append(button);
+      });
+    }
+
     function renderStories(stories, { pending = false } = {}) {
       const container = document.getElementById(pending ? 'pending-stories' : 'stories');
       container.replaceChildren();
-      stories.forEach((story) => {
+      const visibleStories = pending
+        ? stories.filter((story) =>
+          !state.ignored.has(story.id) &&
+          (state.activeCategory === 'all' || story.category === state.activeCategory))
+        : stories;
+      visibleStories.forEach((story) => {
         const row = document.createElement('article');
         row.className = 'story';
         if (story.image) {
@@ -137,7 +201,6 @@ export function getAdminPage() {
           const spacer = document.createElement('span');
           row.append(spacer);
         }
-        const details = document.createElement('div');
         const title = document.createElement('h3');
         const link = document.createElement('a');
         link.href = story.link;
@@ -146,26 +209,53 @@ export function getAdminPage() {
         link.textContent = story.title;
         title.append(link);
         const meta = document.createElement('p');
-        meta.textContent = [story.provider, story.category, formatDate(story.pubDate)].join(' · ');
+        meta.className = 'story-meta';
+        [
+          ['meta-provider', story.provider],
+          ['meta-category', categories.find((category) => category.id === story.category)?.label || story.category],
+          ['meta-date', formatDate(story.pubDate)]
+        ].forEach(([className, value]) => {
+          const item = document.createElement('span');
+          item.className = className;
+          item.textContent = value;
+          meta.append(item);
+        });
+        const details = document.createElement('div');
+        details.className = 'story-details';
         details.append(title, meta);
         const main = document.createElement('div');
         main.className = 'story-main';
         main.append(details);
         row.append(main);
         if (pending) {
+          const actions = document.createElement('div');
+          actions.className = 'story-actions';
           const button = document.createElement('button');
           button.type = 'button';
           button.textContent = state.approving.has(story.id) ? 'Approving…' : 'Approve';
           button.disabled = state.approving.has(story.id);
           button.addEventListener('click', () => approveStory(story.id));
-          row.append(button);
+          const ignoreButton = document.createElement('button');
+          ignoreButton.type = 'button';
+          ignoreButton.className = 'secondary';
+          ignoreButton.textContent = 'Ignore';
+          ignoreButton.addEventListener('click', () => {
+            state.ignored.add(story.id);
+            renderStories(state.pendingStories, { pending: true });
+          });
+          actions.append(button, ignoreButton);
+          row.append(actions);
         }
         container.append(row);
       });
-      if (!stories.length) {
+      if (!visibleStories.length) {
         const empty = document.createElement('p');
         empty.className = 'muted';
-        empty.textContent = 'No stories have been saved yet.';
+        empty.textContent = pending && state.activeCategory !== 'all'
+          ? 'No pending stories in this category.'
+          : pending
+            ? 'No stories awaiting approval.'
+            : 'No stories have been saved yet.';
         container.append(empty);
       }
     }
@@ -182,6 +272,7 @@ export function getAdminPage() {
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
           : '';
+        renderCategoryTabs();
         renderStories(state.pendingStories, { pending: true });
         renderStories(data.recentStories);
         messageEl.textContent = 'Database status refreshed.';

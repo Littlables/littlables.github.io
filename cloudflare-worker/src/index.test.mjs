@@ -30,7 +30,13 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Verifying GitHub session/);
   assert.match(page, /Stories awaiting approval/);
   assert.match(page, /Approve/);
+  assert.match(page, /Ignore/);
+  assert.match(page, /Childcare & Family/);
+  assert.match(page, /Future Tech & AI/);
+  assert.match(page, /meta-provider/);
+  assert.match(page, /status-succeeded/);
   assert.match(page, /Last 10 saved stories/);
+  assert.ok(page.indexOf('Saved story records:') < page.indexOf('id="providers-title"'));
 });
 
 test('admin APIs reject missing and non-allowlisted GitHub sessions', async () => {
