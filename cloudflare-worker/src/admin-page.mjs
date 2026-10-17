@@ -43,7 +43,8 @@ export function getAdminPage() {
     button.secondary { background: #475569; }
     .section-toggle { padding: 0; background: transparent; text-align: left; }
     a { color: #a5b4fc; }
-    #stories, #pending-stories { display: grid; gap: .75rem; }
+    #stories, #pending-stories, #banned-stories { display: grid; gap: .75rem; }
+    #stories[hidden], #banned-stories[hidden] { display: none; }
     .story { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; }
     .story-main, .story-details { min-width: 0; }
     .story img { width: 72px; height: 56px; object-fit: cover; border-radius: 6px; }
@@ -57,7 +58,16 @@ export function getAdminPage() {
     .decision-note { margin: .4rem 0 0; color: #cbd5e1; font-size: .82rem; }
     .story-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
     .story-actions button { white-space: nowrap; }
-    #stories[hidden] { display: none; }
+    .custom-input { box-sizing: border-box; width: 100%; padding: .8rem 1rem; border: 1px solid #475569; border-radius: 8px; background: #0f172a; color: #f8fafc; font: inherit; }
+    .preview-dialog { width: min(92vw, 560px); max-height: 90vh; overflow: auto; color: #f8fafc; background: #0b0f19; border: 1px solid #475569; border-radius: 14px; }
+    .preview-dialog::backdrop { background: rgb(2 6 23 / 75%); }
+    .preview-close { display: block; margin: 1rem 0 0 auto; }
+    .preview-card { overflow: hidden; background: #1e293b; border: 1px solid #334155; border-radius: 14px; }
+    .preview-image { display: block; width: 100%; max-height: 240px; object-fit: cover; background: #334155; }
+    .preview-content { padding: 1rem; }
+    .preview-meta { display: flex; flex-wrap: wrap; gap: .75rem; color: #c4b5fd; font-size: .85rem; }
+    .preview-card h3 { margin: .75rem 0; }
+    .preview-card p { color: #cbd5e1; }
     .category-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
     .category-tab { padding: .5rem .75rem; background: #334155; }
     .category-tab[aria-pressed="true"] { background: #4f46e5; }
@@ -87,6 +97,14 @@ export function getAdminPage() {
     <h2>Saved story records: <span id="total">—</span></h2>
     <p id="message" class="muted">Loading database status…</p>
   </section>
+  <section aria-labelledby="custom-title">
+    <h2 id="custom-title">Custom</h2>
+    <input id="custom-link" class="custom-input" type="url" placeholder="Paste an article link to preview its card" aria-label="Paste an article link to preview its card">
+  </section>
+  <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
+    <div id="preview-card"></div>
+    <button id="preview-close" class="preview-close secondary" type="button">Close preview</button>
+  </dialog>
   <section aria-labelledby="providers-title">
     <h2 id="providers-title">News providers</h2>
     <div id="providers" class="providers" aria-live="polite"></div>
@@ -98,11 +116,19 @@ export function getAdminPage() {
   </section>
   <section aria-labelledby="stories-title">
     <h2 id="stories-title">
-      <button id="decisions-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="stories">
-        <span id="decisions-arrow" aria-hidden="true">▲</span> Last 10 decided-on stories
+      <button id="decisions-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="stories">
+        <span id="decisions-arrow" aria-hidden="true">▼</span> Last 10 decided-on stories
       </button>
     </h2>
-    <div id="stories"></div>
+    <div id="stories" hidden></div>
+  </section>
+  <section aria-labelledby="banned-title">
+    <h2 id="banned-title">
+      <button id="banned-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="banned-stories">
+        <span id="banned-arrow" aria-hidden="true">▼</span> Banned stories
+      </button>
+    </h2>
+    <div id="banned-stories" hidden></div>
   </section>
   <script>
     const categories = [
@@ -121,10 +147,12 @@ export function getAdminPage() {
       unapproving: new Set(),
       undoing: new Set(),
       ignored: new Set(),
+      previewTimer: null,
       activeCategory: 'all',
       providers: [],
       pendingStories: [],
-      decidedStories: []
+      decidedStories: [],
+      bannedStories: []
     };
     const providersEl = document.getElementById('providers');
     const messageEl = document.getElementById('message');
@@ -225,8 +253,8 @@ export function getAdminPage() {
       });
     }
 
-    function renderStories(stories, { pending = false, decided = false } = {}) {
-      const container = document.getElementById(pending ? 'pending-stories' : 'stories');
+    function renderStories(stories, { pending = false, decided = false, banned = false } = {}) {
+      const container = document.getElementById(pending ? 'pending-stories' : banned ? 'banned-stories' : 'stories');
       container.replaceChildren();
       const visibleStories = pending
         ? stories.filter((story) =>
@@ -278,7 +306,8 @@ export function getAdminPage() {
           decision.className = 'decision-note';
           const actionLabels = {
             approve: 'Approved',
-            unapprove: 'Removed from approved stories',
+            disapprove: 'Disapproved',
+            unapprove: 'Disapproved',
             ban: 'Banned from the site',
             undo: 'Undid the previous decision'
           };
@@ -290,7 +319,7 @@ export function getAdminPage() {
         main.className = 'story-main';
         main.append(details);
         row.append(main);
-        if (pending || decided) {
+        if (pending || decided || banned) {
           const actions = document.createElement('div');
           actions.className = 'story-actions';
           if (pending) {
@@ -299,6 +328,12 @@ export function getAdminPage() {
             button.textContent = state.approving.has(story.id) ? 'Approving…' : 'Approve';
             button.disabled = state.approving.has(story.id);
             button.addEventListener('click', () => approveStory(story.id));
+            const disapproveButton = document.createElement('button');
+            disapproveButton.type = 'button';
+            disapproveButton.className = 'secondary';
+            disapproveButton.textContent = state.unapproving.has(story.id) ? 'Disapproving…' : 'Disapprove';
+            disapproveButton.disabled = state.unapproving.has(story.id);
+            disapproveButton.addEventListener('click', () => disapproveStory(story.id));
             const ignoreButton = document.createElement('button');
             ignoreButton.type = 'button';
             ignoreButton.className = 'secondary';
@@ -313,18 +348,18 @@ export function getAdminPage() {
             banButton.textContent = state.banning.has(story.id) ? 'Banning…' : 'Ban';
             banButton.disabled = state.banning.has(story.id);
             banButton.addEventListener('click', () => banStory(story.id));
-            actions.append(button, ignoreButton, banButton);
+            actions.append(button, disapproveButton, ignoreButton, banButton);
           } else if (story.approved && !story.removed) {
-            const removeButton = document.createElement('button');
-            removeButton.type = 'button';
-            removeButton.className = 'secondary';
-            removeButton.textContent = state.unapproving.has(story.id) ? 'Removing…' : 'Remove';
-            removeButton.disabled = state.unapproving.has(story.id);
-            removeButton.addEventListener('click', () => unapproveStory(story.id));
-            actions.append(removeButton);
+            const disapproveButton = document.createElement('button');
+            disapproveButton.type = 'button';
+            disapproveButton.className = 'secondary';
+            disapproveButton.textContent = state.unapproving.has(story.id) ? 'Disapproving…' : 'Disapprove';
+            disapproveButton.disabled = state.unapproving.has(story.id);
+            disapproveButton.addEventListener('click', () => disapproveStory(story.id));
+            actions.append(disapproveButton);
           }
           if (
-            decided &&
+            (decided || banned) &&
             typeof story.previousApproved === 'boolean' &&
             typeof story.previousRemoved === 'boolean' &&
             !state.undoing.has(story.id)
@@ -335,7 +370,7 @@ export function getAdminPage() {
             undoButton.textContent = 'Undo';
             undoButton.addEventListener('click', () => undoDecision(story.id));
             actions.append(undoButton);
-          } else if (decided && state.undoing.has(story.id)) {
+          } else if ((decided || banned) && state.undoing.has(story.id)) {
             const undoButton = document.createElement('button');
             undoButton.type = 'button';
             undoButton.className = 'secondary';
@@ -354,6 +389,8 @@ export function getAdminPage() {
           ? 'No pending stories in this category.'
           : pending
             ? 'No stories awaiting approval.'
+            : banned
+              ? 'No banned stories.'
             : decided
               ? 'No stories have been decided yet.'
             : 'No stories have been saved yet.';
@@ -369,6 +406,7 @@ export function getAdminPage() {
         state.providers = data.providers;
         state.pendingStories = data.pendingStories || [];
         state.decidedStories = data.recentStories || [];
+        state.bannedStories = data.bannedStories || [];
         renderProviders(data.providers);
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
         document.getElementById('pending-count').textContent = state.pendingStories.length
@@ -377,6 +415,7 @@ export function getAdminPage() {
         renderCategoryTabs();
         renderStories(state.pendingStories, { pending: true });
         renderStories(state.decidedStories, { decided: true });
+        renderStories(state.bannedStories, { banned: true });
         refreshStoryAges();
         messageEl.textContent = 'Database status refreshed.';
       } catch (error) {
@@ -407,6 +446,7 @@ export function getAdminPage() {
       busySet.add(storyId);
       renderStories(state.pendingStories, { pending: true });
       renderStories(state.decidedStories, { decided: true });
+      renderStories(state.bannedStories, { banned: true });
       try {
         await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/' + action, { method: 'POST' });
         await refreshData();
@@ -419,6 +459,7 @@ export function getAdminPage() {
         busySet.delete(storyId);
         renderStories(state.pendingStories, { pending: true });
         renderStories(state.decidedStories, { decided: true });
+        renderStories(state.bannedStories, { banned: true });
       }
     }
 
@@ -426,8 +467,8 @@ export function getAdminPage() {
       return postStoryDecision(storyId, 'ban', state.banning, 'Story banned from public feeds.');
     }
 
-    function unapproveStory(storyId) {
-      return postStoryDecision(storyId, 'unapprove', state.unapproving, 'Story moved below approved stories.');
+    function disapproveStory(storyId) {
+      return postStoryDecision(storyId, 'disapprove', state.unapproving, 'Story disapproved; it remains in the feed without the Littlables badge.');
     }
 
     function undoDecision(storyId) {
@@ -462,6 +503,103 @@ export function getAdminPage() {
       event.currentTarget.setAttribute('aria-expanded', String(!expanded));
       document.getElementById('decisions-arrow').textContent = expanded ? '▼' : '▲';
       content.hidden = expanded;
+    });
+    document.getElementById('banned-toggle').addEventListener('click', (event) => {
+      const content = document.getElementById('banned-stories');
+      const expanded = event.currentTarget.getAttribute('aria-expanded') === 'true';
+      event.currentTarget.setAttribute('aria-expanded', String(!expanded));
+      document.getElementById('banned-arrow').textContent = expanded ? '▼' : '▲';
+      content.hidden = expanded;
+    });
+    function showCustomPreview(data) {
+      const preview = document.getElementById('preview-card');
+      preview.replaceChildren();
+      const card = document.createElement('article');
+      card.className = 'preview-card';
+      if (data.image) {
+        const image = document.createElement('img');
+        image.className = 'preview-image';
+        image.src = data.image;
+        image.alt = '';
+        card.append(image);
+      }
+      const content = document.createElement('div');
+      content.className = 'preview-content';
+      const meta = document.createElement('div');
+      meta.className = 'preview-meta';
+      const source = document.createElement('span');
+      source.textContent = data.source || getStoryDomain(data.link);
+      const date = document.createElement('span');
+      date.textContent = data.pubDate
+        ? '🕒 ' + new Date(data.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Recent';
+      meta.append(source, date);
+      if (data.approved !== false) {
+        const badge = document.createElement('span');
+        badge.textContent = "🧸 Littlables' Little Scoop";
+        meta.append(badge);
+      }
+      const title = document.createElement('h3');
+      title.id = 'preview-title';
+      title.textContent = data.title || 'Untitled Update';
+      const description = document.createElement('p');
+      description.textContent = data.description || 'No description was found on this page.';
+      const link = document.createElement('a');
+      link.href = data.link;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Read Full Story →';
+      content.append(meta, title, description, link);
+      card.append(content);
+      preview.append(card);
+      const dialog = document.getElementById('preview-dialog');
+      if (!dialog.open) dialog.showModal();
+    }
+
+    async function parseCustomLink() {
+      const input = document.getElementById('custom-link');
+      const value = input.value.trim();
+      if (!value) return;
+      let url;
+      try {
+        url = new URL(value);
+      } catch {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Paste a valid article URL.';
+        return;
+      }
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Only HTTP and HTTPS links can be previewed.';
+        return;
+      }
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Parsing custom article…';
+      try {
+        const data = await request('/admin/api/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url.href })
+        });
+        showCustomPreview(data);
+        messageEl.className = 'success';
+        messageEl.textContent = 'Custom card preview ready.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not preview this link: ' + error.message;
+      }
+    }
+
+    function queueCustomPreview() {
+      clearTimeout(state.previewTimer);
+      state.previewTimer = setTimeout(parseCustomLink, 500);
+    }
+
+    const customLink = document.getElementById('custom-link');
+    customLink.addEventListener('input', queueCustomPreview);
+    customLink.addEventListener('paste', () => setTimeout(queueCustomPreview, 0));
+    document.getElementById('preview-close').addEventListener('click', () => {
+      document.getElementById('preview-dialog').close();
     });
     request('/admin/api/identity')
       .then((data) => { document.getElementById('identity').textContent = 'Signed in as @' + data.login; })

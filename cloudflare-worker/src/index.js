@@ -16,10 +16,10 @@ import {
   finishNewsProviderSync,
   approveNewsStory,
   banNewsStory,
+  disapproveNewsStory,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
   undoNewsStoryDecision,
-  unapproveNewsStory,
   upsertNewsStories
 } from './news-storage.mjs';
 
@@ -285,6 +285,35 @@ async function serveAdmin(request, env) {
     }
   }
 
+  if (url.pathname === '/admin/api/preview' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Page previews must be requested from the admin origin' }, 403);
+    }
+    try {
+      const contentLength = Number(request.headers.get('Content-Length') || 0);
+      if (contentLength > 4_000) return jsonResponse({ error: 'Preview request is too large' }, 413);
+      const bodyText = await request.text();
+      if (bodyText.length > 4_000) return jsonResponse({ error: 'Preview request is too large' }, 413);
+      let body;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        return jsonResponse({ error: 'Preview request must be valid JSON' }, 400);
+      }
+      if (typeof body.url !== 'string' || body.url.length > 2_000 || !isPublicWebUrl(body.url)) {
+        return jsonResponse({ error: 'Enter a public HTTP or HTTPS article URL' }, 400);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-preview:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Preview rate limit exceeded' }, 429);
+      const page = await fetchPublicPage(body.url);
+      const metadata = extractPageMetadata(page.content, page.url);
+      return jsonResponse(metadata);
+    } catch (err) {
+      console.error('Custom article preview failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not parse this article page' }, 502);
+    }
+  }
+
   const approvalMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/approve$/);
   if (approvalMatch && request.method === 'POST') {
     if (!isSameOrigin(request)) {
@@ -300,15 +329,15 @@ async function serveAdmin(request, env) {
     }
   }
 
-  const decisionMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/(unapprove|ban|undo)$/);
+  const decisionMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/(disapprove|ban|undo)$/);
   if (decisionMatch && request.method === 'POST') {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Story decision must be requested from the admin origin' }, 403);
     }
     try {
       const [, storyId, action] = decisionMatch;
-      const changed = action === 'unapprove'
-        ? await unapproveNewsStory(env, storyId, identity.login)
+      const changed = action === 'disapprove'
+        ? await disapproveNewsStory(env, storyId, identity.login)
         : action === 'ban'
           ? await banNewsStory(env, storyId, identity.login)
           : await undoNewsStoryDecision(env, storyId, identity.login);
@@ -444,6 +473,51 @@ function decodeHtml(value) {
 
 function decodeCodePoint(codePoint) {
   return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : '\ufffd';
+}
+
+function getHtmlAttributes(tag) {
+  const attributes = new Map();
+  const pattern = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+  for (const match of tag.matchAll(pattern)) {
+    attributes.set(match[1].toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
+  }
+  return attributes;
+}
+
+function extractPageMetadata(html, pageUrl) {
+  const metadata = new Map();
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attributes = getHtmlAttributes(match[0]);
+    const name = (attributes.get('property') || attributes.get('name') || '').toLowerCase();
+    const content = attributes.get('content');
+    if (name && content && !metadata.has(name)) metadata.set(name, decodeHtml(content).trim());
+  }
+  const titleTag = html.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
+  const title = metadata.get('og:title') ||
+    metadata.get('twitter:title') ||
+    (titleTag ? extractPageText(titleTag[1]) : '');
+  const description = metadata.get('og:description') ||
+    metadata.get('twitter:description') ||
+    metadata.get('description') ||
+    '';
+  const imageValue = metadata.get('og:image') || metadata.get('twitter:image') || '';
+  let image = '';
+  try {
+    const candidate = new URL(imageValue, pageUrl).href;
+    if (isPublicWebUrl(candidate)) image = candidate;
+  } catch {}
+  const publishedAt = metadata.get('article:published_time') ||
+    metadata.get('og:published_time') ||
+    metadata.get('date') ||
+    '';
+  return {
+    title: title.slice(0, 500),
+    description: description.slice(0, 2_000),
+    image,
+    link: pageUrl,
+    source: new URL(pageUrl).hostname.replace(/^www\./i, ''),
+    pubDate: Number.isFinite(Date.parse(publishedAt)) ? new Date(publishedAt).toISOString() : ''
+  };
 }
 
 function extractPageText(html) {

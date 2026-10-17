@@ -70,19 +70,26 @@ export async function getStoredNewsFeed(env, category) {
 export async function getNewsAdminSnapshot(env, providers) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
     decision_at: 'not.is.null',
     order: 'decision_at.desc',
     limit: '10'
   });
   const pendingQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at',
+    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at,decision_action',
     approved: 'eq.false',
     removed: 'eq.false',
+    or: '(decision_action.is.null,decision_action.eq.undo)',
     order: 'fetched_at.desc',
     limit: '100'
   });
-  const [countResponse, recentResponse, pendingResponse, syncResponse] = await Promise.all([
+  const bannedQuery = new URLSearchParams({
+    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    removed: 'eq.true',
+    order: 'removed_at.desc.nullslast',
+    limit: '100'
+  });
+  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse] = await Promise.all([
     fetch(supabaseUrl(env, STORIES_TABLE, storyCountQuery), {
       headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
     }),
@@ -90,6 +97,9 @@ export async function getNewsAdminSnapshot(env, providers) {
       headers: supabaseHeaders(env)
     }),
     fetch(supabaseUrl(env, STORIES_TABLE, pendingQuery), {
+      headers: supabaseHeaders(env)
+    }),
+    fetch(supabaseUrl(env, STORIES_TABLE, bannedQuery), {
       headers: supabaseHeaders(env)
     }),
     fetch(supabaseUrl(env, SYNC_TABLE, 'select=provider,status,started_at,last_attempt_at,last_success_at,stories_saved,last_error,updated_by'), {
@@ -102,6 +112,7 @@ export async function getNewsAdminSnapshot(env, providers) {
   if (!Number.isFinite(total)) throw new Error('Story count lookup returned no exact count');
   const recentRows = await readRows(recentResponse, 'Recent story lookup');
   const pendingRows = await readRows(pendingResponse, 'Unapproved story lookup');
+  const bannedRows = await readRows(bannedResponse, 'Banned story lookup');
   const syncRows = await readRows(syncResponse, 'Provider status lookup');
   const syncByProvider = new Map(syncRows.map(row => [row.provider, row]));
   return {
@@ -118,11 +129,24 @@ export async function getNewsAdminSnapshot(env, providers) {
       previousApproved: row.previous_approved,
       previousRemoved: row.previous_removed
     })),
+    bannedStories: bannedRows.map(row => ({
+      ...normalizeStory(row),
+      id: row.id,
+      approved: row.approved,
+      removed: row.removed,
+      updatedAt: row.removed_at || row.decision_at || row.fetched_at || '',
+      decisionAction: row.decision_action,
+      decisionBy: row.decision_by,
+      decisionAt: row.decision_at,
+      previousApproved: row.previous_approved,
+      previousRemoved: row.previous_removed
+    })),
     pendingStories: pendingRows.map(row => ({
       ...normalizeStory(row),
       id: row.id,
       approved: row.approved,
-      updatedAt: row.fetched_at || ''
+      updatedAt: row.fetched_at || '',
+      decisionAction: row.decision_action || ''
     })),
     providers: providers.map(provider => ({
       ...provider,
@@ -165,10 +189,22 @@ export async function approveNewsStory(env, storyId, approvedBy) {
   return true;
 }
 
-export async function unapproveNewsStory(env, storyId, decidedBy) {
+export async function disapproveNewsStory(env, storyId, decidedBy) {
+  const lookupQuery = new URLSearchParams({
+    id: `eq.${storyId}`,
+    removed: 'eq.false',
+    select: 'id,approved,removed'
+  });
+  const lookup = await fetch(supabaseUrl(env, STORIES_TABLE, lookupQuery), {
+    headers: supabaseHeaders(env)
+  });
+  const matchingRows = await readRows(lookup, 'Story disapproval lookup');
+  if (matchingRows.length !== 1) return false;
+  const previous = matchingRows[0];
+  if (previous.removed) return false;
   const query = new URLSearchParams({
     id: `eq.${storyId}`,
-    approved: 'eq.true',
+    approved: `eq.${previous.approved}`,
     removed: 'eq.false',
     select: 'id'
   });
@@ -179,14 +215,14 @@ export async function unapproveNewsStory(env, storyId, decidedBy) {
       approved: false,
       approved_by: null,
       approved_at: null,
-      decision_action: 'unapprove',
+      decision_action: 'disapprove',
       decision_by: decidedBy,
       decision_at: new Date().toISOString(),
-      previous_approved: true,
+      previous_approved: previous.approved,
       previous_removed: false
     })
   });
-  const rows = await readRows(response, 'Story unapproval update');
+  const rows = await readRows(response, 'Story disapproval update');
   return rows.length === 1;
 }
 
@@ -218,7 +254,7 @@ export async function banNewsStory(env, storyId, bannedBy) {
 export async function undoNewsStoryDecision(env, storyId, undoneBy) {
   const query = new URLSearchParams({
     id: `eq.${storyId}`,
-    decision_action: 'in.(approve,unapprove,ban)',
+    decision_action: 'in.(approve,disapprove,unapprove,ban)',
     decision_at: 'not.is.null',
     select: 'id,approved,removed,decision_action,decision_at,previous_approved,previous_removed'
   });

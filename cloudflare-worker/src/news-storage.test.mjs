@@ -7,8 +7,8 @@ import {
   finishNewsProviderSync,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
+  disapproveNewsStory,
   undoNewsStoryDecision,
-  unapproveNewsStory,
   upsertNewsStories
 } from './news-storage.mjs';
 
@@ -191,13 +191,21 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.pendingStories[0].updatedAt, '2026-10-17T12:00:00Z');
     assert.equal(snapshot.providers[0].status, 'succeeded');
     assert.equal(snapshot.providers[0].stories_saved, 7);
-    assert.equal(requests.length, 4);
+    assert.equal(requests.length, 5);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
     assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), '10');
     assert.ok(requests.some(({ url }) =>
       url.searchParams.get('approved') === 'eq.false' &&
       url.searchParams.get('removed') === 'eq.false'
     ));
+    assert.ok(requests.some(({ url }) =>
+      url.searchParams.get('removed') === 'eq.true' &&
+      url.searchParams.get('limit') === '100'
+    ));
+    assert.equal(
+      requests.find(({ url }) => url.searchParams.has('or')).url.searchParams.get('or'),
+      '(decision_action.is.null,decision_action.eq.undo)'
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -230,27 +238,33 @@ test('approval only transitions an unapproved story and records the admin identi
   }
 });
 
-test('remove unapproves an approved story so it stays in the feed below approved stories', async () => {
+test('disapprove keeps a story in the feed without treating it as approved', async () => {
   const originalFetch = globalThis.fetch;
-  let requestUrl;
-  let requestOptions;
+  const requests = [];
   globalThis.fetch = async (input, options) => {
-    requestUrl = new URL(String(input));
-    requestOptions = options;
-    return Response.json([{ id: 7 }]);
+    const requestUrl = new URL(String(input));
+    requests.push({ requestUrl, options });
+    return requests.length === 1
+      ? Response.json([{ id: 7, approved: true, removed: false }])
+      : Response.json([{ id: 7 }]);
   };
   try {
-    assert.equal(await unapproveNewsStory(env, '7', 'littlables'), true);
-    assert.equal(requestUrl.pathname, '/rest/v1/news_stories');
-    assert.equal(requestUrl.searchParams.get('id'), 'eq.7');
-    assert.equal(requestUrl.searchParams.get('approved'), 'eq.true');
-    assert.equal(requestUrl.searchParams.get('removed'), 'eq.false');
-    assert.equal(requestOptions.method, 'PATCH');
-    const payload = JSON.parse(requestOptions.body);
+    assert.equal(await disapproveNewsStory(env, '7', 'littlables'), true);
+    assert.equal(requests.length, 2);
+    const [lookup, update] = requests;
+    assert.equal(lookup.requestUrl.searchParams.get('id'), 'eq.7');
+    assert.equal(lookup.requestUrl.searchParams.get('removed'), 'eq.false');
+    assert.equal(update.requestUrl.pathname, '/rest/v1/news_stories');
+    assert.equal(update.requestUrl.searchParams.get('id'), 'eq.7');
+    assert.equal(update.requestUrl.searchParams.get('approved'), 'eq.true');
+    assert.equal(update.requestUrl.searchParams.get('removed'), 'eq.false');
+    assert.equal(update.options.method, 'PATCH');
+    const payload = JSON.parse(update.options.body);
     assert.equal(payload.approved, false);
     assert.equal(payload.removed, undefined);
-    assert.equal(payload.decision_action, 'unapprove');
+    assert.equal(payload.decision_action, 'disapprove');
     assert.equal(payload.previous_approved, true);
+    assert.equal(payload.previous_removed, false);
   } finally {
     globalThis.fetch = originalFetch;
   }

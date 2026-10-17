@@ -102,31 +102,20 @@
           .slice(0, NEWS_CONFIG.maxStories);
         container.innerHTML = '';
         const categoryBadge = getActiveCategoryBadge();
-        let displayedIndex = 0;
+        const itemsToDisplay = [...approvedItems, ...unapprovedItems];
         let adIndex = 0;
-        const renderGroup = (items, heading) => {
-          if (!items.length) return;
-          const groupHeading = document.createElement('h2');
-          groupHeading.className = 'feed-group-title';
-          groupHeading.textContent = heading;
-          container.appendChild(groupHeading);
-          items.forEach((item) => {
-            container.appendChild(createNewsStoryCard(item, displayedIndex, categoryBadge));
-            displayedIndex += 1;
-            if (displayedIndex === 3 || displayedIndex === 6) {
-              container.appendChild(createInFeedAdCard(adIndex));
-              adIndex += 1;
-            }
-          });
-        };
-        renderGroup(approvedItems, 'Approved stories');
-        renderGroup(unapprovedItems, '🧸 Stories waiting for a little love');
+        itemsToDisplay.forEach((item, index) => {
+          container.appendChild(createNewsStoryCard(item, index, categoryBadge));
+          if (index === 2 || index === 5) {
+            container.appendChild(createInFeedAdCard(adIndex));
+            adIndex += 1;
+          }
+        });
 
-        if (!approvedItems.length && !unapprovedItems.length) {
+        if (!itemsToDisplay.length) {
           throw new Error('News feed returned no stories with valid article links');
         }
 
-        const itemsToDisplay = [...approvedItems, ...unapprovedItems];
         const displayedStoryIds = itemsToDisplay.map(item => getStoryId(item.title, item.link));
         syncReactionsFromSupabase(displayedStoryIds);
       } catch (err) {

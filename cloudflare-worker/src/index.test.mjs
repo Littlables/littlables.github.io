@@ -30,10 +30,13 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Verifying GitHub session/);
   assert.match(page, /Stories awaiting approval/);
   assert.match(page, /Approve/);
+  assert.match(page, /Disapprove/);
   assert.match(page, /Ignore/);
-  assert.match(page, /Remove/);
   assert.match(page, /Ban/);
   assert.match(page, /Undo/);
+  assert.match(page, /Banned stories/);
+  assert.match(page, /id="custom-link"/);
+  assert.match(page, /preview-dialog/);
   assert.match(page, /Childcare & Family/);
   assert.match(page, /Future Tech & AI/);
   assert.match(page, /meta-provider/);
@@ -43,7 +46,10 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /status-succeeded/);
   assert.match(page, /Last 10 decided-on stories/);
   assert.match(page, /decisions-toggle/);
+  assert.match(page, /aria-expanded="false" aria-controls="stories"/);
+  assert.match(page, /aria-expanded="false" aria-controls="banned-stories"/);
   assert.ok(page.indexOf('Saved story records:') < page.indexOf('id="providers-title"'));
+  assert.ok(page.indexOf('id="custom-title"') < page.indexOf('id="providers-title"'));
 });
 
 test('admin APIs reject missing and non-allowlisted GitHub sessions', async () => {
@@ -237,6 +243,86 @@ test('public feed API reads approved and unapproved stories while excluding bann
   }
 });
 
+test('custom preview parses public article metadata for a homepage card', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetched;
+  globalThis.fetch = async (input, options) => {
+    fetched = { url: String(input), options };
+    return new Response(`<!doctype html>
+      <html><head>
+      <meta property="og:title" content="A &amp; B story">
+      <meta name="description" content="A useful article description.">
+      <meta property="og:image" content="/images/story.jpg">
+      <meta property="article:published_time" content="2026-10-17T12:00:00Z">
+      </head></html>`, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/preview', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: 'https://publisher.example/story' })
+      }),
+      {
+        ...authEnv,
+        SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) }
+      }
+    );
+    assert.equal(response.status, 200);
+    assert.equal(fetched.url, 'https://publisher.example/story');
+    assert.equal(fetched.options.redirect, 'manual');
+    assert.deepEqual(await response.json(), {
+      title: 'A & B story',
+      description: 'A useful article description.',
+      image: 'https://publisher.example/images/story.jpg',
+      link: 'https://publisher.example/story',
+      source: 'publisher.example',
+      pubDate: '2026-10-17T12:00:00.000Z'
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('custom preview rejects private URLs and cross-origin requests without fetching', async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    throw new Error('Must not fetch');
+  };
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const privateUrl = await worker.fetch(
+      new Request('https://worker.example/admin/api/preview', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie },
+        body: JSON.stringify({ url: 'http://127.0.0.1/admin' })
+      }),
+      authEnv
+    );
+    const crossOrigin = await worker.fetch(
+      new Request('https://worker.example/admin/api/preview', {
+        method: 'POST',
+        headers: { Origin: 'https://attacker.example', Cookie: cookie },
+        body: JSON.stringify({ url: 'https://publisher.example/story' })
+      }),
+      authEnv
+    );
+    assert.equal(privateUrl.status, 400);
+    assert.equal(crossOrigin.status, 403);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('admin approval route updates only a pending story after same-origin check', async () => {
   const originalFetch = globalThis.fetch;
   let requested;
@@ -332,18 +418,18 @@ test('admin ban route rejects cross-origin requests without updating Supabase', 
   }
 });
 
-test('admin remove route unapproves a story without banning it', async () => {
+test('admin disapprove route unapproves a story without banning it', async () => {
   const originalFetch = globalThis.fetch;
-  let requested;
-  let update;
+  const requests = [];
   globalThis.fetch = async (input, options) => {
-    requested = new URL(String(input));
-    update = JSON.parse(options.body);
-    return Response.json([{ id: 12 }]);
+    requests.push({ url: new URL(String(input)), options });
+    return requests.length === 1
+      ? Response.json([{ id: 12, approved: true, removed: false }])
+      : Response.json([{ id: 12 }]);
   };
   try {
     const response = await worker.fetch(
-      new Request('https://worker.example/admin/api/stories/12/unapprove', {
+      new Request('https://worker.example/admin/api/stories/12/disapprove', {
         method: 'POST',
         headers: { Origin: 'https://worker.example', Cookie: (await adminCookie()).split(';')[0] }
       }),
@@ -355,12 +441,13 @@ test('admin remove route unapproves a story without banning it', async () => {
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(requested.searchParams.get('approved'), 'eq.true');
-    assert.equal(requested.searchParams.get('removed'), 'eq.false');
+    assert.equal(requests[1].url.searchParams.get('approved'), 'eq.true');
+    assert.equal(requests[1].url.searchParams.get('removed'), 'eq.false');
+    const update = JSON.parse(requests[1].options.body);
     assert.equal(update.approved, false);
     assert.equal(update.removed, undefined);
-    assert.equal(update.decision_action, 'unapprove');
-    assert.equal(result.action, 'unapprove');
+    assert.equal(update.decision_action, 'disapprove');
+    assert.equal(result.action, 'disapprove');
   } finally {
     globalThis.fetch = originalFetch;
   }

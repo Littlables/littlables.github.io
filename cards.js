@@ -23,7 +23,7 @@
         <div class="news-card-content">
           <div class="news-card-meta">
             <span>🕒 ${pubDate}</span>
-            <span>${t('verifiedWire')}</span>
+            ${item.approved === true ? `<span>${t('verifiedWire')}</span>` : ''}
           </div>
           <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-card-title">${title}</a>
           <p class="news-card-desc">${cleanDesc}</p>
