@@ -135,9 +135,10 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     const url = new URL(String(input));
     requests.push({ url, options });
     if (url.pathname.endsWith('/news_stories') && options.headers.Range) {
+      const total = url.searchParams.has('provider') ? 17 : 42;
       return new Response('[{"id":1}]', {
         status: 206,
-        headers: { 'Content-Range': '0-0/42' }
+        headers: { 'Content-Range': `0-0/${total}` }
       });
     }
     if (
@@ -195,7 +196,8 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.pendingStories[0].updatedAt, '2026-10-17T12:00:00Z');
     assert.equal(snapshot.providers[0].status, 'succeeded');
     assert.equal(snapshot.providers[0].stories_saved, 7);
-    assert.equal(requests.length, 5);
+    assert.equal(snapshot.providers[0].total_stories_saved, 17);
+    assert.equal(requests.length, 6);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
     assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), '10');
     assert.ok(requests.some(({ url }) =>

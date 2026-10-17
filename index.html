@@ -4,7 +4,27 @@
   <meta name="google-adsense-account" content="ca-pub-6117076538261387">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Littlables is a cozy, family-friendly news feed for curious minds, bringing together stories about family, animals, creativity, technology, world events, and good news.">
+  <meta name="keywords" content="Littlables, family-friendly news, positive news, childcare, family, animals, nature, creative arts, technology, AI, world news, uplifting news">
+  <meta name="author" content="Littlables">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="theme-color" content="#1e293b">
+  <link rel="canonical" href="https://littlables.github.io/">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="favicon-192x192.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Littlables">
+  <meta property="og:url" content="https://littlables.github.io/">
+  <meta property="og:title" content="Littlables — A Little Scoop of the World">
+  <meta property="og:description" content="A cozy, family-friendly news feed for curious minds, with stories from around the world and a little room for good news.">
+  <meta property="og:image" content="https://littlables.github.io/favicon-512x512.png">
+  <meta property="og:image:alt" content="Littlables colorful stacked-block favicon">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Littlables — A Little Scoop of the World">
+  <meta name="twitter:description" content="A cozy, family-friendly news feed for curious minds.">
+  <meta name="twitter:image" content="https://littlables.github.io/favicon-512x512.png">
   <script>
     // Early theme initialization to prevent any theme flash (FOUC), with device system mode detection
     (function() {
@@ -21,7 +41,7 @@
       } catch (e) {}
     })();
   </script>
-  <title id="page-title">Littlables</title>
+  <title id="page-title">Littlables — A Little Scoop of the World</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -78,9 +98,29 @@
 
     <!-- The cards get injected into this element -->
     <div id="news-grid-container" class="news-grid">
-      <div class="news-loading-skeleton" id="news-loading-text">Fetching the freshest stories & computing AI summaries...</div>
+      <div class="news-loading-skeleton" id="news-loading-text">Fetching the freshest stories...</div>
     </div>
   </div>
+
+  <footer class="site-footer">
+    <span>© <span id="copyright-year"></span> Littlables</span>
+    <nav aria-label="About Littlables">
+      <a href="#about-us" data-open-dialog="about-dialog">About us</a>
+      <a href="#disclaimer" data-open-dialog="disclaimer-dialog">Disclaimer</a>
+    </nav>
+  </footer>
+  <dialog class="site-info-dialog" id="about-dialog" aria-labelledby="about-title">
+    <button class="site-info-close" type="button" aria-label="Close About Littlables">×</button>
+    <img src="favicon-192x192.png" width="192" height="192" alt="Littlables pastel pink icon with colorful stacked blocks">
+    <h2 id="about-title">About Littlables</h2>
+    <p>Littlables is a small, independent project built to make keeping up with the world feel a little more welcoming. We bring together stories about family and childcare, animals and nature, creative arts, future technology, global currents, and uplifting news in one colorful, easy-to-explore place.</p>
+    <p>Our goal is to help curious people discover useful, interesting stories without losing sight of the good happening around us. Our roadmap is to keep improving the quality and variety of our sources, make our summaries and moderation clearer, and grow the site thoughtfully while keeping it friendly, accessible, and fun.</p>
+  </dialog>
+  <dialog class="site-info-dialog" id="disclaimer-dialog" aria-labelledby="disclaimer-title">
+    <button class="site-info-close" type="button" aria-label="Close disclaimer">×</button>
+    <h2 id="disclaimer-title">A little note about our stories</h2>
+    <p>Stories are collected from third-party publishers and may be reviewed by Littlables before receiving the Littlables' Little Scoop badge; stories without the badge may still appear in the feed and have not necessarily been reviewed. AI summaries are generated to help readers get a quick overview, can make mistakes or miss context, and are not a replacement for the original article. Please follow the source link to read the publisher's full story and verify important details. Littlables does not own or endorse linked articles, and publishers remain responsible for their content.</p>
+  </dialog>
 
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387"
      crossorigin="anonymous"></script>
@@ -88,9 +128,25 @@
   <script src="i18n.js"></script>
   <script src="supabase.js"></script>
   <script src="theme.js"></script>
-  <script src="ai.js"></script>
   <script src="cards.js"></script>
   <script src="fallback.js"></script>
   <script src="app.js"></script>
+  <script>
+    document.getElementById('copyright-year').textContent = String(new Date().getFullYear());
+    document.querySelectorAll('[data-open-dialog]').forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        document.getElementById(link.dataset.openDialog).showModal();
+      });
+    });
+    document.querySelectorAll('.site-info-close').forEach(button => {
+      button.addEventListener('click', () => button.closest('dialog').close());
+    });
+    document.querySelectorAll('.site-info-dialog').forEach(dialog => {
+      dialog.addEventListener('click', event => {
+        if (event.target === dialog) dialog.close();
+      });
+    });
+  </script>
 </body>
 </html>

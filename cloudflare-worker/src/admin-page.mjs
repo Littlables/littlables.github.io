@@ -73,10 +73,9 @@ export function getAdminPage() {
     .news-card-desc { flex: 1; color: #cbd5e1; font-size: .85rem; line-height: 1.5; }
     .news-card-ai-summary { padding: .65rem .85rem; border-left: 3px solid #818cf8; border-radius: 0 8px 8px 0; background: #172554; color: #e0e7ff; font-size: .8rem; line-height: 1.45; }
     .news-card-ai-label { margin-bottom: .25rem; color: #c7d2fe; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+    .summary-generate { padding: .4rem .65rem; background: #3730a3; }
     .news-card-footer { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: auto; padding-top: .65rem; border-top: 1px solid rgb(255 255 255 / 5%); }
     .news-read-more-btn { color: #a5b4fc; font-size: .85rem; font-weight: 600; text-decoration: none; }
-    .news-card-reactions { display: flex; gap: .4rem; }
-    .preview-reaction { padding: .25rem .45rem; border: 1px solid #475569; border-radius: 999px; color: white; background: #334155; font-size: .75rem; }
     .preview-editable { display: inline-flex; align-items: flex-start; gap: .35rem; min-width: 0; }
     .preview-edit { flex: 0 0 auto; padding: .1rem .25rem; background: transparent; font-size: .9rem; line-height: 1; }
     .preview-value { min-width: 0; overflow-wrap: anywhere; }
@@ -176,6 +175,7 @@ export function getAdminPage() {
       previewTimer: null,
       previewDraft: null,
       previewStoryId: null,
+      generatingSummary: false,
       activeCategory: 'all',
       providers: [],
       pendingStories: [],
@@ -253,7 +253,9 @@ export function getAdminPage() {
         updated.dataset.updatedAt = provider.last_success_at || '';
         const saved = document.createElement('p');
         saved.textContent = 'Stories saved last run: ' + text(provider.stories_saved);
-        card.append(head, status, updated, saved);
+        const totalSaved = document.createElement('p');
+        totalSaved.textContent = 'Total stories saved: ' + text(provider.total_stories_saved);
+        card.append(head, status, updated, saved, totalSaved);
         if (provider.last_error) {
           const error = document.createElement('p');
           error.className = 'error';
@@ -686,8 +688,8 @@ export function getAdminPage() {
       meta.className = 'news-card-meta';
       const date = document.createElement('span');
       const displayDate = draft.pubDate
-        ? new Date(draft.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : 'Recent';
+        ? new Date(draft.pubDate).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+        : new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
       editableField(date, 'pubDate', 'publication date', {
         display: () => '🕒 ' + displayDate,
         editor: 'datetime-local'
@@ -715,16 +717,25 @@ export function getAdminPage() {
       });
       content.append(description);
       const aiSummary = document.createElement('div');
-      aiSummary.className = 'news-card-ai-summary';
-      const aiLabel = document.createElement('div');
-      aiLabel.className = 'news-card-ai-label';
-      aiLabel.textContent = 'A little AI brief';
-      aiSummary.append(aiLabel);
-      editableField(aiSummary, 'aiSummary', 'AI summary', {
-        editor: 'textarea',
-        display: value => value || 'A summary will be generated from the story details on the homepage.'
-      });
-      content.append(aiSummary);
+      if (draft.aiSummary) {
+        aiSummary.className = 'news-card-ai-summary';
+        const aiLabel = document.createElement('div');
+        aiLabel.className = 'news-card-ai-label';
+        aiLabel.textContent = 'A little AI brief';
+        aiSummary.append(aiLabel);
+        editableField(aiSummary, 'aiSummary', 'AI summary', {
+          editor: 'textarea',
+          display: value => value
+        });
+        content.append(aiSummary);
+      }
+      const generateSummary = document.createElement('button');
+      generateSummary.type = 'button';
+      generateSummary.className = 'summary-generate';
+      generateSummary.textContent = state.generatingSummary ? 'Generating summary…' : 'Generate AI summary';
+      generateSummary.disabled = state.generatingSummary;
+      generateSummary.addEventListener('click', generatePreviewSummary);
+      content.append(generateSummary);
 
       const footer = document.createElement('div');
       footer.className = 'news-card-footer';
@@ -735,15 +746,6 @@ export function getAdminPage() {
       readMore.rel = 'noopener noreferrer';
       readMore.textContent = 'Read Full Story →';
       footer.append(readMore);
-      const reactions = document.createElement('div');
-      reactions.className = 'news-card-reactions';
-      ['❤️ 0', '🤯 0', '🧸 0'].forEach((reaction) => {
-        const pill = document.createElement('span');
-        pill.className = 'preview-reaction';
-        pill.textContent = reaction;
-        reactions.append(pill);
-      });
-      footer.append(reactions);
       editableField(footer, 'link', 'article URL', {
         tag: 'span',
         editor: 'url',
@@ -793,7 +795,7 @@ export function getAdminPage() {
         description: story.description || '',
         content: story.content || '',
         aiSummary: story.aiSummary || '',
-        pubDate: story.pubDate || '',
+        pubDate: story.pubDate || new Date().toISOString(),
         source: story.source || '',
         category: story.category || 'all',
         approved: story.approved === true,
@@ -838,6 +840,30 @@ export function getAdminPage() {
       }
     }
 
+    async function generatePreviewSummary() {
+      if (!state.previewDraft || state.generatingSummary) return;
+      state.generatingSummary = true;
+      renderPreview();
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Generating an AI summary from the current story details…';
+      try {
+        const result = await request('/admin/api/summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(state.previewDraft)
+        });
+        state.previewDraft.aiSummary = result.summary;
+        messageEl.className = 'success';
+        messageEl.textContent = 'AI summary generated. Save the card to publish it.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not generate AI summary: ' + error.message;
+      } finally {
+        state.generatingSummary = false;
+        renderPreview();
+      }
+    }
+
     async function parseCustomLink() {
       const input = document.getElementById('custom-link');
       const value = input.value.trim();
@@ -865,6 +891,7 @@ export function getAdminPage() {
         });
         openStoryPreview({
           ...data,
+          pubDate: data.pubDate || new Date().toISOString(),
           category: state.activeCategory,
           provider: 'custom',
           approved: false,

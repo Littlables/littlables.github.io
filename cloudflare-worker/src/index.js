@@ -1,4 +1,3 @@
-import { resolveGoogleNewsUrls } from './google-news-resolver.mjs';
 import { getAdminLoginPage, getAdminPage } from './admin-page.mjs';
 import { getNewsFeed, getNewsProviders } from './news-feeds.mjs';
 import {
@@ -26,11 +25,9 @@ import {
 } from './news-storage.mjs';
 
 const MAX_REQUEST_BYTES = 16_000;
-const MAX_LINKS = 10;
 const MAX_PAGE_BYTES = 1_000_000;
 const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
-const SUMMARY_TABLE = 'ai_summaries';
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const ADMIN_MARKET = 'en-US';
 const NEWS_CATEGORIES = new Set(['all', 'childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']);
@@ -316,6 +313,28 @@ async function serveAdmin(request, env) {
     }
   }
 
+  if (url.pathname === '/admin/api/summary' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Summary generation must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await readAdminStoryPayload(request);
+      if (payload instanceof Response) return payload;
+      if (!env.AI) return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+      if (!env.SUMMARY_RATE_LIMITER) {
+        return jsonResponse({ error: 'Summary rate limiter is not configured for this Worker' }, 503);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-summary:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Summary generation rate limit exceeded' }, 429);
+      return jsonResponse({ summary: await generateAdminSummary(payload, env) });
+    } catch (err) {
+      console.error('Admin AI summary generation failed:', err);
+      return jsonResponse({
+        error: err instanceof Error ? err.message : 'Could not generate an AI summary'
+      }, 502);
+    }
+  }
+
   if (url.pathname === '/admin/api/stories' && request.method === 'POST') {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Story publishing must be requested from the admin origin' }, 403);
@@ -457,7 +476,7 @@ async function readAdminStoryPayload(request) {
     description,
     content,
     aiSummary,
-    pubDate: pubDate ? new Date(pubDate).toISOString() : '',
+    pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
     source: source || new URL(link).hostname.replace(/^www\./i, ''),
     category
   };
@@ -630,196 +649,54 @@ function isReadableArticleText(text) {
     !/\b(?:enable javascript|verify you are human|access denied|request blocked|checking your browser|robot or human)\b/i.test(text);
 }
 
-function collectStoryUrls(description, articleUrl) {
-  const links = [];
-  if (isPublicWebUrl(articleUrl)) links.push(articleUrl);
-
-  const linkPattern = /<a\b[^>]*href\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))[^>]*>/gi;
-  for (const match of description.matchAll(linkPattern)) {
-    const value = decodeHtml(match[1] || match[2] || match[3] || '');
-    try {
-      const url = new URL(value, articleUrl).href;
-      if (isPublicWebUrl(url) && !links.includes(url)) links.push(url);
-    } catch {
-      continue;
-    }
-  }
-  return links;
-}
-
-async function resolveStoryUrls(urls) {
-  return resolveGoogleNewsUrls(urls, { isAllowedUrl: isPublicWebUrl });
-}
-
-function supabaseHeaders(env) {
-  return {
-    apikey: env.SUPABASE_SECRET_KEY,
-    'Content-Type': 'application/json'
-  };
-}
-
-function supabaseUrl(env, query) {
-  return `${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${SUMMARY_TABLE}?${query}`;
-}
-
-async function findSavedSummary(env, articleUrl, language) {
-  const query = new URLSearchParams({
-    article_url: `eq.${articleUrl}`,
-    language: `eq.${language}`,
-    select: 'summary',
-    limit: '1'
-  });
-  const response = await fetch(supabaseUrl(env, query), { headers: supabaseHeaders(env) });
-  if (!response.ok) throw new Error(`Summary database lookup failed (HTTP ${response.status})`);
-  const rows = await response.json();
-  return rows[0]?.summary || null;
-}
-
-async function saveSummary(env, articleUrl, language, summary) {
-  const response = await fetch(supabaseUrl(env, 'on_conflict=article_url%2Clanguage'), {
-    method: 'POST',
-    headers: {
-      ...supabaseHeaders(env),
-      Prefer: 'resolution=ignore-duplicates,return=minimal'
-    },
-    body: JSON.stringify({ article_url: articleUrl, language, summary })
-  });
-  if (!response.ok) throw new Error(`Summary database save failed (HTTP ${response.status})`);
-}
-
-async function summarize(request, env) {
-  const requestSize = Number(request.headers.get('Content-Length') || 0);
-  if (requestSize > MAX_REQUEST_BYTES) return jsonResponse({ error: 'Request is too large' }, 413);
-
-  const reader = request.body?.getReader();
-  if (!reader) return jsonResponse({ error: 'Request body is required' }, 400);
-  const requestChunks = [];
-  let actualRequestSize = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    actualRequestSize += value.byteLength;
-    if (actualRequestSize > MAX_REQUEST_BYTES) {
-      await reader.cancel();
-      return jsonResponse({ error: 'Request is too large' }, 413);
-    }
-    requestChunks.push(value);
-  }
-  const requestBytes = new Uint8Array(actualRequestSize);
-  let requestOffset = 0;
-  for (const chunk of requestChunks) {
-    requestBytes.set(chunk, requestOffset);
-    requestOffset += chunk.byteLength;
-  }
-
-  let payload;
+async function generateAdminSummary(story, env) {
+  const suppliedText = [story.description, story.content]
+    .map(value => extractPageText(decodeHtml(value)))
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, MAX_PAGE_TEXT);
+  let articleText = '';
   try {
-    payload = JSON.parse(new TextDecoder().decode(requestBytes));
-  } catch {
-    return jsonResponse({ error: 'Request body must be valid JSON' }, 400);
+    const page = await fetchPublicPage(story.link);
+    const scrapedText = extractPageText(page.content);
+    if (isReadableArticleText(scrapedText)) articleText = scrapedText;
+  } catch (err) {
+    console.warn(`Could not scrape article while preparing admin summary ${story.link}:`, err);
+  }
+  const summarySourceText = [
+    suppliedText ? `Current edited story details:\n${suppliedText}` : '',
+    articleText ? `Scraped article content:\n${articleText}` : ''
+  ].filter(Boolean).join('\n\n').slice(0, MAX_PAGE_TEXT);
+  if (summarySourceText.replace(/\s+/g, ' ').trim().length < 40) {
+    throw new Error('Add more story description or source content before generating a summary');
   }
 
-  const title = typeof payload.title === 'string' ? payload.title.trim().slice(0, 500) : '';
-  const description = typeof payload.description === 'string' ? payload.description.slice(0, 12_000) : '';
-  const articleUrl = typeof payload.articleUrl === 'string' ? payload.articleUrl : '';
-  const language = typeof payload.language === 'string' && /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(payload.language)
-    ? payload.language
-    : 'en';
-  if (!title || !isPublicWebUrl(articleUrl)) {
-    return jsonResponse({ error: 'A title and public HTTP(S) article URL are required' }, 400);
-  }
-  if (!env.AI || !env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
-    return jsonResponse({ error: 'AI or summary database service is not configured' }, 503);
-  }
-
+  let generated;
   try {
-    const limit = await env.SUMMARY_RATE_LIMITER.limit({
-      key: request.headers.get('CF-Connecting-IP') || 'unknown'
-    });
-    if (!limit.success) return jsonResponse({ error: 'Summary request rate limit exceeded' }, 429);
-
-    const storyUrls = collectStoryUrls(description, articleUrl);
-    if (storyUrls.length > MAX_LINKS) {
-      return jsonResponse({ error: `Articles may include at most ${MAX_LINKS} linked sources` }, 413);
-    }
-    const { urls: publisherUrls, failedUrls } = await resolveStoryUrls(storyUrls);
-    const resolutionError = failedUrls.length
-      ? `${failedUrls.length} article link${failedUrls.length === 1 ? '' : 's'} could not be resolved to publisher URLs`
-      : null;
-    for (const url of failedUrls) {
-      console.warn(`Could not resolve Google News article URL: ${url}`);
-    }
-    if (!publisherUrls.length) {
-      return jsonResponse({
-        error: resolutionError || 'Could not resolve any article links to publisher URLs',
-        unresolvedUrls: failedUrls
-      }, 502);
-    }
-
-    const primaryArticleUrl = publisherUrls[0];
-    const savedSummary = await findSavedSummary(env, primaryArticleUrl, language);
-    if (savedSummary) {
-      return jsonResponse({
-        summary: savedSummary,
-        cached: true,
-        ...(resolutionError ? { error: resolutionError, unresolvedUrls: failedUrls } : {})
-      });
-    }
-
-    const pages = await Promise.all(publisherUrls.map(async url => {
-      try {
-        const page = await fetchPublicPage(url);
-        const text = extractPageText(page.content);
-        if (!isReadableArticleText(text)) {
-          console.warn(`Article source did not contain readable article text: ${url}`);
-          return null;
-        }
-        return { url: page.url, text };
-      } catch (err) {
-        console.warn(`Unable to read article source ${url}:`, err);
-        return null;
-      }
-    }));
-    const sourceText = pages.filter(Boolean)
-      .map((page, index) => `Source ${index + 1} (${page.url}):\n${page.text}`)
-      .join('\n\n');
-    const feedDescription = extractPageText(decodeHtml(description));
-    const summarySourceText = sourceText || (feedDescription.length >= 40
-      ? `Publisher-provided feed description for ${primaryArticleUrl}:\n${feedDescription}`
-      : '');
-    if (!summarySourceText) {
-      return jsonResponse({ error: 'Could not retrieve readable content from the article links' }, 502);
-    }
-
-    const generated = await env.AI.run(MODEL, {
+    generated = await env.AI.run(MODEL, {
       messages: [
         {
           role: 'system',
-          content: `Write one accurate, neutral paragraph summarizing the supplied news article content in ${language}. Use only facts from the sources. Do not add a headline, preamble, bullets, or claims that are not supported by the sources.`
+          content: 'Write one accurate, neutral paragraph summarizing the supplied news article. Use only facts in the provided material. Do not add a headline, preamble, bullets, or unsupported claims.'
         },
         {
           role: 'user',
-          content: `Article title: ${title}\n\nArticle sources:\n${summarySourceText}`
+          content: `Article title: ${story.title}\nPublisher: ${story.source}\n\nCurrent article URL: ${story.link}\n\n${summarySourceText}`
         }
       ],
       max_tokens: 220,
       temperature: 0.2
     });
-    const summary = typeof generated?.response === 'string'
-      ? generated.response.trim().replace(/\s*\n+\s*/g, ' ')
-      : '';
-    if (!summary) throw new Error('Workers AI returned an empty summary');
-
-    await saveSummary(env, primaryArticleUrl, language, summary);
-    return jsonResponse({
-      summary,
-      cached: false,
-      ...(resolutionError ? { error: resolutionError, unresolvedUrls: failedUrls } : {})
-    });
   } catch (err) {
-    console.error('AI summary request failed:', err);
-    return jsonResponse({ error: 'Unable to generate or save the article summary' }, 502);
+    console.error('Workers AI summary generation failed:', err);
+    const details = err instanceof Error ? `: ${err.message.slice(0, 250)}` : '';
+    throw new Error(`Workers AI could not generate the summary${details}`);
   }
+  const summary = typeof generated?.response === 'string'
+    ? generated.response.trim().replace(/\s*\n+\s*/g, ' ')
+    : '';
+  if (!summary) throw new Error('Workers AI returned an empty summary. Try again or revise the story details.');
+  return summary.slice(0, 4_000);
 }
 
 export default {
@@ -834,7 +711,6 @@ export default {
     if (request.method === 'GET' && new URL(request.url).pathname === '/feed') {
       return serveNewsFeed(request, env);
     }
-    if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed' }, 405);
-    return summarize(request, env);
+    return jsonResponse({ error: 'Route not found' }, 404);
   }
 };

@@ -41,7 +41,6 @@
                   setTimeout(() => pill.classList.remove('pop-bounce'), 400);
                 }
               }
-              localStorage.setItem(`rec_${row.story_id}_${row.reaction_type}`, row.count);
             }
           }
         )
@@ -58,22 +57,24 @@
       return 's_' + Math.abs(hash).toString(36).slice(0, 10);
     }
 
-    function getReactionCount(storyId, type, seedBase) {
-      const key = `rec_${storyId}_${type}`;
-      const stored = localStorage.getItem(key);
-      if (stored !== null) return parseInt(stored, 10);
-      const seed = Math.floor(Math.abs(seedBase * 7 + (type === 'love' ? 14 : type === 'mind' ? 9 : 21)) % 38) + 4;
-      localStorage.setItem(key, seed);
-      return seed;
-    }
-
     function hasUserReacted(storyId, type) {
       return localStorage.getItem(`voted_${storyId}_${type}`) === 'true';
     }
 
     async function syncReactionsFromSupabase(storyIds) {
-      if (!supabaseClient || !storyIds || !storyIds.length) return;
+      const types = ['love', 'mind', 'cozy'];
+      const setCount = (storyId, type, count) => {
+        const countEl = document.querySelector(`.reaction-count[data-story="${storyId}"][data-type="${type}"]`);
+        if (countEl) countEl.textContent = String(count);
+      };
+      if (!storyIds || !storyIds.length) return;
+      if (!supabaseClient) {
+        document.querySelectorAll('.reaction-pill').forEach(button => { button.disabled = true; });
+        document.querySelectorAll('.reaction-count').forEach(element => { element.textContent = '—'; });
+        return;
+      }
       try {
+        storyIds.forEach(storyId => types.forEach(type => setCount(storyId, type, 0)));
         const { data, error } = await supabaseClient
           .from(SUPABASE_CONFIG.tableName)
           .select('story_id, reaction_type, count')
@@ -82,66 +83,45 @@
         if (error) throw error;
         if (data && data.length) {
           data.forEach(row => {
-            const countEl = document.querySelector(`.reaction-count[data-story="${row.story_id}"][data-type="${row.reaction_type}"]`);
-            if (countEl) countEl.textContent = row.count;
-            localStorage.setItem(`rec_${row.story_id}_${row.reaction_type}`, row.count);
+            setCount(row.story_id, row.reaction_type, row.count);
           });
         }
       } catch (err) {
         console.warn('Supabase reaction sync failed:', err);
+        storyIds.forEach(storyId => types.forEach(type => setCount(storyId, type, '—')));
+        document.querySelectorAll('.reaction-pill').forEach(button => { button.disabled = true; });
       }
     }
 
     async function handleReaction(btn, storyId, type) {
+      if (!supabaseClient || btn.disabled) return;
       btn.classList.add('pop-bounce');
       setTimeout(() => btn.classList.remove('pop-bounce'), 450);
-
+      btn.disabled = true;
       const countEl = btn.querySelector('.reaction-count');
-      const localCount = parseInt(countEl.textContent, 10) || 0;
       const alreadyVoted = hasUserReacted(storyId, type);
-
-      if (alreadyVoted) {
-        btn.classList.remove('voted');
-        localStorage.removeItem(`voted_${storyId}_${type}`);
-        countEl.textContent = Math.max(0, localCount - 1);
-
-        if (supabaseClient) {
-          try {
-            const { data: dbCount, error } = await supabaseClient.rpc('decrement_reaction', {
-              p_story_id: storyId,
-              p_reaction_type: type
-            });
-            if (error || typeof dbCount !== 'number') throw error || new Error('Invalid response from RPC');
-            countEl.textContent = dbCount;
-            localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
-          } catch (err) {
-            console.warn('Reaction decrement failed:', err);
-            btn.classList.add('voted');
-            localStorage.setItem(`voted_${storyId}_${type}`, 'true');
-            countEl.textContent = localCount;
-          }
+      try {
+        const { data: dbCount, error } = await supabaseClient.rpc(
+          alreadyVoted ? 'decrement_reaction' : 'increment_reaction',
+          { p_story_id: storyId, p_reaction_type: type }
+        );
+        if (error || typeof dbCount !== 'number' || !Number.isFinite(dbCount)) {
+          throw error || new Error('Invalid response from reaction service');
         }
-      } else {
-        btn.classList.add('voted');
-        localStorage.setItem(`voted_${storyId}_${type}`, 'true');
-        countEl.textContent = localCount + 1;
-
-        if (supabaseClient) {
-          try {
-            const { data: dbCount, error } = await supabaseClient.rpc('increment_reaction', {
-              p_story_id: storyId,
-              p_reaction_type: type
-            });
-            if (error || typeof dbCount !== 'number') throw error || new Error('Invalid response from RPC');
-            countEl.textContent = dbCount;
-            localStorage.setItem(`rec_${storyId}_${type}`, dbCount);
-          } catch (err) {
-            console.warn('Reaction increment failed:', err);
-            btn.classList.remove('voted');
-            localStorage.removeItem(`voted_${storyId}_${type}`);
-            countEl.textContent = localCount;
-          }
+        countEl.textContent = String(dbCount);
+        if (alreadyVoted) {
+          btn.classList.remove('voted');
+          localStorage.removeItem(`voted_${storyId}_${type}`);
+        } else {
+          btn.classList.add('voted');
+          localStorage.setItem(`voted_${storyId}_${type}`, 'true');
         }
+      } catch (err) {
+        console.warn('Reaction update failed:', err);
+        countEl.textContent = '—';
+        btn.disabled = true;
+      } finally {
+        if (countEl.textContent !== '—') btn.disabled = false;
       }
     }
 

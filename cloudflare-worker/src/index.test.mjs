@@ -42,6 +42,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /openStoryPreview\(story\)/);
   assert.match(page, /AI summary source content/);
   assert.match(page, /editableField\(aiSummary, 'aiSummary', 'AI summary'/);
+  assert.match(page, /Generate AI summary/);
+  assert.match(page, /Total stories saved:/);
   assert.match(page, /Childcare & Family/);
   assert.match(page, /Future Tech & AI/);
   assert.match(page, /meta-provider/);
@@ -328,6 +330,108 @@ test('custom preview rejects private URLs and cross-origin requests without fetc
   }
 });
 
+test('admin summary generates from current draft when article scraping fails', async () => {
+  const originalFetch = globalThis.fetch;
+  let aiInput;
+  globalThis.fetch = async () => {
+    throw new Error('publisher blocks automated access');
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/summary', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: 'Edited family story title',
+          category: 'childcare',
+          link: 'https://publisher.example/story',
+          image: '',
+          description: 'Edited description contains enough detail to create a useful neutral summary for our family news story.',
+          content: 'This is the edited publisher source content that should be included in the request to the language model.',
+          aiSummary: '',
+          pubDate: '',
+          source: 'Publisher'
+        })
+      }),
+      {
+        ...authEnv,
+        SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+        AI: {
+          run: async (model, input) => {
+            aiInput = { model, input };
+            return { response: 'Generated summary from edited details.' };
+          }
+        }
+      }
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { summary: 'Generated summary from edited details.' });
+    assert.match(aiInput.input.messages[1].content, /Edited family story title/);
+    assert.match(aiInput.input.messages[1].content, /Edited description contains enough detail/);
+    assert.match(aiInput.input.messages[1].content, /edited publisher source content/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('admin summary reports Workers AI failures clearly and enforces same-origin requests', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('page unavailable'); };
+  const body = JSON.stringify({
+    title: 'A story',
+    category: 'all',
+    link: 'https://publisher.example/story',
+    image: '',
+    description: 'A sufficiently long description with relevant story facts for creating a useful summary.',
+    content: '',
+    pubDate: '',
+    source: 'Publisher'
+  });
+  try {
+    const failed = await worker.fetch(
+      new Request('https://worker.example/admin/api/summary', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+          'Content-Type': 'application/json'
+        },
+        body
+      }),
+      {
+        ...authEnv,
+        SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+        AI: { run: async () => { throw new Error('model unavailable'); } }
+      }
+    );
+    const rejected = await worker.fetch(
+      new Request('https://worker.example/admin/api/summary', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://attacker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+          'Content-Type': 'application/json'
+        },
+        body
+      }),
+      {
+        ...authEnv,
+        SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+        AI: { run: async () => ({ response: 'not called' }) }
+      }
+    );
+    assert.equal(failed.status, 502);
+    assert.match((await failed.json()).error, /Workers AI could not generate the summary/);
+    assert.equal(rejected.status, 403);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('custom story endpoint inserts an approved homepage story', async () => {
   const originalFetch = globalThis.fetch;
   let requested;
@@ -354,7 +458,7 @@ test('custom story endpoint inserts an approved homepage story', async () => {
           description: 'Edited description',
           content: 'Edited context',
           aiSummary: 'The saved AI brief.',
-          pubDate: '2026-10-17T12:00:00.000Z',
+          pubDate: '',
           source: 'Publisher'
         })
       }),
@@ -373,6 +477,7 @@ test('custom story endpoint inserts an approved homepage story', async () => {
     assert.equal(saved.title, 'Edited custom title');
     assert.equal(saved.image_url, 'https://images.example/story.jpg');
     assert.equal(saved.ai_summary, 'The saved AI brief.');
+    assert.ok(Number.isFinite(Date.parse(saved.published_at)));
   } finally {
     globalThis.fetch = originalFetch;
   }

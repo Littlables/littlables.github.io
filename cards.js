@@ -1,69 +1,68 @@
     function createNewsStoryCard(item, index, categoryBadge) {
+      const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[character]);
       const title = item.title || 'Untitled Update';
       const cleanDesc = item.description;
       const imageUrl = resolveImageUrl(item, index, currentCategory);
-      const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('recent');
+      const pubDate = new Date(item.pubDate || Date.now()).toLocaleString([], {
+        dateStyle: 'short',
+        timeStyle: 'short'
+      });
       const link = item.link || '#';
+      const safeTitle = escapeHtml(title);
+      const safeImageUrl = escapeHtml(imageUrl);
+      const safeCategoryBadge = escapeHtml(categoryBadge);
+      const safePubDate = escapeHtml(pubDate);
+      const safeLink = escapeHtml(link);
 
       const storyId = getStoryId(title, link);
-      const loveCount = getReactionCount(storyId, 'love', index + 1);
-      const mindCount = getReactionCount(storyId, 'mind', index + 2);
-      const cozyCount = getReactionCount(storyId, 'cozy', index + 3);
       const votedLove = hasUserReacted(storyId, 'love');
       const votedMind = hasUserReacted(storyId, 'mind');
       const votedCozy = hasUserReacted(storyId, 'cozy');
+      const reactionsDisabled = !supabaseClient;
 
       const card = document.createElement('article');
       card.className = 'news-card';
       card.innerHTML = `
         <div class="news-card-image-wrap">
-          <img src="${imageUrl}" alt="${title}" class="news-card-image" loading="lazy">
-          <span class="news-card-badge">${categoryBadge}</span>
+          <img src="${safeImageUrl}" alt="${safeTitle}" class="news-card-image" loading="lazy">
+          <span class="news-card-badge">${safeCategoryBadge}</span>
         </div>
         <div class="news-card-content">
           <div class="news-card-meta">
-            <span>🕒 ${pubDate}</span>
+            <span>🕒 ${safePubDate}</span>
             ${item.approved === true ? `<span>${t('verifiedWire')}</span>` : ''}
           </div>
-          <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-card-title">${title}</a>
-          <p class="news-card-desc">${cleanDesc}</p>
-          <div class="news-card-ai-summary">
-            <div class="news-card-ai-label">${t('aiBriefTag')}</div>
-            <div class="ai-summary-text" aria-live="polite">${t('aiGenerating')}</div>
-          </div>
+          <a href="${safeLink}" target="_blank" rel="noopener noreferrer" class="news-card-title">${safeTitle}</a>
+          <p class="news-card-desc">${escapeHtml(cleanDesc || '')}</p>
+          ${typeof item.aiSummary === 'string' && item.aiSummary.trim() ? `
+            <div class="news-card-ai-summary">
+              <div class="news-card-ai-label">${t('aiBriefTag')}</div>
+              <div class="ai-summary-text">${escapeHtml(item.aiSummary)}</div>
+            </div>` : ''}
           <div class="news-card-footer">
-            <a href="${link}" target="_blank" rel="noopener noreferrer" class="news-read-more-btn">
+            <a href="${safeLink}" target="_blank" rel="noopener noreferrer" class="news-read-more-btn">
               ${t('readMore')}
             </a>
             <div class="news-card-reactions">
-              <button class="reaction-pill ${votedLove ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'love')" title="Love it">
-                <span>❤️</span> <span class="reaction-count" data-story="${storyId}" data-type="love">${loveCount}</span>
+              <button class="reaction-pill ${votedLove ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'love')" title="Love it" ${reactionsDisabled ? 'disabled' : ''}>
+                <span>❤️</span> <span class="reaction-count" data-story="${storyId}" data-type="love">${reactionsDisabled ? '—' : '0'}</span>
               </button>
-              <button class="reaction-pill ${votedMind ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'mind')" title="Mind Blown">
-                <span>🤯</span> <span class="reaction-count" data-story="${storyId}" data-type="mind">${mindCount}</span>
+              <button class="reaction-pill ${votedMind ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'mind')" title="Mind Blown" ${reactionsDisabled ? 'disabled' : ''}>
+                <span>🤯</span> <span class="reaction-count" data-story="${storyId}" data-type="mind">${reactionsDisabled ? '—' : '0'}</span>
               </button>
-              <button class="reaction-pill ${votedCozy ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'cozy')" title="Cozy">
-                <span>🧸</span> <span class="reaction-count" data-story="${storyId}" data-type="cozy">${cozyCount}</span>
+              <button class="reaction-pill ${votedCozy ? 'voted' : ''}" onclick="handleReaction(this, '${storyId}', 'cozy')" title="Cozy" ${reactionsDisabled ? 'disabled' : ''}>
+                <span>🧸</span> <span class="reaction-count" data-story="${storyId}" data-type="cozy">${reactionsDisabled ? '—' : '0'}</span>
               </button>
             </div>
           </div>
         </div>
       `;
-
-      const summaryElement = card.querySelector('.ai-summary-text');
-      const summaryContext = [cleanDesc, item.content].filter(Boolean).join('\n\n');
-      if (typeof item.aiSummary === 'string' && item.aiSummary.trim()) {
-        summaryElement.textContent = item.aiSummary;
-        return card;
-      }
-      generateAiSummary(title, summaryContext, link)
-        .then(summary => {
-          summaryElement.textContent = summary;
-        })
-        .catch(err => {
-          console.error(`Could not generate summary for "${title}":`, err);
-          summaryElement.textContent = t('aiUnavailable');
-        });
 
       return card;
     }

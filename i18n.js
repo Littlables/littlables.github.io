@@ -4,10 +4,10 @@
      */
     const I18N_TRANSLATIONS = {
       en: {
-        pageTitle: "Littlables",
+        pageTitle: "Littlables — A Little Scoop of the World",
         headerTitle: "Littlables Feed",
         refreshBtn: "🔄 Refresh Feed",
-        loading: "Fetching the freshest stories & computing AI summaries...",
+        loading: "Fetching the freshest stories...",
         breaking: "Breaking",
         trending: "Trending",
         verifiedWire: "🧸 Littlables' Little Scoop",

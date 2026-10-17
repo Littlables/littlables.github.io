@@ -30,7 +30,7 @@ function normalizeStory(row) {
     description: row.description || '',
     content: row.content || '',
     aiSummary: row.ai_summary || '',
-    pubDate: row.published_at || '',
+    pubDate: row.published_at || row.fetched_at || new Date().toISOString(),
     source: row.source_name || '',
     provider: row.provider,
     category: row.category
@@ -39,7 +39,7 @@ function normalizeStory(row) {
 
 export async function getStoredNewsFeed(env, category) {
   const makeQuery = approved => new URLSearchParams({
-    select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved',
+    select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
     category: `eq.${category}`,
     approved: `eq.${approved}`,
     removed: 'eq.false',
@@ -90,7 +90,16 @@ export async function getNewsAdminSnapshot(env, providers) {
     order: 'removed_at.desc.nullslast',
     limit: '100'
   });
-  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse] = await Promise.all([
+  const providerCountRequests = providers.map(provider => {
+    const query = new URLSearchParams({
+      select: 'id',
+      provider: `eq.${provider.id}`
+    });
+    return fetch(supabaseUrl(env, STORIES_TABLE, query), {
+      headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
+    });
+  });
+  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse, ...providerCountResponses] = await Promise.all([
     fetch(supabaseUrl(env, STORIES_TABLE, storyCountQuery), {
       headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
     }),
@@ -105,7 +114,8 @@ export async function getNewsAdminSnapshot(env, providers) {
     }),
     fetch(supabaseUrl(env, SYNC_TABLE, 'select=provider,status,started_at,last_attempt_at,last_success_at,stories_saved,last_error,updated_by'), {
       headers: supabaseHeaders(env)
-    })
+    }),
+    ...providerCountRequests
   ]);
   if (!countResponse.ok) throw new Error(`Story count lookup failed (HTTP ${countResponse.status})`);
   const contentRange = countResponse.headers.get('Content-Range') || '';
@@ -116,6 +126,16 @@ export async function getNewsAdminSnapshot(env, providers) {
   const bannedRows = await readRows(bannedResponse, 'Banned story lookup');
   const syncRows = await readRows(syncResponse, 'Provider status lookup');
   const syncByProvider = new Map(syncRows.map(row => [row.provider, row]));
+  const providerTotals = new Map(providers.map((provider, index) => {
+    const response = providerCountResponses[index];
+    if (!response.ok) throw new Error(`Story count lookup for ${provider.id} failed (HTTP ${response.status})`);
+    const range = response.headers.get('Content-Range') || '';
+    const total = Number(range.match(/\/(\d+|\*)$/)?.[1]);
+    if (!Number.isFinite(total)) {
+      throw new Error(`Story count lookup for ${provider.id} returned no exact count`);
+    }
+    return [provider.id, total];
+  }));
   return {
     totalStories: total,
     recentStories: recentRows.map(row => ({
@@ -151,6 +171,7 @@ export async function getNewsAdminSnapshot(env, providers) {
     })),
     providers: providers.map(provider => ({
       ...provider,
+      total_stories_saved: providerTotals.get(provider.id) || 0,
       ...(syncByProvider.get(provider.id) || {
         status: 'never',
         started_at: null,

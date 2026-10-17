@@ -30,10 +30,13 @@
       all: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
     };
 
-    const NEWS_CONFIG = { maxStories: 10 };
+    const NEWS_CONFIG = {
+      maxStories: 10,
+      workerUrl: 'https://hello-ai.cryptokatiee.workers.dev/'
+    };
 
     function getDynamicNewsFeedUrl(categoryKey = currentCategory) {
-      const url = new URL(AI_CONFIG.workerUrl);
+      const url = new URL(NEWS_CONFIG.workerUrl);
       url.pathname = '/feed';
       url.searchParams.set('category', categoryKey);
       return url.href;
