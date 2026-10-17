@@ -15,11 +15,13 @@ import {
   claimNewsProviderSync,
   finishNewsProviderSync,
   approveNewsStory,
+  createApprovedCustomNewsStory,
   banNewsStory,
   disapproveNewsStory,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
   undoNewsStoryDecision,
+  updateNewsStory,
   upsertNewsStories
 } from './news-storage.mjs';
 
@@ -314,6 +316,38 @@ async function serveAdmin(request, env) {
     }
   }
 
+  if (url.pathname === '/admin/api/stories' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story publishing must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await readAdminStoryPayload(request);
+      if (payload instanceof Response) return payload;
+      const id = await createApprovedCustomNewsStory(env, payload, identity.login);
+      return jsonResponse({ id, approved: true });
+    } catch (err) {
+      console.error('Custom story publishing failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not publish custom story' }, 502);
+    }
+  }
+
+  const storyEditMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)$/);
+  if (storyEditMatch && request.method === 'PATCH') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await readAdminStoryPayload(request);
+      if (payload instanceof Response) return payload;
+      const updated = await updateNewsStory(env, storyEditMatch[1], payload);
+      if (!updated) return jsonResponse({ error: 'Story was not found' }, 404);
+      return jsonResponse({ id: Number(storyEditMatch[1]), updated: true });
+    } catch (err) {
+      console.error('News story detail update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story details' }, 502);
+    }
+  }
+
   const approvalMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/approve$/);
   if (approvalMatch && request.method === 'POST') {
     if (!isSameOrigin(request)) {
@@ -367,6 +401,66 @@ async function serveAdmin(request, env) {
     return jsonResponse({ error: 'Admin API route not found' }, 404);
   }
   return jsonResponse({ error: 'Admin route not found' }, 404);
+}
+
+async function readAdminStoryPayload(request) {
+  const contentLength = Number(request.headers.get('Content-Length') || 0);
+  if (contentLength > MAX_REQUEST_BYTES) {
+    return jsonResponse({ error: 'Story details are too large' }, 413);
+  }
+  const bodyText = await request.text();
+  if (bodyText.length > MAX_REQUEST_BYTES) {
+    return jsonResponse({ error: 'Story details are too large' }, 413);
+  }
+  let body;
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    return jsonResponse({ error: 'Story details must be valid JSON' }, 400);
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return jsonResponse({ error: 'Story details must be an object' }, 400);
+  }
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  const link = typeof body.link === 'string' ? body.link.trim() : '';
+  const image = typeof body.image === 'string' ? body.image.trim() : '';
+  const description = typeof body.description === 'string' ? body.description.trim() : '';
+  const content = typeof body.content === 'string' ? body.content.trim() : '';
+  const aiSummary = typeof body.aiSummary === 'string' ? body.aiSummary.trim() : '';
+  const source = typeof body.source === 'string' ? body.source.trim() : '';
+  const category = typeof body.category === 'string' ? body.category : '';
+  const pubDate = typeof body.pubDate === 'string' ? body.pubDate.trim() : '';
+
+  if (!title || title.length > 500) {
+    return jsonResponse({ error: 'A title of 1-500 characters is required' }, 400);
+  }
+  if (!isPublicWebUrl(link) || link.length > 2_000) {
+    return jsonResponse({ error: 'Enter a public HTTP or HTTPS article URL' }, 400);
+  }
+  if (image && (!isPublicWebUrl(image) || image.length > 2_000)) {
+    return jsonResponse({ error: 'Image must be a public HTTP or HTTPS URL' }, 400);
+  }
+  if (!NEWS_CATEGORIES.has(category)) {
+    return jsonResponse({ error: 'Select a valid story category' }, 400);
+  }
+  if (description.length > 4_000 || content.length > 4_000 || aiSummary.length > 4_000 || source.length > 500) {
+    return jsonResponse({ error: 'A story field exceeds its maximum length' }, 400);
+  }
+  if (pubDate && !Number.isFinite(Date.parse(pubDate))) {
+    return jsonResponse({ error: 'Enter a valid publication date' }, 400);
+  }
+
+  return {
+    title,
+    link: new URL(link).href,
+    image: image ? new URL(image).href : '',
+    description,
+    content,
+    aiSummary,
+    pubDate: pubDate ? new Date(pubDate).toISOString() : '',
+    source: source || new URL(link).hostname.replace(/^www\./i, ''),
+    category
+  };
 }
 
 function isPublicWebUrl(value) {

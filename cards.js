@@ -52,6 +52,10 @@
 
       const summaryElement = card.querySelector('.ai-summary-text');
       const summaryContext = [cleanDesc, item.content].filter(Boolean).join('\n\n');
+      if (typeof item.aiSummary === 'string' && item.aiSummary.trim()) {
+        summaryElement.textContent = item.aiSummary;
+        return card;
+      }
       generateAiSummary(title, summaryContext, link)
         .then(summary => {
           summaryElement.textContent = summary;

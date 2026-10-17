@@ -7,6 +7,7 @@ create table if not exists public.news_stories (
   image_url text,
   description text,
   content text,
+  ai_summary text,
   published_at timestamptz,
   source_name text,
   approved boolean not null default false,
@@ -26,6 +27,8 @@ create table if not exists public.news_stories (
 
 alter table public.news_stories
   add column if not exists approved boolean not null default false;
+alter table public.news_stories
+  add column if not exists ai_summary text;
 alter table public.news_stories
   add column if not exists approved_by text;
 alter table public.news_stories

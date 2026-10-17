@@ -45,7 +45,8 @@ export function getAdminPage() {
     a { color: #a5b4fc; }
     #stories, #pending-stories, #banned-stories { display: grid; gap: .75rem; }
     #stories[hidden], #banned-stories[hidden] { display: none; }
-    .story { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; }
+    .story { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; cursor: pointer; }
+    .story:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
     .story-main, .story-details { min-width: 0; }
     .story img { width: 72px; height: 56px; object-fit: cover; border-radius: 6px; }
     .story h3 { font-size: 1rem; margin: 0 0 .4rem; overflow-wrap: anywhere; }
@@ -59,15 +60,40 @@ export function getAdminPage() {
     .story-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
     .story-actions button { white-space: nowrap; }
     .custom-input { box-sizing: border-box; width: 100%; padding: .8rem 1rem; border: 1px solid #475569; border-radius: 8px; background: #0f172a; color: #f8fafc; font: inherit; }
-    .preview-dialog { width: min(92vw, 560px); max-height: 90vh; overflow: auto; color: #f8fafc; background: #0b0f19; border: 1px solid #475569; border-radius: 14px; }
+    .preview-dialog { width: min(92vw, 460px); max-height: 92vh; overflow: auto; color: #f8fafc; background: #0b0f19; border: 1px solid #475569; border-radius: 14px; }
     .preview-dialog::backdrop { background: rgb(2 6 23 / 75%); }
-    .preview-close { display: block; margin: 1rem 0 0 auto; }
-    .preview-card { overflow: hidden; background: #1e293b; border: 1px solid #334155; border-radius: 14px; }
-    .preview-image { display: block; width: 100%; max-height: 240px; object-fit: cover; background: #334155; }
-    .preview-content { padding: 1rem; }
-    .preview-meta { display: flex; flex-wrap: wrap; gap: .75rem; color: #c4b5fd; font-size: .85rem; }
-    .preview-card h3 { margin: .75rem 0; }
-    .preview-card p { color: #cbd5e1; }
+    .news-card { overflow: hidden; display: flex; flex-direction: column; background: #1e293b; border: 1px solid #334155; border-radius: 14px; box-shadow: 0 4px 15px rgb(0 0 0 / 25%); }
+    .news-card-image-wrap { position: relative; width: 100%; height: 190px; overflow: hidden; background: #334155; }
+    .news-card-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .news-card-badge { position: absolute; top: .75rem; left: .75rem; padding: .25rem .6rem; border-radius: 6px; background: #4f46e5; color: white; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+    .news-card-content { display: flex; flex: 1; flex-direction: column; gap: .75rem; padding: 1.25rem; }
+    .news-card-meta { display: flex; justify-content: space-between; gap: .5rem; color: #cbd5e1; font-size: .75rem; }
+    .news-card-title { color: #f8fafc; font-size: 1.1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; text-decoration: none; }
+    .news-card-title:hover { color: #a5b4fc; text-decoration: none; }
+    .news-card-desc { flex: 1; color: #cbd5e1; font-size: .85rem; line-height: 1.5; }
+    .news-card-ai-summary { padding: .65rem .85rem; border-left: 3px solid #818cf8; border-radius: 0 8px 8px 0; background: #172554; color: #e0e7ff; font-size: .8rem; line-height: 1.45; }
+    .news-card-ai-label { margin-bottom: .25rem; color: #c7d2fe; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+    .news-card-footer { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: auto; padding-top: .65rem; border-top: 1px solid rgb(255 255 255 / 5%); }
+    .news-read-more-btn { color: #a5b4fc; font-size: .85rem; font-weight: 600; text-decoration: none; }
+    .news-card-reactions { display: flex; gap: .4rem; }
+    .preview-reaction { padding: .25rem .45rem; border: 1px solid #475569; border-radius: 999px; color: white; background: #334155; font-size: .75rem; }
+    .preview-editable { display: inline-flex; align-items: flex-start; gap: .35rem; min-width: 0; }
+    .preview-edit { flex: 0 0 auto; padding: .1rem .25rem; background: transparent; font-size: .9rem; line-height: 1; }
+    .preview-value { min-width: 0; overflow-wrap: anywhere; }
+    .preview-inline-editor { display: flex; flex: 1 1 100%; gap: .4rem; margin-top: .35rem; }
+    .preview-inline-editor input, .preview-inline-editor textarea, .preview-inline-editor select { box-sizing: border-box; width: 100%; min-width: 0; padding: .45rem; border: 1px solid #64748b; border-radius: 6px; background: #0f172a; color: #f8fafc; font: inherit; }
+    .preview-inline-editor textarea { min-height: 5rem; resize: vertical; }
+    .preview-inline-editor button { padding: .35rem .55rem; }
+    .preview-image-edit { position: absolute; top: .6rem; right: .6rem; }
+    .preview-meta .preview-editable { flex-wrap: wrap; }
+    .preview-category-edit { position: absolute; top: .75rem; left: .75rem; }
+    .preview-category-edit .news-card-badge { position: static; }
+    .preview-actions { display: flex; justify-content: space-between; gap: .5rem; padding-top: 1rem; }
+    .preview-actions .secondary { background: #475569; }
+    .preview-context { color: #cbd5e1; font-size: .85rem; }
+    .preview-card button { color: white; }
+    .preview-card .preview-edit { color: white; }
+    .preview-dialog > .preview-close { display: block; margin: 1rem 0 0 auto; }
     .category-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
     .category-tab { padding: .5rem .75rem; background: #334155; }
     .category-tab[aria-pressed="true"] { background: #4f46e5; }
@@ -148,6 +174,8 @@ export function getAdminPage() {
       undoing: new Set(),
       ignored: new Set(),
       previewTimer: null,
+      previewDraft: null,
+      previewStoryId: null,
       activeCategory: 'all',
       providers: [],
       pendingStories: [],
@@ -264,6 +292,18 @@ export function getAdminPage() {
       visibleStories.forEach((story) => {
         const row = document.createElement('article');
         row.className = 'story';
+        row.tabIndex = 0;
+        row.setAttribute('aria-label', 'Edit story: ' + story.title);
+        row.addEventListener('click', (event) => {
+          if (event.target.closest('button')) return;
+          openStoryPreview(story);
+        });
+        row.addEventListener('keydown', (event) => {
+          if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault();
+            openStoryPreview(story);
+          }
+        });
         if (story.image) {
           const image = document.createElement('img');
           image.src = story.image;
@@ -280,6 +320,11 @@ export function getAdminPage() {
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
         link.textContent = story.title;
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openStoryPreview(story);
+        });
         title.append(link);
         const meta = document.createElement('p');
         meta.className = 'story-meta';
@@ -511,49 +556,286 @@ export function getAdminPage() {
       document.getElementById('banned-arrow').textContent = expanded ? '▼' : '▲';
       content.hidden = expanded;
     });
-    function showCustomPreview(data) {
+    function editButton(label, className = '') {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'preview-edit ' + className;
+      button.textContent = '✏️';
+      button.title = 'Edit ' + label;
+      button.setAttribute('aria-label', 'Edit ' + label);
+      return button;
+    }
+
+    function editableField(parent, field, label, {
+      tag = 'span',
+      value = state.previewDraft[field] || '',
+      editor = 'text',
+      className = '',
+      display = value => value || 'Not set'
+    } = {}) {
+      const wrapper = document.createElement('span');
+      wrapper.className = 'preview-editable ' + className;
+      const visible = document.createElement(tag);
+      visible.className = 'preview-value';
+      if (field === 'title') visible.classList.add('news-card-title');
+      const displayValue = display(value);
+      if (displayValue instanceof Node) visible.append(displayValue);
+      else visible.textContent = displayValue;
+      if (tag === 'a') {
+        visible.href = state.previewDraft.link;
+        visible.target = '_blank';
+        visible.rel = 'noopener noreferrer';
+      }
+      const pencil = editButton(label);
+      pencil.addEventListener('click', () => {
+        pencil.hidden = true;
+        const editorWrap = document.createElement('span');
+        editorWrap.className = 'preview-inline-editor';
+        let input;
+        if (editor === 'category') {
+          input = document.createElement('select');
+          categories.forEach((category) => {
+            const option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = category.icon + ' ' + category.label;
+            input.append(option);
+          });
+          input.value = value;
+        } else if (editor === 'textarea') {
+          input = document.createElement('textarea');
+          input.value = value;
+        } else {
+          input = document.createElement('input');
+          input.type = editor;
+          input.value = editor === 'datetime-local' && value
+            ? (() => {
+              const date = new Date(value);
+              date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+              return date.toISOString().slice(0, 16);
+            })()
+            : value;
+        }
+        input.setAttribute('aria-label', label);
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.textContent = 'Done';
+        done.addEventListener('click', () => {
+          let next = input.value.trim();
+          if (editor === 'datetime-local' && next) next = new Date(next).toISOString();
+          state.previewDraft[field] = next;
+          renderPreview();
+        });
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'secondary';
+        cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', () => renderPreview());
+        editorWrap.append(input, done, cancel);
+        wrapper.append(editorWrap);
+        input.focus();
+      });
+      wrapper.append(visible, pencil);
+      parent.append(wrapper);
+      return wrapper;
+    }
+
+    function renderPreview() {
+      const draft = state.previewDraft;
+      if (!draft) return;
       const preview = document.getElementById('preview-card');
       preview.replaceChildren();
       const card = document.createElement('article');
-      card.className = 'preview-card';
-      if (data.image) {
-        const image = document.createElement('img');
-        image.className = 'preview-image';
-        image.src = data.image;
-        image.alt = '';
-        card.append(image);
-      }
+      card.className = 'news-card';
+      const imageWrap = document.createElement('div');
+      imageWrap.className = 'news-card-image-wrap';
+      const stockImages = {
+        all: 'all_1.jpg',
+        childcare: 'animals_1.jpg',
+        animals: 'animals_1.jpg',
+        arts: 'arts_1.jpg',
+        tech: 'tech_1.jpg',
+        world: 'world_1.jpg',
+        uplifting: 'uplifting_1.jpg'
+      };
+      const image = document.createElement('img');
+      image.className = 'news-card-image';
+      image.src = draft.image || 'img/' + (stockImages[draft.category] || stockImages.all);
+      image.alt = draft.title || '';
+      image.onerror = () => { image.hidden = true; };
+      imageWrap.append(image);
+      const category = categories.find(item => item.id === draft.category) || categories[0];
+      editableField(imageWrap, 'category', 'category', {
+        className: 'preview-category-edit',
+        editor: 'category',
+        display: () => {
+          const badge = document.createElement('span');
+          badge.className = 'news-card-badge';
+          badge.textContent = category.icon + ' ' + category.label;
+          return badge;
+        }
+      });
+      editableField(imageWrap, 'image', 'image URL', {
+        className: 'preview-image-edit',
+        editor: 'url',
+        display: () => ''
+      });
+
       const content = document.createElement('div');
-      content.className = 'preview-content';
+      content.className = 'news-card-content';
       const meta = document.createElement('div');
-      meta.className = 'preview-meta';
-      const source = document.createElement('span');
-      source.textContent = data.source || getStoryDomain(data.link);
+      meta.className = 'news-card-meta';
       const date = document.createElement('span');
-      date.textContent = data.pubDate
-        ? '🕒 ' + new Date(data.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const displayDate = draft.pubDate
+        ? new Date(draft.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : 'Recent';
-      meta.append(source, date);
-      if (data.approved !== false) {
-        const badge = document.createElement('span');
-        badge.textContent = "🧸 Littlables' Little Scoop";
-        meta.append(badge);
+      editableField(date, 'pubDate', 'publication date', {
+        display: () => '🕒 ' + displayDate,
+        editor: 'datetime-local'
+      });
+      meta.append(date);
+      if (draft.approved === true) {
+        const approval = document.createElement('span');
+        approval.textContent = "🧸 Littlables' Little Scoop";
+        meta.append(approval);
       }
+      editableField(meta, 'source', 'source name', { display: value => value || getStoryDomain(draft.link) });
+      content.append(meta);
+
       const title = document.createElement('h3');
+      title.className = 'news-card-title';
       title.id = 'preview-title';
-      title.textContent = data.title || 'Untitled Update';
+      editableField(title, 'title', 'title', { tag: 'a', display: value => value || 'Untitled Update' });
+      content.append(title);
       const description = document.createElement('p');
-      description.textContent = data.description || 'No description was found on this page.';
-      const link = document.createElement('a');
-      link.href = data.link;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Read Full Story →';
-      content.append(meta, title, description, link);
-      card.append(content);
+      description.className = 'news-card-desc';
+      editableField(description, 'description', 'description', {
+        tag: 'span',
+        editor: 'textarea',
+        display: value => value || 'No description was found on this page.'
+      });
+      content.append(description);
+      const aiSummary = document.createElement('div');
+      aiSummary.className = 'news-card-ai-summary';
+      const aiLabel = document.createElement('div');
+      aiLabel.className = 'news-card-ai-label';
+      aiLabel.textContent = 'A little AI brief';
+      aiSummary.append(aiLabel);
+      editableField(aiSummary, 'aiSummary', 'AI summary', {
+        editor: 'textarea',
+        display: value => value || 'A summary will be generated from the story details on the homepage.'
+      });
+      content.append(aiSummary);
+
+      const footer = document.createElement('div');
+      footer.className = 'news-card-footer';
+      const readMore = document.createElement('a');
+      readMore.className = 'news-read-more-btn';
+      readMore.href = draft.link;
+      readMore.target = '_blank';
+      readMore.rel = 'noopener noreferrer';
+      readMore.textContent = 'Read Full Story →';
+      footer.append(readMore);
+      const reactions = document.createElement('div');
+      reactions.className = 'news-card-reactions';
+      ['❤️ 0', '🤯 0', '🧸 0'].forEach((reaction) => {
+        const pill = document.createElement('span');
+        pill.className = 'preview-reaction';
+        pill.textContent = reaction;
+        reactions.append(pill);
+      });
+      footer.append(reactions);
+      editableField(footer, 'link', 'article URL', {
+        tag: 'span',
+        editor: 'url',
+        display: () => '✏️ URL'
+      });
+      card.append(imageWrap, content);
       preview.append(card);
+
+      const context = document.createElement('p');
+      context.className = 'preview-context';
+      context.textContent = 'AI summary source content';
+      editableField(context, 'content', 'AI summary source content', {
+        editor: 'textarea',
+        display: value => value || 'No extra source content'
+      });
+      preview.append(context);
+
+      const actions = document.createElement('div');
+      actions.className = 'preview-actions';
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'secondary';
+      close.textContent = 'Close';
+      close.addEventListener('click', () => document.getElementById('preview-dialog').close());
+      actions.append(close);
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.textContent = state.previewStoryId === null ? 'Add to approved stories' : 'Save changes';
+      save.addEventListener('click', () => savePreview(false));
+      actions.append(save);
+      if (state.previewStoryId !== null && draft.approved !== true && draft.removed !== true) {
+        const approve = document.createElement('button');
+        approve.type = 'button';
+        approve.textContent = 'Save & approve';
+        approve.addEventListener('click', () => savePreview(true));
+        actions.append(approve);
+      }
+      preview.append(actions);
+    }
+
+    function openStoryPreview(story) {
+      state.previewStoryId = story.id ?? null;
+      state.previewDraft = {
+        title: story.title || '',
+        link: story.link || '',
+        image: story.image || '',
+        description: story.description || '',
+        content: story.content || '',
+        aiSummary: story.aiSummary || '',
+        pubDate: story.pubDate || '',
+        source: story.source || '',
+        category: story.category || 'all',
+        approved: story.approved === true,
+        removed: story.removed === true
+      };
+      renderPreview();
       const dialog = document.getElementById('preview-dialog');
       if (!dialog.open) dialog.showModal();
+    }
+
+    async function savePreview(approve) {
+      const draft = state.previewDraft;
+      const existingId = state.previewStoryId;
+      try {
+        if (existingId === null) {
+          await request('/admin/api/stories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(draft)
+          });
+        } else {
+          await request('/admin/api/stories/' + encodeURIComponent(existingId), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(draft)
+          });
+          if (approve) {
+            await request('/admin/api/stories/' + encodeURIComponent(existingId) + '/approve', { method: 'POST' });
+          }
+        }
+        document.getElementById('preview-dialog').close();
+        await refreshData();
+        messageEl.className = 'success';
+        messageEl.textContent = existingId === null
+          ? 'Custom story added to the approved feed.'
+          : approve
+            ? 'Story changes saved and approved.'
+            : 'Story changes saved.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not save story: ' + error.message;
+      }
     }
 
     async function parseCustomLink() {
@@ -581,7 +863,13 @@ export function getAdminPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: url.href })
         });
-        showCustomPreview(data);
+        openStoryPreview({
+          ...data,
+          category: state.activeCategory,
+          provider: 'custom',
+          approved: false,
+          removed: false
+        });
         messageEl.className = 'success';
         messageEl.textContent = 'Custom card preview ready.';
       } catch (error) {

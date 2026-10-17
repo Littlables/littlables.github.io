@@ -37,6 +37,11 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Banned stories/);
   assert.match(page, /id="custom-link"/);
   assert.match(page, /preview-dialog/);
+  assert.match(page, /Add to approved stories/);
+  assert.match(page, /Save &amp; approve|Save & approve/);
+  assert.match(page, /openStoryPreview\(story\)/);
+  assert.match(page, /AI summary source content/);
+  assert.match(page, /editableField\(aiSummary, 'aiSummary', 'AI summary'/);
   assert.match(page, /Childcare & Family/);
   assert.match(page, /Future Tech & AI/);
   assert.match(page, /meta-provider/);
@@ -316,6 +321,147 @@ test('custom preview rejects private URLs and cross-origin requests without fetc
       authEnv
     );
     assert.equal(privateUrl.status, 400);
+    assert.equal(crossOrigin.status, 403);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('custom story endpoint inserts an approved homepage story', async () => {
+  const originalFetch = globalThis.fetch;
+  let requested;
+  let saved;
+  globalThis.fetch = async (input, options) => {
+    requested = { url: new URL(String(input)), options };
+    saved = JSON.parse(options.body)[0];
+    return Response.json([{ id: 25 }]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: 'Edited custom title',
+          category: 'childcare',
+          link: 'https://publisher.example/story',
+          image: 'https://images.example/story.jpg',
+          description: 'Edited description',
+          content: 'Edited context',
+          aiSummary: 'The saved AI brief.',
+          pubDate: '2026-10-17T12:00:00.000Z',
+          source: 'Publisher'
+        })
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { id: 25, approved: true });
+    assert.equal(requested.url.pathname, '/rest/v1/news_stories');
+    assert.equal(saved.provider, 'custom');
+    assert.equal(saved.approved, true);
+    assert.equal(saved.category, 'childcare');
+    assert.equal(saved.title, 'Edited custom title');
+    assert.equal(saved.image_url, 'https://images.example/story.jpg');
+    assert.equal(saved.ai_summary, 'The saved AI brief.');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('story edit endpoint updates card details without changing moderation state', async () => {
+  const originalFetch = globalThis.fetch;
+  let requested;
+  let update;
+  globalThis.fetch = async (input, options) => {
+    requested = { url: new URL(String(input)), options };
+    update = JSON.parse(options.body);
+    return Response.json([{ id: 25 }]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/25', {
+        method: 'PATCH',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: 'Edited title',
+          category: 'arts',
+          link: 'https://publisher.example/updated',
+          image: '',
+          description: 'Description',
+          content: 'Context',
+          aiSummary: 'Edited AI brief',
+          pubDate: '',
+          source: 'Publisher'
+        })
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 200);
+    assert.equal(requested.url.searchParams.get('id'), 'eq.25');
+    assert.equal(requested.options.method, 'PATCH');
+    assert.equal(update.title, 'Edited title');
+    assert.equal(update.category, 'arts');
+    assert.equal(update.ai_summary, 'Edited AI brief');
+    assert.equal(Object.hasOwn(update, 'approved'), false);
+    assert.equal(Object.hasOwn(update, 'removed'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('story publishing rejects unsafe links and cross-origin edits before saving', async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    throw new Error('Supabase must not be called');
+  };
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const unsafe = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Unsafe link',
+          category: 'all',
+          link: 'http://127.0.0.1/private',
+          image: '',
+          description: '',
+          content: '',
+          pubDate: '',
+          source: ''
+        })
+      }),
+      authEnv
+    );
+    const crossOrigin = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/25', {
+        method: 'PATCH',
+        headers: { Origin: 'https://attacker.example', Cookie: cookie, 'Content-Type': 'application/json' },
+        body: '{}'
+      }),
+      authEnv
+    );
+    assert.equal(unsafe.status, 400);
     assert.equal(crossOrigin.status, 403);
     assert.equal(called, false);
   } finally {

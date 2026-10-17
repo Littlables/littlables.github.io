@@ -4,11 +4,13 @@ import {
   approveNewsStory,
   banNewsStory,
   claimNewsProviderSync,
+  createApprovedCustomNewsStory,
   finishNewsProviderSync,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
   disapproveNewsStory,
   undoNewsStoryDecision,
+  updateNewsStory,
   upsertNewsStories
 } from './news-storage.mjs';
 
@@ -42,6 +44,7 @@ test('stored feed query returns normalized publisher story shape', async () => {
       image_url: 'https://images.example/family.jpg',
       description: 'Description',
       content: 'Article excerpt',
+      ai_summary: 'A saved brief.',
       published_at: '2026-10-17T12:00:00Z',
       source_name: 'Example'
     }]);
@@ -61,6 +64,7 @@ test('stored feed query returns normalized publisher story shape', async () => {
       image: 'https://images.example/family.jpg',
       description: 'Description',
       content: 'Article excerpt',
+      aiSummary: 'A saved brief.',
       pubDate: '2026-10-17T12:00:00Z',
       source: 'Example',
       approved: true
@@ -233,6 +237,78 @@ test('approval only transitions an unapproved story and records the admin identi
     assert.ok(Number.isFinite(Date.parse(payload.approved_at)));
     assert.equal(payload.decision_action, 'approve');
     assert.equal(payload.previous_approved, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('custom story publish saves editable card fields as an approved custom row', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl;
+  let requestOptions;
+  globalThis.fetch = async (input, options) => {
+    requestUrl = new URL(String(input));
+    requestOptions = options;
+    return Response.json([{ id: 71 }]);
+  };
+  try {
+    const id = await createApprovedCustomNewsStory(env, {
+      title: 'A custom story',
+      category: 'childcare',
+      link: 'https://publisher.example/story',
+      image: 'https://images.example/story.jpg',
+      description: 'Description',
+      content: 'Summary context',
+      aiSummary: 'A custom brief',
+      pubDate: '2026-10-17T12:00:00.000Z',
+      source: 'Publisher'
+    }, 'littlables');
+    assert.equal(id, 71);
+    assert.equal(requestUrl.searchParams.get('on_conflict'), 'provider,category,article_url');
+    const [row] = JSON.parse(requestOptions.body);
+    assert.equal(row.provider, 'custom');
+    assert.equal(row.article_url, 'https://publisher.example/story');
+    assert.equal(row.image_url, 'https://images.example/story.jpg');
+    assert.equal(row.approved, true);
+    assert.equal(row.approved_by, 'littlables');
+    assert.equal(row.decision_action, 'approve');
+    assert.equal(row.previous_approved, false);
+    assert.equal(row.ai_summary, 'A custom brief');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('story detail updates do not change moderation state', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl;
+  let requestOptions;
+  globalThis.fetch = async (input, options) => {
+    requestUrl = new URL(String(input));
+    requestOptions = options;
+    return Response.json([{ id: 71 }]);
+  };
+  try {
+    assert.equal(await updateNewsStory(env, '71', {
+      title: 'Edited story',
+      category: 'arts',
+      link: 'https://publisher.example/edited',
+      image: '',
+      description: 'Edited description',
+      content: 'Edited context',
+      aiSummary: 'An edited brief',
+      pubDate: '',
+      source: 'Publisher'
+    }), true);
+    assert.equal(requestUrl.searchParams.get('id'), 'eq.71');
+    const payload = JSON.parse(requestOptions.body);
+    assert.equal(payload.title, 'Edited story');
+    assert.equal(payload.category, 'arts');
+    assert.equal(payload.article_url, 'https://publisher.example/edited');
+    assert.equal(payload.image_url, null);
+    assert.equal(payload.ai_summary, 'An edited brief');
+    assert.equal(Object.hasOwn(payload, 'approved'), false);
+    assert.equal(Object.hasOwn(payload, 'removed'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

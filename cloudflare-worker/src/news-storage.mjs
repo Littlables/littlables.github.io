@@ -29,6 +29,7 @@ function normalizeStory(row) {
     image: row.image_url || '',
     description: row.description || '',
     content: row.content || '',
+    aiSummary: row.ai_summary || '',
     pubDate: row.published_at || '',
     source: row.source_name || '',
     provider: row.provider,
@@ -38,7 +39,7 @@ function normalizeStory(row) {
 
 export async function getStoredNewsFeed(env, category) {
   const makeQuery = approved => new URLSearchParams({
-    select: 'provider,category,title,article_url,image_url,description,content,published_at,source_name,approved',
+    select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved',
     category: `eq.${category}`,
     approved: `eq.${approved}`,
     removed: 'eq.false',
@@ -70,13 +71,13 @@ export async function getStoredNewsFeed(env, category) {
 export async function getNewsAdminSnapshot(env, providers) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
     decision_at: 'not.is.null',
     order: 'decision_at.desc',
     limit: '10'
   });
   const pendingQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at,decision_action',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action',
     approved: 'eq.false',
     removed: 'eq.false',
     or: '(decision_action.is.null,decision_action.eq.undo)',
@@ -84,7 +85,7 @@ export async function getNewsAdminSnapshot(env, providers) {
     limit: '100'
   });
   const bannedQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
     removed: 'eq.true',
     order: 'removed_at.desc.nullslast',
     limit: '100'
@@ -187,6 +188,71 @@ export async function approveNewsStory(env, storyId, approvedBy) {
   const rows = await readRows(response, 'Story approval update');
   if (rows.length !== 1) return false;
   return true;
+}
+
+export async function updateNewsStory(env, storyId, story) {
+  const query = new URLSearchParams({
+    id: `eq.${storyId}`,
+    select: 'id'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({
+      title: story.title,
+      category: story.category,
+      article_url: story.link,
+      image_url: story.image || null,
+      description: story.description || null,
+      content: story.content || null,
+      ai_summary: story.aiSummary || null,
+      published_at: story.pubDate || null,
+      source_name: story.source || null
+    })
+  });
+  const rows = await readRows(response, 'Story detail update');
+  return rows.length === 1;
+}
+
+export async function createApprovedCustomNewsStory(env, story, approvedBy) {
+  const now = new Date().toISOString();
+  const query = new URLSearchParams({
+    on_conflict: 'provider,category,article_url'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'POST',
+    headers: supabaseHeaders(env, {
+      Prefer: 'resolution=merge-duplicates,return=representation'
+    }),
+    body: JSON.stringify([{
+      provider: 'custom',
+      category: story.category,
+      title: story.title,
+      article_url: story.link,
+      image_url: story.image || null,
+      description: story.description || null,
+      content: story.content || null,
+      ai_summary: story.aiSummary || null,
+      published_at: story.pubDate || null,
+      source_name: story.source || null,
+      approved: true,
+      approved_by: approvedBy,
+      approved_at: now,
+      removed: false,
+      removed_by: null,
+      removed_at: null,
+      decision_action: 'approve',
+      decision_by: approvedBy,
+      decision_at: now,
+      previous_approved: false,
+      previous_removed: false
+    }])
+  });
+  const rows = await readRows(response, 'Custom story publish');
+  if (rows.length !== 1 || !Number.isSafeInteger(rows[0].id)) {
+    throw new Error('Custom story publish returned an invalid response');
+  }
+  return rows[0].id;
 }
 
 export async function disapproveNewsStory(env, storyId, decidedBy) {
