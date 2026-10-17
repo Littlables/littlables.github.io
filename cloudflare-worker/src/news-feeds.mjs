@@ -72,6 +72,19 @@ function normalizeBingArticleUrl(value) {
   }
 }
 
+function normalizeImageUrl(value) {
+  try {
+    const imageUrl = new URL(value);
+    if (!['http:', 'https:'].includes(imageUrl.protocol) || imageUrl.username || imageUrl.password) return '';
+    if (imageUrl.protocol === 'http:' && imageUrl.hostname === 'www.bing.com') {
+      imageUrl.protocol = 'https:';
+    }
+    return imageUrl.href;
+  } catch {
+    return '';
+  }
+}
+
 function parseBingRss(xml) {
   if (!/<rss\b/i.test(xml)) throw new Error('Bing did not return an RSS feed');
   const items = [];
@@ -91,6 +104,7 @@ function parseBingRss(xml) {
     items.push({
       title,
       link,
+      image: normalizeImageUrl(readXmlTag(entry, 'News:Image')),
       description: escapeHtml(description),
       pubDate,
       source: readXmlTag(entry, 'News:Source')

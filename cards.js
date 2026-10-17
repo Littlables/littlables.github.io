@@ -2,7 +2,6 @@
       const title = item.title || 'Untitled Update';
       const cleanDesc = item.description;
       const imageUrl = resolveImageUrl(item, index, currentCategory);
-      const fallbackImg = getCategoryFallbackImage(currentCategory, index);
       const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('recent');
       const link = item.link || '#';
 
@@ -18,7 +17,7 @@
       card.className = 'news-card';
       card.innerHTML = `
         <div class="news-card-image-wrap">
-          <img src="${imageUrl}" alt="${title}" class="news-card-image" loading="lazy" onerror="this.onerror=null; this.src='${fallbackImg}';">
+          <img src="${imageUrl}" alt="${title}" class="news-card-image" loading="lazy">
           <span class="news-card-badge">${categoryBadge}</span>
         </div>
         <div class="news-card-content">

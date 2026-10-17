@@ -160,6 +160,11 @@ function extractPageText(html) {
   return text.slice(0, MAX_PAGE_TEXT);
 }
 
+function isReadableArticleText(text) {
+  return text.length >= 120 &&
+    !/\b(?:enable javascript|verify you are human|access denied|request blocked|checking your browser|robot or human)\b/i.test(text);
+}
+
 function collectStoryUrls(description, articleUrl) {
   const links = [];
   if (isPublicWebUrl(articleUrl)) links.push(articleUrl);
@@ -300,7 +305,11 @@ async function summarize(request, env) {
       try {
         const page = await fetchPublicPage(url);
         const text = extractPageText(page.content);
-        return text ? { url: page.url, text } : null;
+        if (!isReadableArticleText(text)) {
+          console.warn(`Article source did not contain readable article text: ${url}`);
+          return null;
+        }
+        return { url: page.url, text };
       } catch (err) {
         console.warn(`Unable to read article source ${url}:`, err);
         return null;
@@ -309,7 +318,11 @@ async function summarize(request, env) {
     const sourceText = pages.filter(Boolean)
       .map((page, index) => `Source ${index + 1} (${page.url}):\n${page.text}`)
       .join('\n\n');
-    if (!sourceText) {
+    const feedDescription = extractPageText(decodeHtml(description));
+    const summarySourceText = sourceText || (feedDescription.length >= 40
+      ? `Publisher-provided feed description for ${primaryArticleUrl}:\n${feedDescription}`
+      : '');
+    if (!summarySourceText) {
       return jsonResponse({ error: 'Could not retrieve readable content from the article links' }, 502);
     }
 
@@ -321,7 +334,7 @@ async function summarize(request, env) {
         },
         {
           role: 'user',
-          content: `Article title: ${title}\n\nArticle sources:\n${sourceText}`
+          content: `Article title: ${title}\n\nArticle sources:\n${summarySourceText}`
         }
       ],
       max_tokens: 220,

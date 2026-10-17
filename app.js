@@ -40,6 +40,7 @@
     }
 
     function resolveImageUrl(item, index, categoryKey = currentCategory) {
+      if (item.image && item.image.startsWith('http')) return item.image;
       if (item.thumbnail && item.thumbnail.startsWith('http')) return item.thumbnail;
       if (item.enclosure && item.enclosure.link) return item.enclosure.link;
 
