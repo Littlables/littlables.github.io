@@ -15,9 +15,11 @@ import {
   claimNewsProviderSync,
   finishNewsProviderSync,
   approveNewsStory,
+  banNewsStory,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
-  removeNewsStory,
+  undoNewsStoryDecision,
+  unapproveNewsStory,
   upsertNewsStories
 } from './news-storage.mjs';
 
@@ -298,18 +300,23 @@ async function serveAdmin(request, env) {
     }
   }
 
-  const removalMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/remove$/);
-  if (removalMatch && request.method === 'POST') {
+  const decisionMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/(unapprove|ban|undo)$/);
+  if (decisionMatch && request.method === 'POST') {
     if (!isSameOrigin(request)) {
-      return jsonResponse({ error: 'Story removal must be requested from the admin origin' }, 403);
+      return jsonResponse({ error: 'Story decision must be requested from the admin origin' }, 403);
     }
     try {
-      const removed = await removeNewsStory(env, removalMatch[1], identity.login);
-      if (!removed) return jsonResponse({ error: 'Story was not found, is already removed, or is approved' }, 404);
-      return jsonResponse({ id: Number(removalMatch[1]), removed: true });
+      const [, storyId, action] = decisionMatch;
+      const changed = action === 'unapprove'
+        ? await unapproveNewsStory(env, storyId, identity.login)
+        : action === 'ban'
+          ? await banNewsStory(env, storyId, identity.login)
+          : await undoNewsStoryDecision(env, storyId, identity.login);
+      if (!changed) return jsonResponse({ error: 'Story was not found or its decision has changed' }, 404);
+      return jsonResponse({ id: Number(storyId), action });
     } catch (err) {
-      console.error('News story removal failed:', err);
-      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not remove story' }, 502);
+      console.error(`News story ${decisionMatch[2]} failed:`, err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story decision' }, 502);
     }
   }
 

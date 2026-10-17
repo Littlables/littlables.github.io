@@ -15,6 +15,11 @@ create table if not exists public.news_stories (
   removed boolean not null default false,
   removed_by text,
   removed_at timestamptz,
+  decision_action text,
+  decision_by text,
+  decision_at timestamptz,
+  previous_approved boolean,
+  previous_removed boolean,
   fetched_at timestamptz not null default now(),
   constraint news_stories_provider_category_url_key unique (provider, category, article_url)
 );
@@ -31,6 +36,25 @@ alter table public.news_stories
   add column if not exists removed_by text;
 alter table public.news_stories
   add column if not exists removed_at timestamptz;
+alter table public.news_stories
+  add column if not exists decision_action text;
+alter table public.news_stories
+  add column if not exists decision_by text;
+alter table public.news_stories
+  add column if not exists decision_at timestamptz;
+alter table public.news_stories
+  add column if not exists previous_approved boolean;
+alter table public.news_stories
+  add column if not exists previous_removed boolean;
+
+update public.news_stories
+set
+  decision_action = case when removed then 'ban' else 'approve' end,
+  decision_by = coalesce(removed_by, approved_by),
+  decision_at = coalesce(removed_at, approved_at, fetched_at),
+  previous_approved = false,
+  previous_removed = false
+where decision_at is null and (approved or removed);
 
 create index if not exists news_stories_category_published_idx
   on public.news_stories (category, published_at desc nulls last);
@@ -38,6 +62,10 @@ create index if not exists news_stories_category_published_idx
 create index if not exists news_stories_pending_approval_idx
   on public.news_stories (fetched_at desc)
   where approved = false and removed = false;
+
+create index if not exists news_stories_decision_history_idx
+  on public.news_stories (decision_at desc)
+  where decision_at is not null;
 
 create table if not exists public.news_provider_sync (
   provider text primary key,

@@ -664,6 +664,12 @@ body {
       gap: 1.5rem;
     }
 
+    .feed-group-title {
+      grid-column: 1 / -1;
+      margin: 0.5rem 0 0;
+      color: var(--news-text);
+    }
+
     .news-feed-error {
       grid-column: 1 / -1;
       padding: 1.25rem;

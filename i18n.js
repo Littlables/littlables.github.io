@@ -10,7 +10,7 @@
         loading: "Fetching the freshest stories & computing AI summaries...",
         breaking: "Breaking",
         trending: "Trending",
-        verifiedWire: "📡 Verified Wire",
+        verifiedWire: "🧸 Littlables' Little Scoop",
         liveFeed: "📡 Live Feed",
         aiBriefTag: "✨ Quick AI Brief",
         aiGenerating: "Generating AI summary…",

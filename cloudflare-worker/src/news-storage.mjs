@@ -37,24 +37,32 @@ function normalizeStory(row) {
 }
 
 export async function getStoredNewsFeed(env, category) {
-  const query = new URLSearchParams({
-    select: 'provider,category,title,article_url,image_url,description,content,published_at,source_name',
+  const makeQuery = approved => new URLSearchParams({
+    select: 'provider,category,title,article_url,image_url,description,content,published_at,source_name,approved',
     category: `eq.${category}`,
-    approved: 'eq.true',
+    approved: `eq.${approved}`,
     removed: 'eq.false',
     order: 'published_at.desc.nullslast,fetched_at.desc',
     limit: '50'
   });
-  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
-    headers: supabaseHeaders(env)
-  });
-  const rows = await readRows(response, 'Stored news feed lookup');
+  const [approvedResponse, unapprovedResponse] = await Promise.all([
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), {
+      headers: supabaseHeaders(env)
+    }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), {
+      headers: supabaseHeaders(env)
+    })
+  ]);
+  const [approvedRows, unapprovedRows] = await Promise.all([
+    readRows(approvedResponse, 'Approved news feed lookup'),
+    readRows(unapprovedResponse, 'Unapproved news feed lookup')
+  ]);
   const seenUrls = new Set();
   const items = [];
-  for (const row of rows) {
+  for (const row of [...approvedRows, ...unapprovedRows]) {
     if (seenUrls.has(row.article_url)) continue;
     seenUrls.add(row.article_url);
-    items.push(normalizeStory(row));
+    items.push({ ...normalizeStory(row), approved: row.approved });
   }
   return { provider: 'supabase', items };
 }
@@ -62,9 +70,10 @@ export async function getStoredNewsFeed(env, category) {
 export async function getNewsAdminSnapshot(env, providers) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at',
-    order: 'fetched_at.desc',
-    limit: '50'
+    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    decision_at: 'not.is.null',
+    order: 'decision_at.desc',
+    limit: '10'
   });
   const pendingQuery = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at',
@@ -95,17 +104,20 @@ export async function getNewsAdminSnapshot(env, providers) {
   const pendingRows = await readRows(pendingResponse, 'Unapproved story lookup');
   const syncRows = await readRows(syncResponse, 'Provider status lookup');
   const syncByProvider = new Map(syncRows.map(row => [row.provider, row]));
-  const seenUrls = new Set();
-  const recentStories = [];
-  for (const row of recentRows) {
-    if (seenUrls.has(row.article_url)) continue;
-    seenUrls.add(row.article_url);
-    recentStories.push({ ...normalizeStory(row), updatedAt: row.fetched_at || '' });
-    if (recentStories.length === 10) break;
-  }
   return {
     totalStories: total,
-    recentStories,
+    recentStories: recentRows.map(row => ({
+      ...normalizeStory(row),
+      id: row.id,
+      approved: row.approved,
+      removed: row.removed,
+      updatedAt: row.decision_at || row.fetched_at || '',
+      decisionAction: row.decision_action,
+      decisionBy: row.decision_by,
+      decisionAt: row.decision_at,
+      previousApproved: row.previous_approved,
+      previousRemoved: row.previous_removed
+    })),
     pendingStories: pendingRows.map(row => ({
       ...normalizeStory(row),
       id: row.id,
@@ -131,6 +143,7 @@ export async function approveNewsStory(env, storyId, approvedBy) {
   const query = new URLSearchParams({
     id: `eq.${storyId}`,
     approved: 'eq.false',
+    removed: 'eq.false',
     select: 'id'
   });
   const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
@@ -139,7 +152,12 @@ export async function approveNewsStory(env, storyId, approvedBy) {
     body: JSON.stringify({
       approved: true,
       approved_by: approvedBy,
-      approved_at: new Date().toISOString()
+      approved_at: new Date().toISOString(),
+      decision_action: 'approve',
+      decision_by: approvedBy,
+      decision_at: new Date().toISOString(),
+      previous_approved: false,
+      previous_removed: false
     })
   });
   const rows = await readRows(response, 'Story approval update');
@@ -147,7 +165,32 @@ export async function approveNewsStory(env, storyId, approvedBy) {
   return true;
 }
 
-export async function removeNewsStory(env, storyId, removedBy) {
+export async function unapproveNewsStory(env, storyId, decidedBy) {
+  const query = new URLSearchParams({
+    id: `eq.${storyId}`,
+    approved: 'eq.true',
+    removed: 'eq.false',
+    select: 'id'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({
+      approved: false,
+      approved_by: null,
+      approved_at: null,
+      decision_action: 'unapprove',
+      decision_by: decidedBy,
+      decision_at: new Date().toISOString(),
+      previous_approved: true,
+      previous_removed: false
+    })
+  });
+  const rows = await readRows(response, 'Story unapproval update');
+  return rows.length === 1;
+}
+
+export async function banNewsStory(env, storyId, bannedBy) {
   const query = new URLSearchParams({
     id: `eq.${storyId}`,
     approved: 'eq.false',
@@ -159,12 +202,61 @@ export async function removeNewsStory(env, storyId, removedBy) {
     headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
     body: JSON.stringify({
       removed: true,
-      removed_by: removedBy,
-      removed_at: new Date().toISOString()
+      removed_by: bannedBy,
+      removed_at: new Date().toISOString(),
+      decision_action: 'ban',
+      decision_by: bannedBy,
+      decision_at: new Date().toISOString(),
+      previous_approved: false,
+      previous_removed: false
     })
   });
-  const rows = await readRows(response, 'Story removal update');
+  const rows = await readRows(response, 'Story ban update');
   return rows.length === 1;
+}
+
+export async function undoNewsStoryDecision(env, storyId, undoneBy) {
+  const query = new URLSearchParams({
+    id: `eq.${storyId}`,
+    decision_action: 'in.(approve,unapprove,ban)',
+    decision_at: 'not.is.null',
+    select: 'id,approved,removed,decision_action,decision_at,previous_approved,previous_removed'
+  });
+  const lookup = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    headers: supabaseHeaders(env)
+  });
+  const rows = await readRows(lookup, 'Story decision lookup');
+  if (rows.length !== 1 || rows[0].previous_approved == null || rows[0].previous_removed == null) {
+    return false;
+  }
+  const decision = rows[0];
+  const updateQuery = new URLSearchParams({
+    id: `eq.${storyId}`,
+    decision_action: `eq.${decision.decision_action}`,
+    decision_at: `eq.${decision.decision_at}`,
+    approved: `eq.${decision.approved}`,
+    removed: `eq.${decision.removed}`,
+    select: 'id'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, updateQuery), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({
+      approved: decision.previous_approved,
+      removed: decision.previous_removed,
+      approved_by: decision.previous_approved ? undoneBy : null,
+      approved_at: decision.previous_approved ? new Date().toISOString() : null,
+      removed_by: decision.previous_removed ? undoneBy : null,
+      removed_at: decision.previous_removed ? new Date().toISOString() : null,
+      decision_action: 'undo',
+      decision_by: undoneBy,
+      decision_at: new Date().toISOString(),
+      previous_approved: null,
+      previous_removed: null
+    })
+  });
+  const updatedRows = await readRows(response, 'Story decision undo');
+  return updatedRows.length === 1;
 }
 
 export async function claimNewsProviderSync(env, provider, updatedBy) {

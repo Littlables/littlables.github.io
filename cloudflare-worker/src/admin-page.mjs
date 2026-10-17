@@ -41,6 +41,7 @@ export function getAdminPage() {
     button { border: 0; border-radius: 8px; padding: .65rem 1rem; font: inherit; font-weight: 700; color: white; background: #4f46e5; cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
     button.secondary { background: #475569; }
+    .section-toggle { padding: 0; background: transparent; text-align: left; }
     a { color: #a5b4fc; }
     #stories, #pending-stories { display: grid; gap: .75rem; }
     .story { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; }
@@ -53,8 +54,10 @@ export function getAdminPage() {
     .meta-domain { color: #fcd34d; }
     .meta-category { color: #7dd3fc; }
     .meta-date { color: #86efac; }
+    .decision-note { margin: .4rem 0 0; color: #cbd5e1; font-size: .82rem; }
     .story-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
     .story-actions button { white-space: nowrap; }
+    #stories[hidden] { display: none; }
     .category-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
     .category-tab { padding: .5rem .75rem; background: #334155; }
     .category-tab[aria-pressed="true"] { background: #4f46e5; }
@@ -94,7 +97,11 @@ export function getAdminPage() {
     <div id="pending-stories" aria-live="polite"></div>
   </section>
   <section aria-labelledby="stories-title">
-    <h2 id="stories-title">Last 10 saved stories</h2>
+    <h2 id="stories-title">
+      <button id="decisions-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="stories">
+        <span id="decisions-arrow" aria-hidden="true">▲</span> Last 10 decided-on stories
+      </button>
+    </h2>
     <div id="stories"></div>
   </section>
   <script>
@@ -110,17 +117,19 @@ export function getAdminPage() {
     const state = {
       busy: new Set(),
       approving: new Set(),
-      removing: new Set(),
+      banning: new Set(),
+      unapproving: new Set(),
+      undoing: new Set(),
       ignored: new Set(),
       activeCategory: 'all',
       providers: [],
-      pendingStories: []
+      pendingStories: [],
+      decidedStories: []
     };
     const providersEl = document.getElementById('providers');
     const messageEl = document.getElementById('message');
     const categoryEl = document.getElementById('approval-categories');
     const text = (value) => value == null || value === '' ? '—' : String(value);
-    const formatDate = (value) => value ? new Date(value).toLocaleString() : 'Never';
     const formatDateTime = (date) => date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 
     function getStoryDomain(link) {
@@ -135,9 +144,9 @@ export function getAdminPage() {
       const elapsed = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
       const days = Math.floor(elapsed / 86400);
       const hours = Math.floor((elapsed % 86400) / 3600);
-      const minutes = Math.floor((elapsed % 3600) / 60);
+      const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
       const seconds = String(elapsed % 60).padStart(2, '0');
-      if (days) return days + 'd' + hours + 'h' + minutes + 'm' + seconds + 's ago';
+      if (days) return days + 'd' + String(hours).padStart(2, '0') + 'h' + minutes + 'm' + seconds + 's ago';
       if (hours) return hours + 'h' + minutes + 'm' + seconds + 's ago';
       return minutes + 'm' + seconds + 's ago';
     }
@@ -146,10 +155,10 @@ export function getAdminPage() {
       document.querySelectorAll('[data-updated-at]').forEach((element) => {
         const timestamp = Date.parse(element.dataset.updatedAt);
         if (!Number.isFinite(timestamp)) {
-          element.textContent = 'Last updated: Unknown';
+          element.textContent = element.dataset.updatedPrefix + 'Never';
           return;
         }
-        element.textContent = 'Last updated: ' + formatDateTime(new Date(timestamp)) +
+        element.textContent = element.dataset.updatedPrefix + formatDateTime(new Date(timestamp)) +
           '; ' + formatElapsed(timestamp);
       });
     }
@@ -183,7 +192,9 @@ export function getAdminPage() {
         statusValue.textContent = text(provider.status);
         status.append(statusValue);
         const updated = document.createElement('p');
-        updated.textContent = 'Last updated: ' + formatDate(provider.last_success_at);
+        updated.className = 'provider-updated';
+        updated.dataset.updatedPrefix = 'Last updated: ';
+        updated.dataset.updatedAt = provider.last_success_at || '';
         const saved = document.createElement('p');
         saved.textContent = 'Stories saved last run: ' + text(provider.stories_saved);
         card.append(head, status, updated, saved);
@@ -214,7 +225,7 @@ export function getAdminPage() {
       });
     }
 
-    function renderStories(stories, { pending = false } = {}) {
+    function renderStories(stories, { pending = false, decided = false } = {}) {
       const container = document.getElementById(pending ? 'pending-stories' : 'stories');
       container.replaceChildren();
       const visibleStories = pending
@@ -256,38 +267,82 @@ export function getAdminPage() {
         });
         const updated = document.createElement('span');
         updated.className = 'meta-date';
+        updated.dataset.updatedPrefix = 'Last updated: ';
         updated.dataset.updatedAt = story.updatedAt || story.pubDate || '';
         meta.append(updated);
         const details = document.createElement('div');
         details.className = 'story-details';
         details.append(title, meta);
+        if (decided) {
+          const decision = document.createElement('p');
+          decision.className = 'decision-note';
+          const actionLabels = {
+            approve: 'Approved',
+            unapprove: 'Removed from approved stories',
+            ban: 'Banned from the site',
+            undo: 'Undid the previous decision'
+          };
+          decision.textContent = (actionLabels[story.decisionAction] || 'Decision updated') +
+            ' · ' + (story.decisionBy ? '@' + story.decisionBy : 'admin');
+          details.append(decision);
+        }
         const main = document.createElement('div');
         main.className = 'story-main';
         main.append(details);
         row.append(main);
-        if (pending) {
+        if (pending || decided) {
           const actions = document.createElement('div');
           actions.className = 'story-actions';
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = state.approving.has(story.id) ? 'Approving…' : 'Approve';
-          button.disabled = state.approving.has(story.id);
-          button.addEventListener('click', () => approveStory(story.id));
-          const ignoreButton = document.createElement('button');
-          ignoreButton.type = 'button';
-          ignoreButton.className = 'secondary';
-          ignoreButton.textContent = 'Ignore';
-          ignoreButton.addEventListener('click', () => {
-            state.ignored.add(story.id);
-            renderStories(state.pendingStories, { pending: true });
-          });
-          const removeButton = document.createElement('button');
-          removeButton.type = 'button';
-          removeButton.className = 'secondary';
-          removeButton.textContent = state.removing.has(story.id) ? 'Removing…' : 'Remove';
-          removeButton.disabled = state.removing.has(story.id);
-          removeButton.addEventListener('click', () => removeStory(story.id));
-          actions.append(button, ignoreButton, removeButton);
+          if (pending) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = state.approving.has(story.id) ? 'Approving…' : 'Approve';
+            button.disabled = state.approving.has(story.id);
+            button.addEventListener('click', () => approveStory(story.id));
+            const ignoreButton = document.createElement('button');
+            ignoreButton.type = 'button';
+            ignoreButton.className = 'secondary';
+            ignoreButton.textContent = 'Ignore';
+            ignoreButton.addEventListener('click', () => {
+              state.ignored.add(story.id);
+              renderStories(state.pendingStories, { pending: true });
+            });
+            const banButton = document.createElement('button');
+            banButton.type = 'button';
+            banButton.className = 'secondary';
+            banButton.textContent = state.banning.has(story.id) ? 'Banning…' : 'Ban';
+            banButton.disabled = state.banning.has(story.id);
+            banButton.addEventListener('click', () => banStory(story.id));
+            actions.append(button, ignoreButton, banButton);
+          } else if (story.approved && !story.removed) {
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'secondary';
+            removeButton.textContent = state.unapproving.has(story.id) ? 'Removing…' : 'Remove';
+            removeButton.disabled = state.unapproving.has(story.id);
+            removeButton.addEventListener('click', () => unapproveStory(story.id));
+            actions.append(removeButton);
+          }
+          if (
+            decided &&
+            typeof story.previousApproved === 'boolean' &&
+            typeof story.previousRemoved === 'boolean' &&
+            !state.undoing.has(story.id)
+          ) {
+            const undoButton = document.createElement('button');
+            undoButton.type = 'button';
+            undoButton.className = 'secondary';
+            undoButton.textContent = 'Undo';
+            undoButton.addEventListener('click', () => undoDecision(story.id));
+            actions.append(undoButton);
+          } else if (decided && state.undoing.has(story.id)) {
+            const undoButton = document.createElement('button');
+            undoButton.type = 'button';
+            undoButton.className = 'secondary';
+            undoButton.textContent = 'Undoing…';
+            undoButton.disabled = true;
+            actions.append(undoButton);
+          }
           row.append(actions);
         }
         container.append(row);
@@ -299,6 +354,8 @@ export function getAdminPage() {
           ? 'No pending stories in this category.'
           : pending
             ? 'No stories awaiting approval.'
+            : decided
+              ? 'No stories have been decided yet.'
             : 'No stories have been saved yet.';
         container.append(empty);
       }
@@ -311,6 +368,7 @@ export function getAdminPage() {
         const data = await request('/admin/api/status');
         state.providers = data.providers;
         state.pendingStories = data.pendingStories || [];
+        state.decidedStories = data.recentStories || [];
         renderProviders(data.providers);
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
         document.getElementById('pending-count').textContent = state.pendingStories.length
@@ -318,7 +376,7 @@ export function getAdminPage() {
           : '';
         renderCategoryTabs();
         renderStories(state.pendingStories, { pending: true });
-        renderStories(data.recentStories);
+        renderStories(state.decidedStories, { decided: true });
         refreshStoryAges();
         messageEl.textContent = 'Database status refreshed.';
       } catch (error) {
@@ -333,9 +391,9 @@ export function getAdminPage() {
       renderStories(state.pendingStories, { pending: true });
       try {
         await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/approve', { method: 'POST' });
+        await refreshData();
         messageEl.className = 'success';
         messageEl.textContent = 'Story approved and published.';
-        await refreshData();
       } catch (error) {
         messageEl.className = 'error';
         messageEl.textContent = 'Story approval failed: ' + error.message;
@@ -344,21 +402,36 @@ export function getAdminPage() {
       }
     }
 
-    async function removeStory(storyId) {
-      if (state.removing.has(storyId)) return;
-      state.removing.add(storyId);
+    async function postStoryDecision(storyId, action, busySet, successMessage) {
+      if (busySet.has(storyId)) return;
+      busySet.add(storyId);
       renderStories(state.pendingStories, { pending: true });
+      renderStories(state.decidedStories, { decided: true });
       try {
-        await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/remove', { method: 'POST' });
-        messageEl.className = 'success';
-        messageEl.textContent = 'Story removed from the public site.';
+        await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/' + action, { method: 'POST' });
         await refreshData();
+        messageEl.className = 'success';
+        messageEl.textContent = successMessage;
       } catch (error) {
         messageEl.className = 'error';
-        messageEl.textContent = 'Story removal failed: ' + error.message;
+        messageEl.textContent = 'Story decision failed: ' + error.message;
       } finally {
-        state.removing.delete(storyId);
+        busySet.delete(storyId);
+        renderStories(state.pendingStories, { pending: true });
+        renderStories(state.decidedStories, { decided: true });
       }
+    }
+
+    function banStory(storyId) {
+      return postStoryDecision(storyId, 'ban', state.banning, 'Story banned from public feeds.');
+    }
+
+    function unapproveStory(storyId) {
+      return postStoryDecision(storyId, 'unapprove', state.unapproving, 'Story moved below approved stories.');
+    }
+
+    function undoDecision(storyId) {
+      return postStoryDecision(storyId, 'undo', state.undoing, 'Previous story decision undone.');
     }
 
     async function updateProvider(providerId) {
@@ -383,6 +456,13 @@ export function getAdminPage() {
     }
 
     document.getElementById('refresh').addEventListener('click', refreshData);
+    document.getElementById('decisions-toggle').addEventListener('click', (event) => {
+      const content = document.getElementById('stories');
+      const expanded = event.currentTarget.getAttribute('aria-expanded') === 'true';
+      event.currentTarget.setAttribute('aria-expanded', String(!expanded));
+      document.getElementById('decisions-arrow').textContent = expanded ? '▼' : '▲';
+      content.hidden = expanded;
+    });
     request('/admin/api/identity')
       .then((data) => { document.getElementById('identity').textContent = 'Signed in as @' + data.login; })
       .catch((error) => { document.getElementById('identity').textContent = error.message; });
