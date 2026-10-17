@@ -2,6 +2,18 @@ const MAX_FEED_BYTES = 1_000_000;
 const MAX_STORY_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const FEED_FETCH_TIMEOUT_MS = 10_000;
 const FEED_PROVIDERS = Object.freeze({
+  gnews: {
+    endpoint: 'https://gnews.io/api/v4',
+    categories: {
+      all: { endpoint: 'top-headlines', category: 'general' },
+      childcare: { endpoint: 'search', query: 'childcare OR parenting OR family' },
+      animals: { endpoint: 'search', query: 'animals OR wildlife OR conservation' },
+      tech: { endpoint: 'search', query: 'artificial intelligence OR technology' },
+      arts: { endpoint: 'search', query: 'arts OR culture OR creative' },
+      world: { endpoint: 'top-headlines', category: 'world' },
+      uplifting: { endpoint: 'search', query: '"good news" OR positive news' }
+    }
+  },
   bing: {
     endpoint: 'https://www.bing.com/news/search',
     categories: {
@@ -47,7 +59,7 @@ function readXmlTag(xml, tagName) {
   return match ? decodeXml(match[1]).trim() : '';
 }
 
-function normalizeBingArticleUrl(value) {
+function normalizeArticleUrl(value) {
   try {
     const url = new URL(value);
     const isBingClick = (url.hostname === 'bing.com' || url.hostname.endsWith('.bing.com')) &&
@@ -85,6 +97,34 @@ function normalizeImageUrl(value) {
   }
 }
 
+function normalizeGNewsArticle(article) {
+  if (!article || typeof article.title !== 'string' || typeof article.url !== 'string') return null;
+  const link = normalizeArticleUrl(article.url);
+  if (!link) return null;
+
+  const source = typeof article.source?.name === 'string' ? article.source.name : '';
+  return {
+    title: article.title.trim(),
+    link,
+    image: typeof article.image === 'string' ? normalizeImageUrl(article.image) : '',
+    description: escapeHtml(typeof article.description === 'string' ? article.description.trim() : ''),
+    content: escapeHtml(typeof article.content === 'string' ? article.content.trim() : ''),
+    pubDate: typeof article.publishedAt === 'string' ? article.publishedAt : '',
+    source
+  };
+}
+
+function parseGNewsResponse(body) {
+  if (!body || !Array.isArray(body.articles)) {
+    throw new Error('GNews returned an invalid article response');
+  }
+  const items = body.articles
+    .map(normalizeGNewsArticle)
+    .filter(item => item && item.title);
+  if (!items.length) throw new Error('GNews returned no usable stories');
+  return items;
+}
+
 function parseBingRss(xml) {
   if (!/<rss\b/i.test(xml)) throw new Error('Bing did not return an RSS feed');
   const items = [];
@@ -93,7 +133,7 @@ function parseBingRss(xml) {
     const entry = match[1];
     const title = readXmlTag(entry, 'title');
     const bingUrl = readXmlTag(entry, 'link');
-    const link = normalizeBingArticleUrl(bingUrl);
+    const link = normalizeArticleUrl(bingUrl);
     if (!title || !link) continue;
 
     const pubDate = readXmlTag(entry, 'pubDate');
@@ -113,45 +153,75 @@ function parseBingRss(xml) {
   return items;
 }
 
-export async function getNewsFeed(providerName, category, market, fetcher = fetch) {
+export async function getNewsFeed(providerName, category, market, { apiKey = '', fetcher = fetch } = {}) {
   const provider = Object.hasOwn(FEED_PROVIDERS, providerName) ? FEED_PROVIDERS[providerName] : null;
   if (!provider) throw new Error(`Unknown news feed provider: ${providerName}`);
 
-  const query = provider.categories[category] || provider.categories.all;
-  const feedUrl = new URL(provider.endpoint);
-  feedUrl.searchParams.set('q', query);
-  feedUrl.searchParams.set('format', 'rss');
-  feedUrl.searchParams.set('freshness', 'Day');
-  if (/^[a-z]{2}-[A-Z]{2}$/.test(market || '')) feedUrl.searchParams.set('mkt', market);
+  if (providerName === 'gnews' && !apiKey) {
+    throw new Error('GNews API key is not configured. Set the GNEWS_API_KEY Worker secret.');
+  }
+
+  const categoryConfig = provider.categories[category] || provider.categories.all;
+  const endpoint = providerName === 'gnews' ? categoryConfig.endpoint : '';
+  const feedUrl = new URL(
+    providerName === 'gnews'
+      ? `${provider.endpoint}/${endpoint}`
+      : provider.endpoint
+  );
+  if (providerName === 'gnews') {
+    if (categoryConfig.query) feedUrl.searchParams.set('q', categoryConfig.query);
+    if (categoryConfig.category) feedUrl.searchParams.set('category', categoryConfig.category);
+    feedUrl.searchParams.set('max', '10');
+    const [language, country] = (market || '').split('-');
+    if (/^[a-z]{2,3}$/i.test(language || '')) feedUrl.searchParams.set('lang', language.toLowerCase());
+    if (/^[A-Z]{2}$/i.test(country || '')) feedUrl.searchParams.set('country', country.toLowerCase());
+  } else {
+    feedUrl.searchParams.set('q', categoryConfig);
+    feedUrl.searchParams.set('format', 'rss');
+    feedUrl.searchParams.set('freshness', 'Day');
+    if (/^[a-z]{2}-[A-Z]{2}$/.test(market || '')) feedUrl.searchParams.set('mkt', market);
+  }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort('Bing News feed request timed out'), FEED_FETCH_TIMEOUT_MS);
-  let xml;
+  const timeout = setTimeout(() => controller.abort(`${providerName} feed request timed out`), FEED_FETCH_TIMEOUT_MS);
+  let responseBody;
   try {
-    const response = await fetcher(feedUrl, {
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/rss+xml,application/xml,text/xml',
-        'User-Agent': 'Mozilla/5.0 (compatible; LittlablesFeed/1.0)'
-      }
-    });
-    if (!response.ok) throw new Error(`Bing News feed request failed (HTTP ${response.status})`);
+    const response = await fetcher(feedUrl, providerName === 'gnews'
+      ? {
+          signal: controller.signal,
+          cf: { cacheTtl: 300, cacheEverything: true },
+          headers: {
+            Accept: 'application/json',
+            'X-Api-Key': apiKey
+          }
+        }
+      : {
+          signal: controller.signal,
+          headers: {
+            Accept: 'application/rss+xml,application/xml,text/xml',
+            'User-Agent': 'Mozilla/5.0 (compatible; LittlablesFeed/1.0)'
+          }
+        });
+    if (!response.ok) {
+      throw new Error(`${providerName === 'gnews' ? 'GNews' : 'Bing News'} feed request failed (HTTP ${response.status})`);
+    }
     const declaredSize = Number(response.headers.get('Content-Length') || 0);
-    if (declaredSize > MAX_FEED_BYTES) throw new Error('Bing News feed is too large');
+    if (declaredSize > MAX_FEED_BYTES) throw new Error('News feed response is too large');
     const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > MAX_FEED_BYTES) throw new Error('Bing News feed is too large');
+    if (bytes.byteLength > MAX_FEED_BYTES) throw new Error('News feed response is too large');
 
-    xml = new TextDecoder().decode(bytes);
+    responseBody = new TextDecoder().decode(bytes);
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new Error(`Bing News feed request timed out after ${FEED_FETCH_TIMEOUT_MS}ms`);
+      throw new Error(`${providerName === 'gnews' ? 'GNews' : 'Bing News'} feed request timed out after ${FEED_FETCH_TIMEOUT_MS}ms`);
     }
     throw err;
   } finally {
     clearTimeout(timeout);
   }
 
-  const items = parseBingRss(xml);
-  if (!items.length) throw new Error('Bing News feed returned no usable stories');
+  const items = providerName === 'gnews'
+    ? parseGNewsResponse(JSON.parse(responseBody))
+    : parseBingRss(responseBody);
   return { provider: providerName, items };
 }

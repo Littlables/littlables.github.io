@@ -23,6 +23,7 @@
         error: "Unable to load live wire right now. Click refresh to try again!",
         recent: "Recent",
         catAll: "Top Currents",
+        catChildcare: "Childcare & Family",
         catAnimals: "Animals & Nature",
         catTech: "Future Tech & AI",
         catArts: "Creative Arts",
@@ -610,12 +611,4 @@
           el.textContent = t(i18nKey);
         }
       });
-    }
-
-    /**
-     * Formats Google News RSS parameters: "hl=xx-XX&gl=XX&ceid=XX:xx"
-     */
-    function getGoogleNewsParams() {
-      const { lang, region, fullCode } = getDetectedLocale();
-      return `hl=${fullCode}&gl=${region}&ceid=${region}:${lang}`;
     }

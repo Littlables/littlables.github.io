@@ -1,5 +1,5 @@
     const SAVED_CATEGORY_KEY = 'selected_category';
-    const VALID_CATEGORIES = ['all', 'animals', 'tech', 'arts', 'world', 'uplifting'];
+    const VALID_CATEGORIES = ['all', 'childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
     let currentCategory = (() => {
       try {
         const saved = localStorage.getItem(SAVED_CATEGORY_KEY);
@@ -12,6 +12,7 @@
 
     const CATEGORY_ICONS = {
       all: '⚡',
+      childcare: '👨‍👩‍👧',
       animals: '🐾',
       tech: '🤖',
       arts: '🎨',
@@ -21,6 +22,7 @@
 
     const CATEGORY_STOCK_IMAGES = {
       animals: Array.from({ length: 10 }, (_, i) => `img/animals_${i + 1}.jpg`),
+      childcare: Array.from({ length: 10 }, (_, i) => `img/animals_${i + 1}.jpg`),
       tech: Array.from({ length: 10 }, (_, i) => `img/tech_${i + 1}.jpg`),
       arts: Array.from({ length: 10 }, (_, i) => `img/arts_${i + 1}.jpg`),
       world: Array.from({ length: 10 }, (_, i) => `img/world_${i + 1}.jpg`),
@@ -28,7 +30,7 @@
       all: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
     };
 
-    const NEWS_CONFIG = { maxStories: 9, provider: 'bing' };
+    const NEWS_CONFIG = { maxStories: 9, provider: 'gnews' };
 
     function getDynamicNewsFeedUrl(categoryKey = currentCategory) {
       const url = new URL(AI_CONFIG.workerUrl);
@@ -61,6 +63,7 @@
     function getActiveCategoryBadge() {
       const icon = CATEGORY_ICONS[currentCategory] || '⚡';
       switch (currentCategory) {
+        case 'childcare': return `${icon} ${t('catChildcare')}`;
         case 'animals': return `${icon} ${t('catAnimals')}`;
         case 'tech': return `${icon} ${t('catTech')}`;
         case 'arts': return `${icon} ${t('catArts')}`;

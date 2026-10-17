@@ -34,7 +34,8 @@ async function serveNewsFeed(request, env) {
     const feed = await getNewsFeed(
       url.searchParams.get('provider') || '',
       url.searchParams.get('category') || 'all',
-      url.searchParams.get('market') || ''
+      url.searchParams.get('market') || '',
+      { apiKey: env.GNEWS_API_KEY }
     );
     return jsonResponse(feed);
   } catch (err) {
