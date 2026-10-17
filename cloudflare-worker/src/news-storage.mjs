@@ -41,6 +41,7 @@ export async function getStoredNewsFeed(env, category) {
     select: 'provider,category,title,article_url,image_url,description,content,published_at,source_name',
     category: `eq.${category}`,
     approved: 'eq.true',
+    removed: 'eq.false',
     order: 'published_at.desc.nullslast,fetched_at.desc',
     limit: '50'
   });
@@ -61,13 +62,14 @@ export async function getStoredNewsFeed(env, category) {
 export async function getNewsAdminSnapshot(env, providers) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved',
+    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at',
     order: 'fetched_at.desc',
     limit: '50'
   });
   const pendingQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved',
+    select: 'id,provider,category,title,article_url,image_url,description,published_at,source_name,approved,removed,fetched_at',
     approved: 'eq.false',
+    removed: 'eq.false',
     order: 'fetched_at.desc',
     limit: '100'
   });
@@ -98,7 +100,7 @@ export async function getNewsAdminSnapshot(env, providers) {
   for (const row of recentRows) {
     if (seenUrls.has(row.article_url)) continue;
     seenUrls.add(row.article_url);
-    recentStories.push(normalizeStory(row));
+    recentStories.push({ ...normalizeStory(row), updatedAt: row.fetched_at || '' });
     if (recentStories.length === 10) break;
   }
   return {
@@ -107,7 +109,8 @@ export async function getNewsAdminSnapshot(env, providers) {
     pendingStories: pendingRows.map(row => ({
       ...normalizeStory(row),
       id: row.id,
-      approved: row.approved
+      approved: row.approved,
+      updatedAt: row.fetched_at || ''
     })),
     providers: providers.map(provider => ({
       ...provider,
@@ -142,6 +145,26 @@ export async function approveNewsStory(env, storyId, approvedBy) {
   const rows = await readRows(response, 'Story approval update');
   if (rows.length !== 1) return false;
   return true;
+}
+
+export async function removeNewsStory(env, storyId, removedBy) {
+  const query = new URLSearchParams({
+    id: `eq.${storyId}`,
+    approved: 'eq.false',
+    removed: 'eq.false',
+    select: 'id'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({
+      removed: true,
+      removed_by: removedBy,
+      removed_at: new Date().toISOString()
+    })
+  });
+  const rows = await readRows(response, 'Story removal update');
+  return rows.length === 1;
 }
 
 export async function claimNewsProviderSync(env, provider, updatedBy) {

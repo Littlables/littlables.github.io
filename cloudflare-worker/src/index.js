@@ -17,6 +17,7 @@ import {
   approveNewsStory,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
+  removeNewsStory,
   upsertNewsStories
 } from './news-storage.mjs';
 
@@ -294,6 +295,21 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('News story approval failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not approve story' }, 502);
+    }
+  }
+
+  const removalMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/remove$/);
+  if (removalMatch && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story removal must be requested from the admin origin' }, 403);
+    }
+    try {
+      const removed = await removeNewsStory(env, removalMatch[1], identity.login);
+      if (!removed) return jsonResponse({ error: 'Story was not found, is already removed, or is approved' }, 404);
+      return jsonResponse({ id: Number(removalMatch[1]), removed: true });
+    } catch (err) {
+      console.error('News story removal failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not remove story' }, 502);
     }
   }
 

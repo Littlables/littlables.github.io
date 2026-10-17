@@ -50,6 +50,7 @@ export function getAdminPage() {
     .story-meta { display: flex; flex-wrap: wrap; gap: .4rem; }
     .story-meta span { font-size: .8rem; font-weight: 650; }
     .meta-provider { color: #c4b5fd; }
+    .meta-domain { color: #fcd34d; }
     .meta-category { color: #7dd3fc; }
     .meta-date { color: #86efac; }
     .story-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
@@ -109,6 +110,7 @@ export function getAdminPage() {
     const state = {
       busy: new Set(),
       approving: new Set(),
+      removing: new Set(),
       ignored: new Set(),
       activeCategory: 'all',
       providers: [],
@@ -119,6 +121,38 @@ export function getAdminPage() {
     const categoryEl = document.getElementById('approval-categories');
     const text = (value) => value == null || value === '' ? '—' : String(value);
     const formatDate = (value) => value ? new Date(value).toLocaleString() : 'Never';
+    const formatDateTime = (date) => date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+
+    function getStoryDomain(link) {
+      try {
+        return new URL(link).hostname.replace(/^www\\./i, '');
+      } catch {
+        return 'Unknown domain';
+      }
+    }
+
+    function formatElapsed(timestamp) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+      const days = Math.floor(elapsed / 86400);
+      const hours = Math.floor((elapsed % 86400) / 3600);
+      const minutes = Math.floor((elapsed % 3600) / 60);
+      const seconds = String(elapsed % 60).padStart(2, '0');
+      if (days) return days + 'd' + hours + 'h' + minutes + 'm' + seconds + 's ago';
+      if (hours) return hours + 'h' + minutes + 'm' + seconds + 's ago';
+      return minutes + 'm' + seconds + 's ago';
+    }
+
+    function refreshStoryAges() {
+      document.querySelectorAll('[data-updated-at]').forEach((element) => {
+        const timestamp = Date.parse(element.dataset.updatedAt);
+        if (!Number.isFinite(timestamp)) {
+          element.textContent = 'Last updated: Unknown';
+          return;
+        }
+        element.textContent = 'Last updated: ' + formatDateTime(new Date(timestamp)) +
+          '; ' + formatElapsed(timestamp);
+      });
+    }
 
     async function request(path, options) {
       const response = await fetch(path, options);
@@ -212,14 +246,18 @@ export function getAdminPage() {
         meta.className = 'story-meta';
         [
           ['meta-provider', story.provider],
+          ['meta-domain', getStoryDomain(story.link)],
           ['meta-category', categories.find((category) => category.id === story.category)?.label || story.category],
-          ['meta-date', formatDate(story.pubDate)]
         ].forEach(([className, value]) => {
           const item = document.createElement('span');
           item.className = className;
           item.textContent = value;
           meta.append(item);
         });
+        const updated = document.createElement('span');
+        updated.className = 'meta-date';
+        updated.dataset.updatedAt = story.updatedAt || story.pubDate || '';
+        meta.append(updated);
         const details = document.createElement('div');
         details.className = 'story-details';
         details.append(title, meta);
@@ -243,7 +281,13 @@ export function getAdminPage() {
             state.ignored.add(story.id);
             renderStories(state.pendingStories, { pending: true });
           });
-          actions.append(button, ignoreButton);
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'secondary';
+          removeButton.textContent = state.removing.has(story.id) ? 'Removing…' : 'Remove';
+          removeButton.disabled = state.removing.has(story.id);
+          removeButton.addEventListener('click', () => removeStory(story.id));
+          actions.append(button, ignoreButton, removeButton);
           row.append(actions);
         }
         container.append(row);
@@ -275,6 +319,7 @@ export function getAdminPage() {
         renderCategoryTabs();
         renderStories(state.pendingStories, { pending: true });
         renderStories(data.recentStories);
+        refreshStoryAges();
         messageEl.textContent = 'Database status refreshed.';
       } catch (error) {
         messageEl.className = 'error';
@@ -296,6 +341,23 @@ export function getAdminPage() {
         messageEl.textContent = 'Story approval failed: ' + error.message;
       } finally {
         state.approving.delete(storyId);
+      }
+    }
+
+    async function removeStory(storyId) {
+      if (state.removing.has(storyId)) return;
+      state.removing.add(storyId);
+      renderStories(state.pendingStories, { pending: true });
+      try {
+        await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/remove', { method: 'POST' });
+        messageEl.className = 'success';
+        messageEl.textContent = 'Story removed from the public site.';
+        await refreshData();
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Story removal failed: ' + error.message;
+      } finally {
+        state.removing.delete(storyId);
       }
     }
 
@@ -335,6 +397,7 @@ export function getAdminPage() {
       }
     });
     refreshData();
+    setInterval(refreshStoryAges, 1000);
     setInterval(() => {
       if (state.providers.some((provider) => provider.status === 'running')) refreshData();
     }, 15000);

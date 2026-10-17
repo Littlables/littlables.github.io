@@ -31,9 +31,13 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Stories awaiting approval/);
   assert.match(page, /Approve/);
   assert.match(page, /Ignore/);
+  assert.match(page, /Remove/);
   assert.match(page, /Childcare & Family/);
   assert.match(page, /Future Tech & AI/);
   assert.match(page, /meta-provider/);
+  assert.match(page, /meta-domain/);
+  assert.match(page, /Last updated:/);
+  assert.match(page, /formatElapsed/);
   assert.match(page, /status-succeeded/);
   assert.match(page, /Last 10 saved stories/);
   assert.ok(page.indexOf('Saved story records:') < page.indexOf('id="providers-title"'));
@@ -209,6 +213,7 @@ test('public feed API reads saved Supabase stories, not a live feed provider', a
     assert.equal(response.status, 200);
     assert.equal(requested.pathname, '/rest/v1/news_stories');
     assert.equal(requested.searchParams.get('approved'), 'eq.true');
+    assert.equal(requested.searchParams.get('removed'), 'eq.false');
     assert.equal(result.items[0].link, 'https://publisher.example/family');
   } finally {
     globalThis.fetch = originalFetch;
@@ -241,6 +246,69 @@ test('admin approval route updates only a pending story after same-origin check'
     assert.equal(requested.searchParams.get('approved'), 'eq.false');
     assert.equal(update.approved, true);
     assert.equal(update.approved_by, 'littlables');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('admin remove route soft-removes a pending story after same-origin check', async () => {
+  const originalFetch = globalThis.fetch;
+  let requested;
+  let update;
+  globalThis.fetch = async (input, options) => {
+    requested = new URL(String(input));
+    update = JSON.parse(options.body);
+    return Response.json([{ id: 12 }]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/12/remove', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: (await adminCookie()).split(';')[0] }
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(requested.searchParams.get('id'), 'eq.12');
+    assert.equal(requested.searchParams.get('approved'), 'eq.false');
+    assert.equal(requested.searchParams.get('removed'), 'eq.false');
+    assert.equal(update.removed, true);
+    assert.equal(update.removed_by, 'littlables');
+    assert.equal(result.removed, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('admin remove route rejects cross-origin requests without updating Supabase', async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    throw new Error('Supabase should not be called');
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/12/remove', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://attacker.example',
+          Cookie: (await adminCookie()).split(';')[0]
+        }
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 403);
+    assert.equal(called, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
