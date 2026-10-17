@@ -1,8 +1,19 @@
 const MAX_FEED_BYTES = 1_000_000;
 const MAX_STORY_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const FEED_FETCH_TIMEOUT_MS = 10_000;
+const NEWS_CATEGORIES = Object.freeze([
+  'all',
+  'childcare',
+  'animals',
+  'arts',
+  'tech',
+  'world',
+  'uplifting'
+]);
+
 const FEED_PROVIDERS = Object.freeze({
   gnews: {
+    label: 'GNews',
     endpoint: 'https://gnews.io/api/v4',
     categories: {
       all: { endpoint: 'top-headlines', category: 'general' },
@@ -15,9 +26,11 @@ const FEED_PROVIDERS = Object.freeze({
     }
   },
   bing: {
+    label: 'Bing News',
     endpoint: 'https://www.bing.com/news/search',
     categories: {
       all: 'latest news',
+      childcare: 'childcare family parenting news',
       animals: 'wildlife news',
       tech: 'tech industry news',
       arts: 'art news today',
@@ -26,6 +39,14 @@ const FEED_PROVIDERS = Object.freeze({
     }
   }
 });
+
+export function getNewsProviders() {
+  return Object.entries(FEED_PROVIDERS).map(([id, config]) => ({
+    id,
+    name: config.label,
+    categories: NEWS_CATEGORIES.filter(category => Object.hasOwn(config.categories, category))
+  }));
+}
 
 class FeedProviderError extends Error {
   constructor(providerName, status) {
@@ -165,7 +186,12 @@ function parseBingRss(xml) {
   return items;
 }
 
-export async function getNewsFeed(providerName, category, market, { apiKey = '', fetcher = fetch } = {}) {
+export async function getNewsFeed(providerName, category, market, {
+  apiKey = '',
+  fetcher = fetch,
+  cache = true,
+  retryDelays = [1000, 2000]
+} = {}) {
   const provider = Object.hasOwn(FEED_PROVIDERS, providerName) ? FEED_PROVIDERS[providerName] : null;
   if (!provider) throw new Error(`Unknown news feed provider: ${providerName}`);
 
@@ -194,42 +220,63 @@ export async function getNewsFeed(providerName, category, market, { apiKey = '',
     if (/^[a-z]{2}-[A-Z]{2}$/.test(market || '')) feedUrl.searchParams.set('mkt', market);
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(`${providerName} feed request timed out`), FEED_FETCH_TIMEOUT_MS);
+  const feedName = providerName === 'gnews' ? 'GNews' : 'Bing News';
   let responseBody;
-  try {
-    const response = await fetcher(feedUrl, providerName === 'gnews'
-      ? {
-          signal: controller.signal,
-          cf: { cacheTtl: 300, cacheEverything: true },
-          headers: {
-            Accept: 'application/json',
-            'X-Api-Key': apiKey
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(`${feedName} feed request timed out`), FEED_FETCH_TIMEOUT_MS);
+    try {
+      const requestOptions = providerName === 'gnews'
+        ? {
+            signal: controller.signal,
+            ...(cache ? { cf: { cacheTtl: 300, cacheEverything: true } } : {}),
+            headers: {
+              Accept: 'application/json',
+              'X-Api-Key': apiKey
+            }
           }
-        }
-      : {
-          signal: controller.signal,
-          headers: {
-            Accept: 'application/rss+xml,application/xml,text/xml',
-            'User-Agent': 'Mozilla/5.0 (compatible; LittlablesFeed/1.0)'
-          }
-        });
-    if (!response.ok) throw new FeedProviderError(providerName, response.status);
-    const declaredSize = Number(response.headers.get('Content-Length') || 0);
-    if (declaredSize > MAX_FEED_BYTES) throw new Error('News feed response is too large');
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > MAX_FEED_BYTES) throw new Error('News feed response is too large');
+        : {
+            signal: controller.signal,
+            headers: {
+              Accept: 'application/rss+xml,application/xml,text/xml',
+              'User-Agent': 'Mozilla/5.0 (compatible; LittlablesFeed/1.0)'
+            }
+          };
+      const response = await fetcher(feedUrl, requestOptions);
+      if (!response.ok) {
+        const error = new FeedProviderError(providerName, response.status);
+        if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) throw error;
+        const retryAfter = Number(response.headers.get('Retry-After'));
+        await response.body?.cancel();
+        clearTimeout(timeout);
+        await new Promise(resolve => setTimeout(resolve, Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 8_000)
+          : retryDelays[attempt] ?? (attempt + 1) * 1000));
+        continue;
+      }
+      const declaredSize = Number(response.headers.get('Content-Length') || 0);
+      if (declaredSize > MAX_FEED_BYTES) throw new Error('News feed response is too large');
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength > MAX_FEED_BYTES) throw new Error('News feed response is too large');
 
-    responseBody = new TextDecoder().decode(bytes);
-  } catch (err) {
-    if (controller.signal.aborted) {
-      throw new Error(`${providerName === 'gnews' ? 'GNews' : 'Bing News'} feed request timed out after ${FEED_FETCH_TIMEOUT_MS}ms`);
+      responseBody = new TextDecoder().decode(bytes);
+      break;
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(`${feedName} feed request timed out after ${FEED_FETCH_TIMEOUT_MS}ms`);
+      }
+      if (attempt < 2) {
+        clearTimeout(timeout);
+        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt] ?? (attempt + 1) * 1000));
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
   }
 
+  if (responseBody === undefined) throw new Error(`${feedName} feed request failed after retries`);
   const items = providerName === 'gnews'
     ? parseGNewsResponse(JSON.parse(responseBody))
     : parseBingRss(responseBody);

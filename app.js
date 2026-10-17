@@ -30,14 +30,12 @@
       all: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
     };
 
-    const NEWS_CONFIG = { maxStories: 10, provider: 'gnews' };
+    const NEWS_CONFIG = { maxStories: 10 };
 
     function getDynamicNewsFeedUrl(categoryKey = currentCategory) {
       const url = new URL(AI_CONFIG.workerUrl);
       url.pathname = '/feed';
-      url.searchParams.set('provider', NEWS_CONFIG.provider);
       url.searchParams.set('category', categoryKey);
-      url.searchParams.set('market', getDetectedLocale().fullCode);
       return url.href;
     }
 

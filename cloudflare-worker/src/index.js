@@ -1,5 +1,24 @@
 import { resolveGoogleNewsUrls } from './google-news-resolver.mjs';
-import { getNewsFeed } from './news-feeds.mjs';
+import { getAdminLoginPage, getAdminPage } from './admin-page.mjs';
+import { getNewsFeed, getNewsProviders } from './news-feeds.mjs';
+import {
+  clearAdminSessionCookie,
+  clearOAuthStateCookie,
+  createAdminSessionCookie,
+  createOAuthState,
+  createOAuthStateCookie,
+  getAdminIdentity,
+  getOAuthState,
+  isSameOrigin
+} from './github-auth.mjs';
+import {
+  claimNewsProviderSync,
+  finishNewsProviderSync,
+  approveNewsStory,
+  getNewsAdminSnapshot,
+  getStoredNewsFeed,
+  upsertNewsStories
+} from './news-storage.mjs';
 
 const MAX_REQUEST_BYTES = 16_000;
 const MAX_LINKS = 10;
@@ -8,6 +27,8 @@ const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
 const SUMMARY_TABLE = 'ai_summaries';
 const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const ADMIN_MARKET = 'en-US';
+const NEWS_CATEGORIES = new Set(['all', 'childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,18 +52,269 @@ async function serveNewsFeed(request, env) {
     });
     if (!limit.success) return jsonResponse({ error: 'News feed request rate limit exceeded' }, 429);
 
-    const feed = await getNewsFeed(
-      url.searchParams.get('provider') || '',
-      url.searchParams.get('category') || 'all',
-      url.searchParams.get('market') || '',
-      { apiKey: env.GNEWS_API_KEY }
-    );
+    const category = url.searchParams.get('category') || 'all';
+    if (!NEWS_CATEGORIES.has(category)) return jsonResponse({ error: 'Unknown news category' }, 400);
+    const feed = await getStoredNewsFeed(env, category);
     return jsonResponse(feed);
   } catch (err) {
     console.error('News feed request failed:', err);
     const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 502;
     return jsonResponse({ error: err instanceof Error ? err.message : 'Unable to load news feed' }, status);
   }
+}
+
+async function updateNewsProvider(provider, updatedBy, env) {
+  const config = getNewsProviders().find(entry => entry.id === provider);
+  if (!config) return jsonResponse({ error: 'Unknown news provider' }, 404);
+
+  const claimed = await claimNewsProviderSync(env, provider, updatedBy);
+  if (!claimed) {
+    return jsonResponse({ error: `${provider} is already being updated` }, 409);
+  }
+
+  let storiesSaved = 0;
+  const errors = [];
+  try {
+    for (const [index, category] of config.categories.entries()) {
+      if (index > 0) await new Promise(resolve => setTimeout(resolve, 750));
+      try {
+        const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
+          apiKey: provider === 'gnews' ? env.GNEWS_API_KEY : '',
+          cache: false
+        });
+        const stories = feed.items.slice(0, 10);
+        await upsertNewsStories(env, provider, category, stories);
+        storiesSaved += stories.length;
+      } catch (err) {
+        const message = `${category}: ${err instanceof Error ? err.message : 'Unknown provider error'}`;
+        console.error(`News provider update failed for ${provider}/${category}:`, err);
+        errors.push(message);
+      }
+    }
+
+    const status = errors.length === 0 ? 'succeeded' : storiesSaved > 0 ? 'partial' : 'failed';
+    const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
+    await finishNewsProviderSync(env, provider, { status, storiesSaved, error: errorMessage });
+    return jsonResponse({ provider, status, storiesSaved, errors });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown provider update error';
+    try {
+      await finishNewsProviderSync(env, provider, { status: 'failed', storiesSaved, error: message });
+    } catch (saveError) {
+      console.error(`Could not save failed status for ${provider}:`, saveError);
+    }
+    throw err;
+  }
+}
+
+function authConfigurationIsValid(env) {
+  return env.GITHUB_CLIENT_ID &&
+    env.GITHUB_CLIENT_SECRET &&
+    env.GITHUB_ALLOWED_USER &&
+    env.GITHUB_OAUTH_CALLBACK_URL &&
+    env.GITHUB_SESSION_SECRET;
+}
+
+function adminAuthError(message, status = 400) {
+  return new Response(message, {
+    status,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff'
+    }
+  });
+}
+
+async function beginGitHubLogin(request, env) {
+  if (!authConfigurationIsValid(env)) {
+    console.error('GitHub admin authentication is not fully configured');
+    return adminAuthError('GitHub admin authentication is not configured', 503);
+  }
+  const limit = await env.SUMMARY_RATE_LIMITER.limit({
+    key: `github-auth:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+  });
+  if (!limit.success) return adminAuthError('Too many sign-in attempts; try again later', 429);
+
+  const state = createOAuthState();
+  const authorizeUrl = new URL('https://github.com/login/oauth/authorize');
+  authorizeUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
+  authorizeUrl.searchParams.set('redirect_uri', env.GITHUB_OAUTH_CALLBACK_URL);
+  authorizeUrl.searchParams.set('state', state);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: authorizeUrl.toString(),
+      'Set-Cookie': createOAuthStateCookie(state),
+      'Cache-Control': 'no-store'
+    }
+  });
+}
+
+async function completeGitHubLogin(request, env) {
+  const url = new URL(request.url);
+  const sentState = url.searchParams.get('state');
+  const storedState = getOAuthState(request);
+  if (!sentState || !storedState || sentState !== storedState) {
+    return adminAuthError('GitHub sign-in could not be verified. Please try again.', 400);
+  }
+  if (url.searchParams.has('error') || !url.searchParams.get('code')) {
+    return adminAuthError('GitHub sign-in was cancelled or did not complete.', 400);
+  }
+  if (!authConfigurationIsValid(env)) {
+    console.error('GitHub admin authentication is not fully configured');
+    return adminAuthError('GitHub admin authentication is not configured', 503);
+  }
+  const limit = await env.SUMMARY_RATE_LIMITER.limit({
+    key: `github-auth:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+  });
+  if (!limit.success) return adminAuthError('Too many sign-in attempts; try again later', 429);
+
+  try {
+    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Littlables-News-Admin'
+      },
+      body: JSON.stringify({
+        client_id: env.GITHUB_CLIENT_ID,
+        client_secret: env.GITHUB_CLIENT_SECRET,
+        code: url.searchParams.get('code'),
+        redirect_uri: env.GITHUB_OAUTH_CALLBACK_URL
+      })
+    });
+    if (!tokenResponse.ok) {
+      throw new Error(`GitHub token exchange failed (HTTP ${tokenResponse.status})`);
+    }
+    const tokenData = await tokenResponse.json();
+    if (typeof tokenData.access_token !== 'string' || !tokenData.access_token) {
+      throw new Error('GitHub did not return an access token');
+    }
+    const userResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${tokenData.access_token}`,
+        'User-Agent': 'Littlables-News-Admin',
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+    if (!userResponse.ok) throw new Error(`GitHub account lookup failed (HTTP ${userResponse.status})`);
+    const user = await userResponse.json();
+    if (
+      typeof user.login !== 'string' ||
+      user.login.toLowerCase() !== env.GITHUB_ALLOWED_USER.toLowerCase()
+    ) {
+      return adminAuthError('This GitHub account is not allowed to administer this site.', 403);
+    }
+
+    const headers = new Headers({
+      Location: new URL('/admin', url.origin).toString(),
+      'Cache-Control': 'no-store'
+    });
+    headers.append('Set-Cookie', await createAdminSessionCookie(user.login, env.GITHUB_SESSION_SECRET));
+    headers.append('Set-Cookie', clearOAuthStateCookie());
+    return new Response(null, { status: 302, headers });
+  } catch (error) {
+    console.error('GitHub admin sign-in failed:', error);
+    return adminAuthError('GitHub sign-in failed. Please try again.', 502);
+  }
+}
+
+async function serveAdmin(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname === '/admin/auth/login' && request.method === 'GET') {
+    return beginGitHubLogin(request, env);
+  }
+  if (url.pathname === '/admin/auth/callback' && request.method === 'GET') {
+    return completeGitHubLogin(request, env);
+  }
+  if (url.pathname === '/admin/logout' && request.method === 'POST') {
+    if (!isSameOrigin(request)) return jsonResponse({ error: 'Logout must be requested from the admin origin' }, 403);
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: new URL('/admin', url.origin).toString(),
+        'Set-Cookie': clearAdminSessionCookie(),
+        'Cache-Control': 'no-store'
+      }
+    });
+  }
+  let identity;
+  try {
+    identity = await getAdminIdentity(request, env);
+  } catch (error) {
+    console.error('GitHub admin session validation failed:', error);
+    return adminAuthError('GitHub admin authentication is not configured', 503);
+  }
+
+  if (request.method === 'GET' && (url.pathname === '/admin' || url.pathname === '/admin/')) {
+    if (!identity) {
+      return new Response(getAdminLoginPage(), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        }
+      });
+    }
+    return new Response(getAdminPage(), {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; connect-src 'self'; img-src https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      }
+    });
+  }
+  if (!identity) return jsonResponse({ error: 'GitHub authentication is required' }, 401);
+  if (url.pathname === '/admin/api/identity' && request.method === 'GET') {
+    return jsonResponse({ login: identity.login });
+  }
+  if (url.pathname === '/admin/api/status' && request.method === 'GET') {
+    try {
+      return jsonResponse(await getNewsAdminSnapshot(env, getNewsProviders()));
+    } catch (err) {
+      console.error('News admin status request failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not load news admin status' }, 502);
+    }
+  }
+
+  const approvalMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/approve$/);
+  if (approvalMatch && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story approval must be requested from the admin origin' }, 403);
+    }
+    try {
+      const approved = await approveNewsStory(env, approvalMatch[1], identity.login);
+      if (!approved) return jsonResponse({ error: 'Story was not found or is already approved' }, 404);
+      return jsonResponse({ id: Number(approvalMatch[1]), approved: true });
+    } catch (err) {
+      console.error('News story approval failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not approve story' }, 502);
+    }
+  }
+
+  const updateMatch = url.pathname.match(/^\/admin\/api\/providers\/([a-z0-9-]+)\/update$/);
+  if (updateMatch && request.method === 'POST') {
+    try {
+      if (!isSameOrigin(request)) {
+        return jsonResponse({ error: 'Provider updates must be requested from the admin origin' }, 403);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Admin update rate limit exceeded' }, 429);
+      return await updateNewsProvider(updateMatch[1], identity.login, env);
+    } catch (err) {
+      console.error('News admin provider update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update news provider' }, 502);
+    }
+  }
+  if (url.pathname.startsWith('/admin/api/')) {
+    return jsonResponse({ error: 'Admin API route not found' }, 404);
+  }
+  return jsonResponse({ error: 'Admin route not found' }, 404);
 }
 
 function isPublicWebUrl(value) {
@@ -363,6 +635,10 @@ export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+    const pathname = new URL(request.url).pathname;
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+      return serveAdmin(request, env);
     }
     if (request.method === 'GET' && new URL(request.url).pathname === '/feed') {
       return serveNewsFeed(request, env);

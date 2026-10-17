@@ -85,10 +85,26 @@ test('GNews quota responses retain their 429 status for the Worker and client', 
   await assert.rejects(
     getNewsFeed('gnews', 'all', 'en-US', {
       apiKey: 'test-key',
+      retryDelays: [0, 0],
       fetcher: async () => new Response('quota reached', { status: 429 })
     }),
     error => error.status === 429 && /quota or rate limit reached/.test(error.message)
   );
+});
+
+test('transient network failures are retried with bounded backoff', async () => {
+  let attempts = 0;
+  const feed = await getNewsFeed('gnews', 'all', 'en-US', {
+    apiKey: 'test-key',
+    retryDelays: [0, 0],
+    fetcher: async () => {
+      attempts++;
+      if (attempts < 3) throw new Error('temporary network failure');
+      return Response.json({ articles: [article] });
+    }
+  });
+  assert.equal(attempts, 3);
+  assert.equal(feed.items.length, 1);
 });
 
 test('Bing remains available as a configured provider', async () => {
