@@ -30,7 +30,7 @@
       all: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
     };
 
-    const NEWS_CONFIG = { maxStories: 9, provider: 'gnews' };
+    const NEWS_CONFIG = { maxStories: 10, provider: 'gnews' };
 
     function getDynamicNewsFeedUrl(categoryKey = currentCategory) {
       const url = new URL(AI_CONFIG.workerUrl);
@@ -81,11 +81,23 @@
 
       try {
         const response = await fetch(getDynamicNewsFeedUrl(currentCategory));
-        if (!response.ok) throw new Error(`News feed request failed (HTTP ${response.status})`);
         const data = await response.json();
-        if (!data.items || data.items.length === 0) throw new Error('No stories returned from endpoint');
+        if (!response.ok) {
+          throw new Error(data.error || `News feed request failed (HTTP ${response.status})`);
+        }
+        const feedItems = Array.isArray(data.items)
+          ? data.items.filter(item => {
+            if (!item || typeof item.title !== 'string' || typeof item.link !== 'string') return false;
+            try {
+              return ['http:', 'https:'].includes(new URL(item.link).protocol);
+            } catch {
+              return false;
+            }
+          })
+          : [];
+        if (!feedItems.length) throw new Error('News feed returned no stories with valid article links');
 
-        const itemsToDisplay = data.items
+        const itemsToDisplay = feedItems
           .sort(() => Math.random() - 0.5)
           .slice(0, NEWS_CONFIG.maxStories);
         container.innerHTML = '';
@@ -102,7 +114,7 @@
         syncReactionsFromSupabase(displayedStoryIds);
       } catch (err) {
         console.error('Error fetching news:', err);
-        renderFallbackStories(container);
+        renderFallbackStories(container, err);
       }
     }
 

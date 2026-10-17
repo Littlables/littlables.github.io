@@ -81,6 +81,16 @@ test('GNews requires an API key before making a request', async () => {
   assert.equal(called, false);
 });
 
+test('GNews quota responses retain their 429 status for the Worker and client', async () => {
+  await assert.rejects(
+    getNewsFeed('gnews', 'all', 'en-US', {
+      apiKey: 'test-key',
+      fetcher: async () => new Response('quota reached', { status: 429 })
+    }),
+    error => error.status === 429 && /quota or rate limit reached/.test(error.message)
+  );
+});
+
 test('Bing remains available as a configured provider', async () => {
   const rss = `<rss><channel><item><title>Story</title><link>https://www.bing.com/news/apiclick.aspx?url=https%3A%2F%2Fpublisher.example%2Fstory</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
   const feed = await getNewsFeed('bing', 'animals', 'en-US', {

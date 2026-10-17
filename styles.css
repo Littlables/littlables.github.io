@@ -664,6 +664,16 @@ body {
       gap: 1.5rem;
     }
 
+    .news-feed-error {
+      grid-column: 1 / -1;
+      padding: 1.25rem;
+      color: var(--news-text-muted);
+      background: var(--news-card-bg);
+      border: 1px solid var(--news-card-border);
+      border-radius: 14px;
+      text-align: center;
+    }
+
     .news-card {
       background: var(--news-card-bg);
       border: 1px solid var(--news-card-border);

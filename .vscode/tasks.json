@@ -1,0 +1,32 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Serve Littlables locally",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "-m",
+                "http.server",
+                "8000",
+                "--bind",
+                "0.0.0.0"
+            ],
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^(.*)$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "endsPattern": "^Serving HTTP on .* port 8000"
+                }
+            },
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated",
+                "clear": false
+            }
+        }
+    ]
+}

@@ -27,6 +27,18 @@ const FEED_PROVIDERS = Object.freeze({
   }
 });
 
+class FeedProviderError extends Error {
+  constructor(providerName, status) {
+    const name = providerName === 'gnews' ? 'GNews' : 'Bing News';
+    const message = status === 429
+      ? `${name} request quota or rate limit reached`
+      : `${name} feed request failed`;
+    super(`${message} (HTTP ${status})`);
+    this.name = 'FeedProviderError';
+    this.status = status;
+  }
+}
+
 function decodeXml(value) {
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -202,9 +214,7 @@ export async function getNewsFeed(providerName, category, market, { apiKey = '',
             'User-Agent': 'Mozilla/5.0 (compatible; LittlablesFeed/1.0)'
           }
         });
-    if (!response.ok) {
-      throw new Error(`${providerName === 'gnews' ? 'GNews' : 'Bing News'} feed request failed (HTTP ${response.status})`);
-    }
+    if (!response.ok) throw new FeedProviderError(providerName, response.status);
     const declaredSize = Number(response.headers.get('Content-Length') || 0);
     if (declaredSize > MAX_FEED_BYTES) throw new Error('News feed response is too large');
     const bytes = await response.arrayBuffer();

@@ -40,7 +40,8 @@ async function serveNewsFeed(request, env) {
     return jsonResponse(feed);
   } catch (err) {
     console.error('News feed request failed:', err);
-    return jsonResponse({ error: err instanceof Error ? err.message : 'Unable to load news feed' }, 502);
+    const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 502;
+    return jsonResponse({ error: err instanceof Error ? err.message : 'Unable to load news feed' }, status);
   }
 }
 
