@@ -10,13 +10,13 @@
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="theme-color" content="#FFC7D4">
   <link rel="canonical" href="https://littlables.github.io/">
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="48x48" href="favicon-48x48.png">
-  <link rel="shortcut icon" href="favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
-  <link rel="manifest" href="site.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Littlables">
   <meta property="og:url" content="https://littlables.github.io/">
@@ -37,7 +37,6 @@
         if (saved && allowed.indexOf(saved) !== -1) {
           document.documentElement.setAttribute('data-theme', saved);
         } else {
-          // Detect device dark/light mode as default
           var isLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
           document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
         }
@@ -45,112 +44,10 @@
     })();
   </script>
   <title id="page-title">Littlables — A Little Scoop of the World</title>
-  <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387" crossorigin="anonymous"></script>
 </head>
 <body>
-
-  <!-- HTML CONTAINER -->
-  <div class="news-widget-wrapper">
-    <div class="news-widget-header">
-      <div class="news-widget-title" id="widget-main-title">
-        <img class="widget-brand-icon" src="favicon-48x48.png" width="32" height="32" alt="">
-        <span id="widget-title-text">Littlables Feed</span>
-      </div>
-      <div class="news-header-controls">
-        <div class="theme-picker-container" title="Select Theme">
-          <span class="theme-select-icon" aria-hidden="true">🎨</span>
-          <select id="theme-select" class="theme-dropdown-select" aria-label="Select Theme">
-            <option value="dark">🌙 Dark Mode</option>
-            <option value="dark-purple">🔮 Dark Purple</option>
-            <option value="light">☀️ Light Mode</option>
-            <option value="rainbow">🌈 Rainbow</option>
-            <option value="pastel-rainbow">🦄 Pastel Rainbow</option>
-            <option value="pink">💖 Pretty Pink</option>
-          </select>
-        </div>
-        <button id="refresh-news-btn" class="refresh-news-button" title="Refresh Stories">
-          🔄 Refresh Feed
-        </button>
-      </div>
-    </div>
-
-    <!-- Category Pill Navigation Bar (Mini Quest 1) -->
-    <nav class="news-category-bar" id="news-category-bar">
-      <button class="cat-pill active" data-category="all">
-        <span>⚡</span> <span class="cat-text" data-i18n="catAll">Top Currents</span>
-      </button>
-      <button class="cat-pill" data-category="childcare">
-        <span>👨‍👩‍👧</span> <span class="cat-text" data-i18n="catChildcare">Childcare &amp; Family</span>
-      </button>
-      <button class="cat-pill" data-category="animals">
-        <span>🐾</span> <span class="cat-text" data-i18n="catAnimals">Animals & Nature</span>
-      </button>
-      <button class="cat-pill" data-category="arts">
-        <span>🎨</span> <span class="cat-text" data-i18n="catArts">Creative Arts</span>
-      </button>
-      <button class="cat-pill" data-category="tech">
-        <span>🤖</span> <span class="cat-text" data-i18n="catTech">Future Tech & AI</span>
-      </button>
-      <button class="cat-pill" data-category="world">
-        <span>🌍</span> <span class="cat-text" data-i18n="catWorld">Global Currents</span>
-      </button>
-      <button class="cat-pill" data-category="uplifting">
-        <span>✨</span> <span class="cat-text" data-i18n="catUplifting">Uplifting News</span>
-      </button>
-    </nav>
-
-    <!-- The cards get injected into this element -->
-    <div id="news-grid-container" class="news-grid">
-      <div class="news-loading-skeleton" id="news-loading-text">Fetching the freshest stories...</div>
-    </div>
-  </div>
-
-  <footer class="site-footer">
-    <span>© <span id="copyright-year"></span> Littlables</span>
-    <nav aria-label="About Littlables">
-      <a href="#about-us" data-open-dialog="about-dialog">About us</a>
-      <a href="#disclaimer" data-open-dialog="disclaimer-dialog">Disclaimer</a>
-    </nav>
-  </footer>
-  <dialog class="site-info-dialog" id="about-dialog" aria-labelledby="about-title">
-    <button class="site-info-close" type="button" aria-label="Close About Littlables">×</button>
-    <img src="android-chrome-192x192.png" width="192" height="192" alt="Littlables pastel pink icon with colorful stacked blocks">
-    <h2 id="about-title">About Littlables</h2>
-    <p>Littlables is a small, independent project built to make keeping up with the world feel a little more welcoming. We bring together stories about family and childcare, animals and nature, creative arts, future technology, global currents, and uplifting news in one colorful, easy-to-explore place.</p>
-    <p>Our goal is to help curious people discover useful, interesting stories without losing sight of the good happening around us. Our roadmap is to keep improving the quality and variety of our sources, make our summaries and moderation clearer, and grow the site thoughtfully while keeping it friendly, accessible, and fun.</p>
-  </dialog>
-  <dialog class="site-info-dialog" id="disclaimer-dialog" aria-labelledby="disclaimer-title">
-    <button class="site-info-close" type="button" aria-label="Close disclaimer">×</button>
-    <h2 id="disclaimer-title">A little note about our stories</h2>
-    <p>Stories are collected from third-party publishers and may be reviewed by Littlables before receiving the Littlables' Little Scoop badge; stories without the badge may still appear in the feed and have not necessarily been reviewed. AI summaries are generated to help readers get a quick overview, can make mistakes or miss context, and are not a replacement for the original article. Please follow the source link to read the publisher's full story and verify important details. Littlables does not own or endorse linked articles, and publishers remain responsible for their content.</p>
-  </dialog>
-
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387"
-     crossorigin="anonymous"></script>
-
-  <script src="i18n.js?v=20261018"></script>
-  <script src="supabase.js?v=20261018"></script>
-  <script src="theme.js?v=20261018"></script>
-  <script src="cards.js?v=20261018"></script>
-  <script src="fallback.js?v=20261018"></script>
-  <script src="app.js?v=20261018-2"></script>
-  <script>
-    document.getElementById('copyright-year').textContent = String(new Date().getFullYear());
-    document.querySelectorAll('[data-open-dialog]').forEach(link => {
-      link.addEventListener('click', event => {
-        event.preventDefault();
-        document.getElementById(link.dataset.openDialog).showModal();
-      });
-    });
-    document.querySelectorAll('.site-info-close').forEach(button => {
-      button.addEventListener('click', () => button.closest('dialog').close());
-    });
-    document.querySelectorAll('.site-info-dialog').forEach(dialog => {
-      dialog.addEventListener('click', event => {
-        if (event.target === dialog) dialog.close();
-      });
-    });
-  </script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

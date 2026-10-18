@@ -1,0 +1,36 @@
+import React from 'react';
+
+interface FooterProps {
+  onOpenAbout: () => void;
+  onOpenDisclaimer: () => void;
+}
+
+export const Footer: React.FC<FooterProps> = ({ onOpenAbout, onOpenDisclaimer }) => {
+  const currentYear = new Date().getFullYear();
+
+  return (
+    <footer className="site-footer">
+      <span>© <span id="copyright-year">{currentYear}</span> Littlables</span>
+      <nav aria-label="About Littlables">
+        <a
+          href="#about-us"
+          onClick={(e) => {
+            e.preventDefault();
+            onOpenAbout();
+          }}
+        >
+          About us
+        </a>
+        <a
+          href="#disclaimer"
+          onClick={(e) => {
+            e.preventDefault();
+            onOpenDisclaimer();
+          }}
+        >
+          Disclaimer
+        </a>
+      </nav>
+    </footer>
+  );
+};

@@ -76,73 +76,101 @@
       return card;
     }
 
+    let categoryAdsCache = {};
+
+    async function getCategoryAds(category) {
+      const cat = category || 'all';
+      if (categoryAdsCache[cat]) return categoryAdsCache[cat];
+      const paths = [`ads/${cat}.json`, `/ads/${cat}.json`, `ads/all.json`, `/ads/all.json`];
+      for (const p of paths) {
+        try {
+          const res = await fetch(p);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+              categoryAdsCache[cat] = data;
+              return data;
+            }
+          }
+        } catch (e) {}
+      }
+      return [];
+    }
+
     function createInFeedAdCard(adIndex) {
       const adCard = document.createElement('article');
       adCard.className = 'news-card news-card-ad';
-
-      const previewAds = [
-        {
-          title: "Nova Horizon Electric Longboards — Fall Cruising Series",
-          desc: "Smooth pneumatic wheels, regenerative braking, up to 34 miles range. Engineered for daily carve and commute thrill.",
-          img: "img/tech_1.jpg",
-          cta: "Explore Fleet →",
-          sponsor: "Nova Mobility Co."
-        },
-        {
-          title: "PawGentle Orthopedic Canine Wellness Beds",
-          desc: "Veterinarian-approved memory foam with joint-soothing pressure relief for deeply restorative pet sleep.",
-          img: "img/animals_1.jpg",
-          cta: "Shop Pet Beds →",
-          sponsor: "PawGentle Living"
-        },
-        {
-          title: "KandiCraft Neon Acrylic Bead Studio Set",
-          desc: "5,000+ vibrant glow-in-the-dark pony beads, reinforced elastic cord & organizing trays for makers.",
-          img: "img/arts_1.jpg",
-          cta: "Start Crafting →",
-          sponsor: "KandiCraft Studio"
-        }
-      ];
-
-      const currentAd = previewAds[adIndex % previewAds.length];
       const sponsoredText = t('sponsored') || 'Sponsored';
+      const activeCat = (typeof currentCategory !== 'undefined') ? currentCategory : 'all';
 
-      adCard.innerHTML = `
-        <div class="news-card-image-wrap">
-          <img src="${currentAd.img}" alt="${currentAd.title}" class="news-card-image" loading="lazy">
-          <span class="news-card-badge ad-badge">${sponsoredText}</span>
-        </div>
-        <div class="news-card-content">
-          <div class="news-card-meta">
-            <span class="ad-sponsor-label">📢 ${currentAd.sponsor}</span>
-            <span class="ad-network-label">Google AdSense</span>
+      const renderAdContent = (ad) => {
+        const title = ad.name || ad.title || 'Featured Discovery';
+        const desc = ad.description || ad.desc || '';
+        const img = ad.thumbnailUrl || ad.img || `img/${activeCat}_1.jpg`;
+        const sponsor = ad.sellerName || ad.sponsor || 'Littlables Partner';
+        const url = ad.url || '#';
+        const price = ad.priceUsd ? `$${ad.priceUsd}` : (ad.priceCents ? `$${(ad.priceCents / 100).toFixed(2)}` : '');
+        const ctaText = price ? `Get for ${price} →` : (ad.cta || 'Learn More →');
+
+        adCard.innerHTML = `
+          <div class="news-card-image-wrap">
+            <img src="${img}" alt="${title.replace(/"/g, '&quot;')}" class="news-card-image" loading="lazy" onerror="this.src='img/${activeCat}_1.jpg'">
+            <span class="news-card-badge ad-badge">${sponsoredText}</span>
           </div>
-          <div class="news-card-title ad-card-title">
-            ${currentAd.title}
-          </div>
-          <p class="news-card-desc ad-card-description">
-            ${currentAd.desc}
-          </p>
-
-          <!-- Official Google AdSense In-Feed Responsive Fluid Tag -->
-          <ins class="adsbygoogle"
-               data-ad-format="fluid"
-               data-ad-layout-key="-fb+5w+4e-db+86"
-               data-ad-client="ca-pub-6117076538261387"
-               data-ad-slot="1234567890"></ins>
-
-          <div class="news-card-footer">
-            <a href="#" class="ad-cta-btn" onclick="return false;">
-              ${currentAd.cta}
+          <div class="news-card-content">
+            <div class="news-card-meta">
+              <span class="ad-sponsor-label">📢 ${sponsor}</span>
+              <span class="ad-network-label">Featured Partner</span>
+            </div>
+            <a href="${url}" target="_blank" rel="noopener noreferrer" class="news-card-title ad-card-title">
+              ${title}
             </a>
-          </div>
-        </div>
-      `;
+            <p class="news-card-desc ad-card-description">
+              ${desc}
+            </p>
 
-      // Trigger AdSense push for this inserted ad unit
-      try {
-        (adsbygoogle = window.adsbygoogle || []).push({});
-      } catch (err) {}
+            <ins class="adsbygoogle"
+                 data-ad-format="fluid"
+                 data-ad-layout-key="-fb+5w+4e-db+86"
+                 data-ad-client="ca-pub-6117076538261387"
+                 data-ad-slot="1234567890"></ins>
+
+            <div class="news-card-footer">
+              <a href="${url}" target="_blank" rel="noopener noreferrer" class="ad-cta-btn">
+                ${ctaText}
+              </a>
+            </div>
+          </div>
+        `;
+
+        try {
+          (adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (err) {}
+      };
+
+      // Check cache first for instant synchronous render
+      const cached = categoryAdsCache[activeCat];
+      if (cached && cached.length > 0) {
+        const picked = cached[Math.floor(Math.random() * cached.length)];
+        renderAdContent(picked);
+      } else {
+        // Render initial placeholder and populate once fetched
+        renderAdContent({
+          title: "Loading featured partner...",
+          description: "Discover curated tools and family resources tailored to your interests.",
+          img: `img/${activeCat}_1.jpg`,
+          sellerName: "Littlables Showcase",
+          cta: "Discover More →",
+          url: "#"
+        });
+
+        getCategoryAds(activeCat).then(ads => {
+          if (ads && ads.length > 0) {
+            const picked = ads[Math.floor(Math.random() * ads.length)];
+            renderAdContent(picked);
+          }
+        });
+      }
 
       return adCard;
     }
