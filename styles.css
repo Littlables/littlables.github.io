@@ -606,6 +606,12 @@ body {
       gap: 0.5rem;
     }
 
+    .widget-brand-icon {
+      display: block;
+      flex: 0 0 auto;
+      object-fit: contain;
+    }
+
     /* =========================================================
        CATEGORY PILL NAVIGATION (Mini Quest 1)
        ========================================================= */
