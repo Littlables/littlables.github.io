@@ -19,10 +19,33 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     }
   }, []);
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (ad.url && ad.url !== '#') {
+      const target = e.target as HTMLElement;
+      // If user clicked directly on an <a> element, let native link behavior handle it
+      if (target.closest('a')) return;
+      window.open(ad.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === 'Enter' || e.key === ' ') && ad.url && ad.url !== '#') {
+      e.preventDefault();
+      window.open(ad.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const sponsoredText = t('sponsored') || 'Sponsored';
 
   return (
-    <article className="news-card news-card-ad">
+    <article
+      className="news-card news-card-ad"
+      onClick={handleCardClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="link"
+      aria-label={`Sponsored: ${ad.title}`}
+    >
       <div className="news-card-image-wrap">
         <img
           src={ad.img}
@@ -42,9 +65,14 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           <span className="ad-network-label">Featured Partner</span>
         </div>
 
-        <div className="news-card-title ad-card-title">
+        <a
+          href={ad.url || '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="news-card-title ad-card-title"
+        >
           {ad.title}
-        </div>
+        </a>
 
         <p className="news-card-desc ad-card-description">
           {ad.desc}
