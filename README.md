@@ -25,7 +25,7 @@ Open the workspace in VS Code, select **Run and Debug**, then start **Launch Chr
 
 ## AI summaries
 
-Workers AI is bound in `cloudflare-worker/wrangler.toml`. From an authenticated admin story preview, choose **Generate AI summary** to create a summary from the current title, source, description, content, and article URL. The Worker attempts to read the publisher page but can still use the edited story details if the publisher blocks automated access. Save the preview to store the summary on its story record. The public site displays only a generated and saved summary; it does not call the AI endpoint.
+Workers AI is bound in `cloudflare-worker/wrangler.toml`. From an authenticated admin story preview, choose **Generate AI summary** to create a summary from the current title, source, description, content, and article URL. The Worker uses Cloudflare's `@cf/meta/llama-3.2-3b-instruct` model and attempts to read the publisher page, but can still use the edited story details if the publisher blocks automated access. Save the preview to store the summary on its story record. The public site displays only a generated and saved summary; it does not call the AI endpoint.
 
 Replace `sb_publishable_REPLACE_WITH_PROJECT_KEY` in `supabase.js` with the project's publishable key (`sb_publishable_...`) to enable the existing reactions and profile sync. This key is public and safe to ship to browsers. It does not replace database security: keep Row Level Security enabled on `article_reactions`, allow clients to read reaction counts, deny direct client writes to counts, and permit reaction changes only through the existing validated `increment_reaction` and `decrement_reaction` RPCs. Do not use the Worker secret key in the browser.
 

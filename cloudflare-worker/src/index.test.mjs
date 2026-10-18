@@ -370,6 +370,7 @@ test('admin summary generates from current draft when article scraping fails', a
     );
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { summary: 'Generated summary from edited details.' });
+    assert.equal(aiInput.model, '@cf/meta/llama-3.2-3b-instruct');
     assert.match(aiInput.input.messages[1].content, /Edited family story title/);
     assert.match(aiInput.input.messages[1].content, /Edited description contains enough detail/);
     assert.match(aiInput.input.messages[1].content, /edited publisher source content/);

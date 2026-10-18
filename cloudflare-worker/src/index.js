@@ -28,7 +28,7 @@ const MAX_REQUEST_BYTES = 16_000;
 const MAX_PAGE_BYTES = 1_000_000;
 const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
-const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const MODEL = '@cf/meta/llama-3.2-3b-instruct';
 const ADMIN_MARKET = 'en-US';
 const NEWS_CATEGORIES = new Set(['all', 'childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']);
 
