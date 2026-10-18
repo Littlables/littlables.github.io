@@ -30,7 +30,8 @@ function normalizeStory(row) {
     description: row.description || '',
     content: row.content || '',
     aiSummary: row.ai_summary || '',
-    pubDate: row.published_at || row.fetched_at || new Date().toISOString(),
+    pubDate: row.published_at || '',
+    fetchedAt: row.fetched_at || '',
     source: row.source_name || '',
     provider: row.provider,
     category: row.category

@@ -32,7 +32,8 @@ test('stored feed query returns normalized publisher story shape', async () => {
         category: 'childcare',
         title: 'Pending family story',
         article_url: 'https://publisher.example/pending',
-        approved: false
+        approved: false,
+        fetched_at: '2026-10-17T13:00:00Z'
       }]);
     }
     return Response.json([{
@@ -66,9 +67,12 @@ test('stored feed query returns normalized publisher story shape', async () => {
       content: 'Article excerpt',
       aiSummary: 'A saved brief.',
       pubDate: '2026-10-17T12:00:00Z',
+      fetchedAt: '',
       source: 'Example',
       approved: true
     });
+    assert.equal(feed.items[1].pubDate, '');
+    assert.equal(feed.items[1].fetchedAt, '2026-10-17T13:00:00Z');
     assert.equal(feed.items[0].approved, true);
     assert.equal(feed.items[1].approved, false);
     assert.deepEqual(new Set(requestUrls.map(requestUrl => requestUrl.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));

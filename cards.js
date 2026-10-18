@@ -18,7 +18,7 @@
       const cleanDesc = item.description || '';
       const imageUrl = resolveImageUrl(item, index, currentCategory);
       const summary = item.aiSummary || '';
-      const pubDate = new Date(item.pubDate || Date.now()).toLocaleString([], {
+      const pubDate = new Date(item.pubDate || item.fetchedAt || Date.now()).toLocaleString([], {
         dateStyle: 'short',
         timeStyle: 'short'
       });
