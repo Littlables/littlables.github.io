@@ -2,28 +2,22 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Serve Littlables locally",
-            "type": "process",
-            "command": "python3",
-            "args": [
-                "-m",
-                "http.server",
-                "8000",
-                "--bind",
-                "0.0.0.0"
-            ],
+            "label": "Start Dev Server",
+            "type": "npm",
+            "script": "dev",
             "isBackground": true,
             "problemMatcher": {
                 "pattern": {
-                    "regexp": "^(.*)$"
+                    "regexp": "^$"
                 },
                 "background": {
                     "activeOnStart": true,
-                    "endsPattern": "^Serving HTTP on .* port 8000"
+                    "beginsPattern": ".*",
+                    "endsPattern": ".*(Local:|ready in|http://localhost:3000).*"
                 }
             },
             "presentation": {
-                "reveal": "silent",
+                "reveal": "always",
                 "panel": "dedicated",
                 "clear": false
             }
