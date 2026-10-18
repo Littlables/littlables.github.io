@@ -108,10 +108,19 @@
           : [];
         if (!feedItems.length) throw new Error('News feed returned no stories with valid article links');
 
-        const shuffle = items => items.sort(() => Math.random() - 0.5);
-        const approvedItems = shuffle(feedItems.filter(item => item.approved === true))
+        const byPublicationDate = (first, second) => {
+          const firstDate = Date.parse(first.pubDate || '');
+          const secondDate = Date.parse(second.pubDate || '');
+          const firstTimestamp = Number.isFinite(firstDate) ? firstDate : Number.NEGATIVE_INFINITY;
+          const secondTimestamp = Number.isFinite(secondDate) ? secondDate : Number.NEGATIVE_INFINITY;
+          if (firstTimestamp === secondTimestamp) return 0;
+          return firstTimestamp > secondTimestamp ? -1 : 1;
+        };
+        const approvedItems = feedItems.filter(item => item.approved === true)
+          .sort(byPublicationDate)
           .slice(0, NEWS_CONFIG.maxStories);
-        const unapprovedItems = shuffle(feedItems.filter(item => item.approved !== true))
+        const unapprovedItems = feedItems.filter(item => item.approved !== true)
+          .sort(byPublicationDate)
           .slice(0, NEWS_CONFIG.maxStories);
         container.innerHTML = '';
         const categoryBadge = getActiveCategoryBadge();
