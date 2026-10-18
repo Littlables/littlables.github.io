@@ -9,7 +9,7 @@ import { AdCard } from './components/AdCard';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { fetchNewsFeed } from './services/newsService';
-import { fetchAdsForCategory, getRandomAds } from './services/adsService';
+import { fetchAdsForCategory } from './services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -59,10 +59,10 @@ export const App: React.FC = () => {
       ]);
 
       setStories(fetchedStories);
-      setAds(getRandomAds(categoryAds, 2));
+      setAds(categoryAds);
 
       // Fetch reactions for stories
-      const storyIds = fetchedStories.map(s => getStoryId(s.title, s.link));
+      const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
       const reactionData = await fetchReactionsForStories(storyIds);
       setReactions(reactionData);
     } catch (err: any) {
@@ -176,6 +176,11 @@ export const App: React.FC = () => {
               const storyId = getStoryId(story.title, story.link);
               const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
 
+              // Insert ads continuously every 3 stories (after story 3, 6, 9, 12, etc.) until stories end
+              const shouldInsertAd = (index + 1) % 3 === 0;
+              const adIndex = Math.floor(index / 3);
+              const currentAd = ads && ads.length > 0 ? ads[adIndex % ads.length] : null;
+
               return (
                 <React.Fragment key={`${story.link}-${index}`}>
                   <NewsCard
@@ -187,12 +192,8 @@ export const App: React.FC = () => {
                     onReact={handleReaction}
                   />
 
-                  {/* Insert Ad Cards at index 2 and index 5 */}
-                  {index === 2 && ads[0] && (
-                    <AdCard ad={ads[0]} category={category} />
-                  )}
-                  {index === 5 && ads[1] && (
-                    <AdCard ad={ads[1]} category={category} />
+                  {shouldInsertAd && currentAd && (
+                    <AdCard ad={currentAd} category={category} />
                   )}
                 </React.Fragment>
               );

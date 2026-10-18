@@ -128,7 +128,8 @@
         let adIndex = 0;
         itemsToDisplay.forEach((item, index) => {
           container.appendChild(createNewsStoryCard(item, index, categoryBadge));
-          if (index === 2 || index === 5) {
+          // Insert ad every 3 stories (after story 3, 6, 9, 12, etc.) until stories end
+          if ((index + 1) % 3 === 0) {
             container.appendChild(createInFeedAdCard(adIndex));
             adIndex += 1;
           }

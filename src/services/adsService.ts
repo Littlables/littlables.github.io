@@ -14,6 +14,7 @@ interface RawProductAd {
   priceCents?: number;
   currency?: string;
   cta?: string;
+  category?: string;
 }
 
 const adCache: Partial<Record<NewsCategory, AdItem[]>> = {};
@@ -31,7 +32,7 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
   const title = raw.name || raw.title || "Curated Discovery";
   const desc = raw.description || raw.desc || "A handpicked resource tailored to your interests.";
   const img = raw.thumbnailUrl || raw.img || `img/${category}_${(defaultIndex % 10) + 1}.jpg`;
-  const sponsor = raw.sellerName || raw.sponsor || "Featured Creator";
+  const sponsor = raw.sellerName || raw.sponsor || "Featured Partner";
   const url = raw.url || "#";
   const price = raw.priceUsd != null && raw.priceUsd > 0
     ? `$${raw.priceUsd}`
@@ -52,7 +53,7 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
 
 export async function fetchAdsForCategory(category: NewsCategory): Promise<AdItem[]> {
   if (adCache[category] && adCache[category]!.length > 0) {
-    // Return a newly shuffled copy each time to ensure ads load in random orders
+    // Return a newly shuffled copy each time to ensure unbiased random presentation
     return shuffleArray(adCache[category]!);
   }
 
@@ -66,6 +67,7 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
 
   let rawAds: RawProductAd[] = [];
 
+  // 1. Load Gumroad products for category
   for (const path of lookupPaths) {
     try {
       const response = await fetch(path);
@@ -81,7 +83,27 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
     }
   }
 
-  // Load TikTok ads for Creative Arts and Future Tech & AI alongside Gumroad ads
+  // 2. Load Amazon search affiliate ads for category (5 searches per category with tag=littlables-20)
+  const amazonPaths = ['ads/amazon.json', '/ads/amazon.json', './ads/amazon.json'];
+  for (const aPath of amazonPaths) {
+    try {
+      const aResponse = await fetch(aPath);
+      if (aResponse.ok) {
+        const aData: RawProductAd[] = await aResponse.json();
+        if (Array.isArray(aData) && aData.length > 0) {
+          const categoryAmazonAds = aData.filter(ad => ad.category === category);
+          if (categoryAmazonAds.length > 0) {
+            rawAds = [...rawAds, ...categoryAmazonAds];
+          }
+          break;
+        }
+      }
+    } catch {
+      // Continue
+    }
+  }
+
+  // 3. Load TikTok affiliate ads for Creative Arts and Future Tech & AI
   if (category === 'arts' || category === 'tech') {
     const tiktokPaths = ['ads/tiktok.json', '/ads/tiktok.json', './ads/tiktok.json'];
     for (const tPath of tiktokPaths) {
@@ -103,7 +125,7 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
 
   if (rawAds.length > 0) {
     const parsed = rawAds.map((item, idx) => formatProductAd(item, category, idx));
-    // Completely and randomly mix all the ads for the category together
+    // Completely and randomly mix all the ads (Gumroad, Amazon, TikTok) together
     const mixed = shuffleArray(parsed);
     adCache[category] = mixed;
     return mixed;

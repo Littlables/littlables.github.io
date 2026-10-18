@@ -98,7 +98,25 @@
         } catch (e) {}
       }
 
-      // If category is Creative Arts or Future Tech & AI, load TikTok affiliate ads alongside Gumroad ads
+      // Load Amazon affiliate search ads for category (5 searches per category)
+      const amazonPaths = ['ads/amazon.json', '/ads/amazon.json', './ads/amazon.json'];
+      for (const ap of amazonPaths) {
+        try {
+          const aRes = await fetch(ap);
+          if (aRes.ok) {
+            const aData = await aRes.json();
+            if (Array.isArray(aData) && aData.length > 0) {
+              const catAmazon = aData.filter(ad => ad.category === cat);
+              if (catAmazon.length > 0) {
+                mainAds = [...mainAds, ...catAmazon];
+              }
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // If category is Creative Arts or Future Tech & AI, load TikTok affiliate ads alongside Gumroad and Amazon ads
       if (cat === 'arts' || cat === 'tech') {
         const tiktokPaths = ['ads/tiktok.json', '/ads/tiktok.json', './ads/tiktok.json'];
         for (const tp of tiktokPaths) {
@@ -116,7 +134,7 @@
       }
 
       if (mainAds.length > 0) {
-        // Randomly mix all the ads for the category together
+        // Randomly mix all the ads for the category together (Gumroad, Amazon, TikTok)
         for (let i = mainAds.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [mainAds[i], mainAds[j]] = [mainAds[j], mainAds[i]];
