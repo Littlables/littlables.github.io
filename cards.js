@@ -1,3 +1,11 @@
+    function decodeHtmlEntities(value) {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = String(value ?? '').replace(/[<>]/g, character => (
+        character === '<' ? '&lt;' : '&gt;'
+      ));
+      return textarea.value;
+    }
+
     function createNewsStoryCard(item, index, categoryBadge) {
       const escapeHtml = value => String(value).replace(/[&<>"']/g, character => ({
         '&': '&amp;',
@@ -7,8 +15,9 @@
         "'": '&#39;'
       })[character]);
       const title = item.title || 'Untitled Update';
-      const cleanDesc = item.description;
+      const cleanDesc = item.description || '';
       const imageUrl = resolveImageUrl(item, index, currentCategory);
+      const summary = item.aiSummary || '';
       const pubDate = new Date(item.pubDate || Date.now()).toLocaleString([], {
         dateStyle: 'short',
         timeStyle: 'short'
@@ -40,10 +49,10 @@
           </div>
           <a href="${safeLink}" target="_blank" rel="noopener noreferrer" class="news-card-title">${safeTitle}</a>
           <p class="news-card-desc">${escapeHtml(cleanDesc || '')}</p>
-          ${typeof item.aiSummary === 'string' && item.aiSummary.trim() ? `
+          ${summary.trim() ? `
             <div class="news-card-ai-summary">
               <div class="news-card-ai-label">${t('aiBriefTag')}</div>
-              <div class="ai-summary-text">${escapeHtml(item.aiSummary)}</div>
+              <div class="ai-summary-text">${escapeHtml(summary)}</div>
             </div>` : ''}
           <div class="news-card-footer">
             <a href="${safeLink}" target="_blank" rel="noopener noreferrer" class="news-read-more-btn">

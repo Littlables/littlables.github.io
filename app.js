@@ -87,14 +87,24 @@
           throw new Error(data.error || `News feed request failed (HTTP ${response.status})`);
         }
         const feedItems = Array.isArray(data.items)
-          ? data.items.filter(item => {
-            if (!item || typeof item.title !== 'string' || typeof item.link !== 'string') return false;
-            try {
-              return ['http:', 'https:'].includes(new URL(item.link).protocol);
-            } catch {
-              return false;
-            }
-          })
+          ? data.items
+            .filter(item => item && typeof item.link === 'string')
+            .map(item => ({
+              ...item,
+              title: decodeHtmlEntities(item.title),
+              link: decodeHtmlEntities(item.link),
+              image: decodeHtmlEntities(item.image),
+              description: decodeHtmlEntities(item.description),
+              aiSummary: decodeHtmlEntities(item.aiSummary)
+            }))
+            .filter(item => {
+              if (!item || typeof item.title !== 'string' || typeof item.link !== 'string') return false;
+              try {
+                return ['http:', 'https:'].includes(new URL(item.link).protocol);
+              } catch {
+                return false;
+              }
+            })
           : [];
         if (!feedItems.length) throw new Error('News feed returned no stories with valid article links');
 

@@ -188,6 +188,14 @@ export function getAdminPage() {
     const text = (value) => value == null || value === '' ? '—' : String(value);
     const formatDateTime = (date) => date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 
+    function decodeHtmlEntities(value) {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = String(value ?? '').replace(/[<>]/g, character => (
+        character === '<' ? '&lt;' : '&gt;'
+      ));
+      return textarea.value;
+    }
+
     function getStoryDomain(link) {
       try {
         return new URL(link).hostname.replace(/^www\\./i, '');
@@ -295,7 +303,7 @@ export function getAdminPage() {
         const row = document.createElement('article');
         row.className = 'story';
         row.tabIndex = 0;
-        row.setAttribute('aria-label', 'Edit story: ' + story.title);
+        row.setAttribute('aria-label', 'Edit story: ' + decodeHtmlEntities(story.title));
         row.addEventListener('click', (event) => {
           if (event.target.closest('button')) return;
           openStoryPreview(story);
@@ -318,10 +326,10 @@ export function getAdminPage() {
         }
         const title = document.createElement('h3');
         const link = document.createElement('a');
-        link.href = story.link;
+        link.href = decodeHtmlEntities(story.link);
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
-        link.textContent = story.title;
+        link.textContent = decodeHtmlEntities(story.title);
         link.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -582,7 +590,7 @@ export function getAdminPage() {
       if (field === 'title') visible.classList.add('news-card-title');
       const displayValue = display(value);
       if (displayValue instanceof Node) visible.append(displayValue);
-      else visible.textContent = displayValue;
+      else visible.textContent = decodeHtmlEntities(displayValue);
       if (tag === 'a') {
         visible.href = state.previewDraft.link;
         visible.target = '_blank';
@@ -789,12 +797,12 @@ export function getAdminPage() {
     function openStoryPreview(story) {
       state.previewStoryId = story.id ?? null;
       state.previewDraft = {
-        title: story.title || '',
-        link: story.link || '',
-        image: story.image || '',
-        description: story.description || '',
-        content: story.content || '',
-        aiSummary: story.aiSummary || '',
+        title: decodeHtmlEntities(story.title || ''),
+        link: decodeHtmlEntities(story.link || ''),
+        image: decodeHtmlEntities(story.image || ''),
+        description: decodeHtmlEntities(story.description || ''),
+        content: decodeHtmlEntities(story.content || ''),
+        aiSummary: decodeHtmlEntities(story.aiSummary || ''),
         pubDate: story.pubDate || new Date().toISOString(),
         source: story.source || '',
         category: story.category || 'all',
