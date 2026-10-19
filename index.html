@@ -48,21 +48,7 @@
   <title id="page-title">Littlables — A Little Scoop of the World</title>
   <link rel="stylesheet" href="./assets/bundle.css">
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387" crossorigin="anonymous"></script>
-
-  <script type="module">
-    // Hybrid module loader:
-    // If running under Vite dev server (port 3000 or ais-dev host), load source /src/main.tsx
-    // If running on GitHub Pages (github.io) or any static host, directly load compiled ./assets/bundle.js
-    const isViteDev = window.location.port === '3000' ||
-      window.location.hostname.includes('ais-dev') ||
-      window.location.hostname.includes('ais-pre');
-
-    if (isViteDev) {
-      import('/src/main.tsx').catch(() => import('./assets/bundle.js'));
-    } else {
-      import('./assets/bundle.js');
-    }
-  </script>
+  <script type="module" src="/src/main.tsx"></script>
 </head>
 <body>
   <div id="root"></div>
