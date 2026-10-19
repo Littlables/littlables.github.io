@@ -74,7 +74,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         </a>
 
         {item.description && (
-          <p className="news-card-desc">{item.description}</p>
+          <p className="news-card-desc">{
+            item.description.length > 750 ? item.description.slice(0, 750) + "..." : item.description}</p>
         )}
 
         {item.aiSummary && item.aiSummary.trim().length > 0 && (

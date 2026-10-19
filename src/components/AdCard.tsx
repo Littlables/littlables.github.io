@@ -75,7 +75,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
         </a>
 
         <p className="news-card-desc ad-card-description">
-          {ad.desc}
+          {ad.desc.length > 750 ? ad.desc.slice(0, 750) + "..." : ad.desc}
         </p>
 
         {/* Official Google AdSense In-Feed Responsive Fluid Tag */}
