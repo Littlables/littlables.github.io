@@ -41,6 +41,8 @@ export function getAdminPage() {
     .provider-description, .provider-setup, .provider-coverage { margin: .45rem 0; font-size: .88rem; }
     .provider-setup.configured { color: #86efac; }
     .provider-setup.missing { color: #fcd34d; }
+    .provider-toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .provider-filter { padding: .5rem .75rem; border: 1px solid #475569; border-radius: 8px; background: #0f172a; color: #f8fafc; font: inherit; }
     button { border: 0; border-radius: 8px; padding: .65rem 1rem; font: inherit; font-weight: 700; color: white; background: #4f46e5; cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
     button.secondary { background: #475569; }
@@ -48,6 +50,7 @@ export function getAdminPage() {
     a { color: #a5b4fc; }
     #stories, #pending-stories, #banned-stories { display: grid; gap: .75rem; }
     #stories[hidden], #banned-stories[hidden] { display: none; }
+    #providers[hidden] { display: none; }
     .story { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; cursor: pointer; }
     .story:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
     .story-main, .story-details { min-width: 0; }
@@ -134,12 +137,22 @@ export function getAdminPage() {
     <button id="preview-close" class="preview-close secondary" type="button">Close preview</button>
   </dialog>
   <section aria-labelledby="providers-title">
-    <h2 id="providers-title">News providers</h2>
-    <div id="providers" class="providers" aria-live="polite"></div>
+    <h2 id="providers-title">
+      <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers">
+        <span id="providers-arrow" aria-hidden="true">▼</span> News providers
+      </button>
+    </h2>
+    <div id="providers" class="providers" aria-live="polite" hidden></div>
   </section>
   <section aria-labelledby="pending-title">
     <h2 id="pending-title">Stories awaiting approval <span id="pending-count"></span></h2>
     <nav id="approval-categories" class="category-tabs" aria-label="Filter pending stories by category"></nav>
+    <label class="provider-toolbar" for="approval-provider">
+      Provider
+      <select id="approval-provider" class="provider-filter">
+        <option value="all">All providers</option>
+      </select>
+    </label>
     <div id="pending-stories" aria-live="polite"></div>
   </section>
   <section aria-labelledby="stories-title">
@@ -180,6 +193,7 @@ export function getAdminPage() {
       previewStoryId: null,
       generatingSummary: false,
       activeCategory: 'all',
+      activeProvider: 'all',
       providers: [],
       pendingStories: [],
       decidedStories: [],
@@ -188,6 +202,7 @@ export function getAdminPage() {
     const providersEl = document.getElementById('providers');
     const messageEl = document.getElementById('message');
     const categoryEl = document.getElementById('approval-categories');
+    const providerFilterEl = document.getElementById('approval-provider');
     const text = (value) => value == null || value === '' ? '—' : String(value);
     const formatDateTime = (date) => date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 
@@ -248,7 +263,7 @@ export function getAdminPage() {
         title.textContent = provider.name;
         const button = document.createElement('button');
         button.type = 'button';
-        button.textContent = state.busy.has(provider.id) ? 'Updating…' : 'Update provider';
+        button.textContent = state.busy.has(provider.id) ? 'Updating…' : 'Update';
         button.disabled = state.busy.has(provider.id) || provider.status === 'running' || !provider.configured;
         button.addEventListener('click', () => updateProvider(provider.id));
         head.append(title, button);
@@ -314,13 +329,33 @@ export function getAdminPage() {
       });
     }
 
+    function renderProviderFilter() {
+      const selectedProvider = state.activeProvider;
+      providerFilterEl.replaceChildren();
+      const allOption = document.createElement('option');
+      allOption.value = 'all';
+      allOption.textContent = 'All providers';
+      providerFilterEl.append(allOption);
+      state.providers.forEach((provider) => {
+        const option = document.createElement('option');
+        option.value = provider.id;
+        option.textContent = provider.name;
+        providerFilterEl.append(option);
+      });
+      state.activeProvider = state.providers.some(provider => provider.id === selectedProvider)
+        ? selectedProvider
+        : 'all';
+      providerFilterEl.value = state.activeProvider;
+    }
+
     function renderStories(stories, { pending = false, decided = false, banned = false } = {}) {
       const container = document.getElementById(pending ? 'pending-stories' : banned ? 'banned-stories' : 'stories');
       container.replaceChildren();
       const visibleStories = pending
         ? stories.filter((story) =>
           !state.ignored.has(story.id) &&
-          (state.activeCategory === 'all' || story.category === state.activeCategory))
+          (state.activeCategory === 'all' || story.category === state.activeCategory) &&
+          (state.activeProvider === 'all' || story.provider === state.activeProvider))
         : stories;
       visibleStories.forEach((story) => {
         const row = document.createElement('article');
@@ -463,8 +498,10 @@ export function getAdminPage() {
       if (!visibleStories.length) {
         const empty = document.createElement('p');
         empty.className = 'muted';
-        empty.textContent = pending && state.activeCategory !== 'all'
-          ? 'No pending stories in this category.'
+        empty.textContent = pending && state.activeProvider !== 'all'
+          ? 'No stories awaiting approval from this provider in the selected category.'
+          : pending && state.activeCategory !== 'all'
+            ? 'No pending stories in this category.'
           : pending
             ? 'No stories awaiting approval.'
             : banned
@@ -486,6 +523,7 @@ export function getAdminPage() {
         state.decidedStories = data.recentStories || [];
         state.bannedStories = data.bannedStories || [];
         renderProviders(data.providers);
+        renderProviderFilter();
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
@@ -959,6 +997,17 @@ export function getAdminPage() {
         messageEl.className = 'error';
         messageEl.textContent = error.message;
       }
+    });
+    providerFilterEl.addEventListener('change', () => {
+      state.activeProvider = providerFilterEl.value;
+      renderStories(state.pendingStories, { pending: true });
+    });
+    document.getElementById('providers-toggle').addEventListener('click', (event) => {
+      const button = event.currentTarget;
+      const expanded = button.getAttribute('aria-expanded') !== 'true';
+      button.setAttribute('aria-expanded', String(expanded));
+      document.getElementById('providers-arrow').textContent = expanded ? '▲' : '▼';
+      providersEl.hidden = !expanded;
     });
     refreshData();
     setInterval(refreshStoryAges, 1000);

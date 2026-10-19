@@ -36,6 +36,13 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Undo/);
   assert.match(page, /Banned stories/);
   assert.match(page, /id="custom-link"/);
+  assert.match(page, /id="approval-provider"/);
+  assert.match(page, /All providers/);
+  assert.match(page, /story\.provider === state\.activeProvider/);
+  assert.match(page, /textContent = state\.busy\.has\(provider\.id\) \? 'Updating…' : 'Update'/);
+  assert.match(page, /id="providers-toggle"[^>]*aria-expanded="false" aria-controls="providers"/);
+  assert.match(page, /id="providers" class="providers"[^>]*hidden/);
+  assert.match(page, /providersEl\.hidden = !expanded/);
   assert.match(page, /preview-dialog/);
   assert.match(page, /Add to approved stories/);
   assert.match(page, /Save &amp; approve|Save & approve/);
