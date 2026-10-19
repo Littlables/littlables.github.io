@@ -38,6 +38,9 @@ export function getAdminPage() {
     .provider, .story, .summary { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1rem; }
     .provider h2 { font-size: 1.1rem; margin: 0; }
     .provider p, .muted { color: #cbd5e1; }
+    .provider-description, .provider-setup, .provider-coverage { margin: .45rem 0; font-size: .88rem; }
+    .provider-setup.configured { color: #86efac; }
+    .provider-setup.missing { color: #fcd34d; }
     button { border: 0; border-radius: 8px; padding: .65rem 1rem; font: inherit; font-weight: 700; color: white; background: #4f46e5; cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
     button.secondary { background: #475569; }
@@ -245,10 +248,30 @@ export function getAdminPage() {
         title.textContent = provider.name;
         const button = document.createElement('button');
         button.type = 'button';
-        button.textContent = state.busy.has(provider.id) ? 'Updating…' : 'Update now';
-        button.disabled = state.busy.has(provider.id) || provider.status === 'running';
+        button.textContent = state.busy.has(provider.id) ? 'Updating…' : 'Update provider';
+        button.disabled = state.busy.has(provider.id) || provider.status === 'running' || !provider.configured;
         button.addEventListener('click', () => updateProvider(provider.id));
         head.append(title, button);
+        const description = document.createElement('p');
+        description.className = 'provider-description muted';
+        description.textContent = provider.description || '';
+        const coverage = document.createElement('p');
+        coverage.className = 'provider-coverage muted';
+        const topics = (provider.categories || []).map((id) => (
+          categories.find((category) => category.id === id)?.label || id
+        ));
+        const pauseSeconds = Number(provider.update_pause_ms) / 1000;
+        coverage.textContent = 'Topics: ' + topics.join(', ') +
+          (Number.isFinite(pauseSeconds) && pauseSeconds > 0
+            ? ' · ' + pauseSeconds + 's between topic requests'
+            : '');
+        const setup = document.createElement('p');
+        setup.className = 'provider-setup ' + (provider.configured ? 'configured' : 'missing');
+        setup.textContent = provider.credential_name
+          ? provider.configured
+            ? 'API key configured'
+            : 'Set Worker secret: ' + provider.credential_name
+          : 'No API key required';
         const status = document.createElement('p');
         status.append('Status: ');
         const statusValue = document.createElement('span');
@@ -263,7 +286,7 @@ export function getAdminPage() {
         saved.textContent = 'Stories saved last run: ' + text(provider.stories_saved);
         const totalSaved = document.createElement('p');
         totalSaved.textContent = 'Total stories saved: ' + text(provider.total_stories_saved);
-        card.append(head, status, updated, saved, totalSaved);
+        card.append(head, description, coverage, setup, status, updated, saved, totalSaved);
         if (provider.last_error) {
           const error = document.createElement('p');
           error.className = 'error';

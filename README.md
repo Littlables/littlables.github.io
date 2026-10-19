@@ -22,6 +22,21 @@ npm run dev
 ```
 The dev server runs at `http://0.0.0.0:3000`.
 
+## Cloudflare Worker news providers
+
+The Worker serves saved stories from Supabase; it does not call news providers on public feed requests. Provider metadata, category mappings, required credentials, and update pacing are centralized in `cloudflare-worker/src/news-provider-config.mjs`. Each adapter in `cloudflare-worker/src/feeds/` owns its provider request and response parsing. Shared timeouts, bounded retries, response-size limits, URL validation, and story normalization are in `cloudflare-worker/src/feed-utils.mjs`.
+
+Configured providers are GNews, Bing News, NewsData.io, TheNewsAPI.com, WorldNewsAPI, and Reddit RSS. Configure the API keys for the providers you use from `cloudflare-worker/`:
+
+```bash
+npx wrangler secret put GNEWS_API_KEY
+npx wrangler secret put NEWSDATA_API_KEY
+npx wrangler secret put THENEWSAPI_API_KEY
+npx wrangler secret put WORLDNEWSAPI_API_KEY
+```
+
+Bing News and Reddit RSS do not require API keys. Reddit uses public subreddit Atom/RSS feeds and has a longer request pause/retry backoff to respect its tighter unauthenticated rate limits. The admin dashboard reports whether each required secret is configured and disables provider updates when credentials are missing. Updates pause between topic requests and retry transient failures; run providers independently to avoid sharing provider quotas. Add a provider by defining its metadata and topic mapping, implementing an adapter, registering it in `news-feeds.mjs`, then adding adapter tests.
+
 ### Production Build
 ```bash
 npm run build

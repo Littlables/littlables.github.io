@@ -51,6 +51,10 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Last updated:/);
   assert.match(page, /formatElapsed/);
   assert.match(page, /status-succeeded/);
+  assert.match(page, /provider-setup/);
+  assert.match(page, /Set Worker secret/);
+  assert.match(page, /Topics:/);
+  assert.match(page, /between topic requests/);
   assert.match(page, /Last 10 decided-on stories/);
   assert.match(page, /decisions-toggle/);
   assert.match(page, /aria-expanded="false" aria-controls="stories"/);
@@ -799,6 +803,35 @@ test('provider update ingests all configured GNews categories and writes status'
           publishedAt: date,
           source: { name: 'Example' }
         }]
+      });
+
+      test('provider update reports missing credentials before claiming a run', async () => {
+        const originalFetch = globalThis.fetch;
+        let claimed = false;
+        globalThis.fetch = async input => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) claimed = true;
+          throw new Error(`Unexpected fetch: ${url.href}`);
+        };
+        try {
+          const response = await worker.fetch(
+            new Request('https://worker.example/admin/api/providers/newsdata/update', {
+              method: 'POST',
+              headers: { Origin: 'https://worker.example', Cookie: (await adminCookie()).split(';')[0] }
+            }),
+            {
+              ...authEnv,
+              SUPABASE_URL: 'https://supabase.example',
+              SUPABASE_SECRET_KEY: 'service-secret',
+              SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) }
+            }
+          );
+          assert.equal(response.status, 503);
+          assert.match((await response.json()).error, /NEWSDATA_API_KEY/);
+          assert.equal(claimed, false);
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
       });
     }
     if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);

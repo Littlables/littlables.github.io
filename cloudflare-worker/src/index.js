@@ -1,5 +1,6 @@
 import { getAdminLoginPage, getAdminPage } from './admin-page.mjs';
 import { getNewsFeed, getNewsProviders } from './news-feeds.mjs';
+import { getNewsProviderConfig, NEWS_CATEGORIES } from './news-provider-config.mjs';
 import {
   clearAdminSessionCookie,
   clearOAuthStateCookie,
@@ -30,7 +31,7 @@ const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
 const MODEL = '@cf/meta/llama-3.2-3b-instruct';
 const ADMIN_MARKET = 'en-US';
-const NEWS_CATEGORIES = new Set(['all', 'childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']);
+const NEWS_CATEGORY_SET = new Set(NEWS_CATEGORIES);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -55,7 +56,7 @@ async function serveNewsFeed(request, env) {
     if (!limit.success) return jsonResponse({ error: 'News feed request rate limit exceeded' }, 429);
 
     const category = url.searchParams.get('category') || 'all';
-    if (!NEWS_CATEGORIES.has(category)) return jsonResponse({ error: 'Unknown news category' }, 400);
+    if (!NEWS_CATEGORY_SET.has(category)) return jsonResponse({ error: 'Unknown news category' }, 400);
     const feed = await getStoredNewsFeed(env, category);
     return jsonResponse(feed);
   } catch (err) {
@@ -66,8 +67,13 @@ async function serveNewsFeed(request, env) {
 }
 
 async function updateNewsProvider(provider, updatedBy, env) {
-  const config = getNewsProviders().find(entry => entry.id === provider);
+  const config = getNewsProviderConfig(provider);
   if (!config) return jsonResponse({ error: 'Unknown news provider' }, 404);
+  if (config.credential && !env[config.credential]) {
+    return jsonResponse({
+      error: `${config.label} is not configured. Set the ${config.credential} Worker secret.`
+    }, 503);
+  }
 
   const claimed = await claimNewsProviderSync(env, provider, updatedBy);
   if (!claimed) {
@@ -77,11 +83,11 @@ async function updateNewsProvider(provider, updatedBy, env) {
   let storiesSaved = 0;
   const errors = [];
   try {
-    for (const [index, category] of config.categories.entries()) {
-      if (index > 0) await new Promise(resolve => setTimeout(resolve, 750));
+    for (const [index, category] of Object.keys(config.categories).entries()) {
+      if (index > 0) await new Promise(resolve => setTimeout(resolve, config.updatePauseMs));
       try {
         const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
-          apiKey: provider === 'gnews' ? env.GNEWS_API_KEY : '',
+          credentials: env,
           cache: false
         });
         const stories = feed.items.slice(0, 10);
@@ -277,7 +283,7 @@ async function serveAdmin(request, env) {
   }
   if (url.pathname === '/admin/api/status' && request.method === 'GET') {
     try {
-      return jsonResponse(await getNewsAdminSnapshot(env, getNewsProviders()));
+      return jsonResponse(await getNewsAdminSnapshot(env, getNewsProviders(env)));
     } catch (err) {
       console.error('News admin status request failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not load news admin status' }, 502);
@@ -459,7 +465,7 @@ async function readAdminStoryPayload(request) {
   if (image && (!isPublicWebUrl(image) || image.length > 2_000)) {
     return jsonResponse({ error: 'Image must be a public HTTP or HTTPS URL' }, 400);
   }
-  if (!NEWS_CATEGORIES.has(category)) {
+  if (!NEWS_CATEGORY_SET.has(category)) {
     return jsonResponse({ error: 'Select a valid story category' }, 400);
   }
   if (description.length > 4_000 || content.length > 4_000 || aiSummary.length > 4_000 || source.length > 500) {
