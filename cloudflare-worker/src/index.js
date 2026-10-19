@@ -282,8 +282,12 @@ async function serveAdmin(request, env) {
     return jsonResponse({ login: identity.login });
   }
   if (url.pathname === '/admin/api/status' && request.method === 'GET') {
+    const pendingProvider = url.searchParams.get('provider');
+    if (pendingProvider && !getNewsProviders(env).some(provider => provider.id === pendingProvider)) {
+      return jsonResponse({ error: 'Unknown news provider' }, 400);
+    }
     try {
-      return jsonResponse(await getNewsAdminSnapshot(env, getNewsProviders(env)));
+      return jsonResponse(await getNewsAdminSnapshot(env, getNewsProviders(env), pendingProvider));
     } catch (err) {
       console.error('News admin status request failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not load news admin status' }, 502);

@@ -39,6 +39,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /id="approval-provider"/);
   assert.match(page, /All providers/);
   assert.match(page, /story\.provider === state\.activeProvider/);
+  assert.match(page, /'\?provider=' \+ encodeURIComponent\(state\.activeProvider\)/);
+  assert.match(page, /providerFilterEl\.addEventListener\('change', \(\) => \{\s*state\.activeProvider = providerFilterEl\.value;\s*refreshData\(\);/);
   assert.match(page, /textContent = state\.busy\.has\(provider\.id\) \? 'Updating…' : 'Update'/);
   assert.match(page, /id="providers-toggle"[^>]*aria-expanded="false" aria-controls="providers"/);
   assert.match(page, /id="providers" class="providers"[^>]*hidden/);
@@ -81,6 +83,18 @@ test('admin APIs reject missing and non-allowlisted GitHub sessions', async () =
   );
   assert.equal(missing.status, 401);
   assert.equal(other.status, 401);
+});
+
+test('admin status rejects unknown provider filters', async () => {
+  const cookie = await adminCookie();
+  const response = await worker.fetch(
+    new Request('https://worker.example/admin/api/status?provider=unknown', {
+      headers: { Cookie: cookie.split(';')[0] }
+    }),
+    authEnv
+  );
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'Unknown news provider' });
 });
 
 test('GitHub OAuth login uses configured callback and sets an HttpOnly state cookie', async () => {

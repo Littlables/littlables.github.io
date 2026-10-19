@@ -517,7 +517,10 @@ export function getAdminPage() {
       messageEl.className = 'muted';
       messageEl.textContent = 'Refreshing database status…';
       try {
-        const data = await request('/admin/api/status');
+        const query = state.activeProvider === 'all'
+          ? ''
+          : '?provider=' + encodeURIComponent(state.activeProvider);
+        const data = await request('/admin/api/status' + query);
         state.providers = data.providers;
         state.pendingStories = data.pendingStories || [];
         state.decidedStories = data.recentStories || [];
@@ -1000,7 +1003,7 @@ export function getAdminPage() {
     });
     providerFilterEl.addEventListener('change', () => {
       state.activeProvider = providerFilterEl.value;
-      renderStories(state.pendingStories, { pending: true });
+      refreshData();
     });
     document.getElementById('providers-toggle').addEventListener('click', (event) => {
       const button = event.currentTarget;

@@ -190,7 +190,11 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     }]);
   };
   try {
-    const snapshot = await getNewsAdminSnapshot(env, [{ id: 'gnews', name: 'GNews', categories: ['all'] }]);
+    const snapshot = await getNewsAdminSnapshot(
+      env,
+      [{ id: 'gnews', name: 'GNews', categories: ['all'] }],
+      'gnews'
+    );
     assert.equal(snapshot.totalStories, 42);
     assert.equal(snapshot.recentStories[0].id, 8);
     assert.equal(snapshot.recentStories[0].decisionAction, 'approve');
@@ -208,6 +212,11 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
       url.searchParams.get('approved') === 'eq.false' &&
       url.searchParams.get('removed') === 'eq.false'
     ));
+    assert.equal(
+      requests.find(({ url }) => url.searchParams.get('approved') === 'eq.false')
+        .url.searchParams.get('provider'),
+      'eq.gnews'
+    );
     assert.ok(requests.some(({ url }) =>
       url.searchParams.get('removed') === 'eq.true' &&
       url.searchParams.get('limit') === '100'

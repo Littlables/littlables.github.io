@@ -69,7 +69,7 @@ export async function getStoredNewsFeed(env, category) {
   return { provider: 'supabase', items };
 }
 
-export async function getNewsAdminSnapshot(env, providers) {
+export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
@@ -85,6 +85,7 @@ export async function getNewsAdminSnapshot(env, providers) {
     order: 'fetched_at.desc',
     limit: '100'
   });
+  if (pendingProvider) pendingQuery.set('provider', `eq.${pendingProvider}`);
   const bannedQuery = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
     removed: 'eq.true',
