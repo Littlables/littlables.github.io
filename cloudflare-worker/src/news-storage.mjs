@@ -449,8 +449,9 @@ export async function finishNewsProviderSync(env, provider, {
   if (!response.ok) throw new Error(`Saving ${provider} update status failed (HTTP ${response.status})`);
 }
 
-export async function searchNewsStories(env, queryText, limit = 50) {
+export async function searchNewsStories(env, queryText, limit = 100) {
   if (!queryText || !queryText.trim()) return [];
+
   const clean = queryText.trim().replace(/[*%]/g, '');
   const params = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at',

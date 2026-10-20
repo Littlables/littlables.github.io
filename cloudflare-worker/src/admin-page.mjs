@@ -6,7 +6,7 @@ export function getAdminLoginPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Littlables admin sign in</title>
   <style>
-    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; background: #0b0f19; color: #f8fafc; }
+    :root { color-scheme: dark; font: 16px/1.5 system-ui, -apple-system, sans-serif; background: #0b0f19; color: #f8fafc; }
     body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 1rem; }
     main { max-width: 28rem; padding: 2rem; background: #1e293b; border: 1px solid #334155; border-radius: 12px; }
     a { display: inline-block; margin-top: 1rem; padding: .7rem 1rem; border-radius: 8px; color: white; background: #4f46e5; font-weight: 700; text-decoration: none; }
@@ -30,123 +30,621 @@ export function getAdminPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Littlables news admin</title>
   <style>
-    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; background: #0b0f19; color: #f8fafc; }
-    body { max-width: 1100px; margin: 0 auto; padding: 2rem 1rem 4rem; }
-    h1, h2, h3 { line-height: 1.2; }
-    .toolbar, .provider-head, .story, .ad-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-    .providers { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
-    .provider, .story, .ad-row, .summary, .admin-card-section { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1rem; margin-bottom: 1.25rem; }
-    .provider h2 { font-size: 1.1rem; margin: 0; }
-    .provider p, .muted { color: #cbd5e1; }
-    .provider-description, .provider-setup, .provider-coverage { margin: .45rem 0; font-size: .88rem; }
+    :root {
+      color-scheme: dark;
+      font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0f19;
+      color: #f8fafc;
+      font-variant-numeric: tabular-nums;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html.modal-open,
+    body.modal-open,
+    html:has(dialog[open]),
+    body:has(dialog[open]) {
+      overflow: hidden !important;
+      overscroll-behavior: none;
+    }
+    body {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3.5rem;
+    }
+    h1, h2, h3 { line-height: 1.25; margin: 0; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.05rem; }
+    a { color: #a5b4fc; }
+    .muted { color: #94a3b8; margin: 0; font-size: .86rem; }
+
+    /* Top Toolbar */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      flex-wrap: wrap;
+      padding-bottom: 1rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      flex-wrap: wrap;
+    }
+
+    /* Buttons */
+    button {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: .45rem .75rem;
+      font: inherit;
+      font-size: .84rem;
+      font-weight: 600;
+      color: #ffffff;
+      background: #4f46e5;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    }
+    button:hover:not(:disabled) { background: #4338ca; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.secondary { background: #334155; border-color: #475569; color: #f1f5f9; }
+    button.secondary:hover:not(:disabled) { background: #475569; }
+    button.small-btn { padding: .32rem .6rem; font-size: .78rem; border-radius: 6px; }
+    button.icon-btn {
+      padding: .28rem .5rem;
+      font-size: .78rem;
+      line-height: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      border-radius: 6px;
+    }
+    button.icon-btn:hover:not(:disabled) {
+      background: #1e293b;
+      border-color: #6366f1;
+      color: #ffffff;
+    }
+
+    /* Collapsible & Reorderable Sections */
+    #admin-sections {
+      display: flex;
+      flex-direction: column;
+      gap: .85rem;
+    }
+    .admin-card-section, .summary {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: .85rem 1rem;
+      margin: 0;
+      transition: border-color 0.15s ease;
+    }
+    .admin-card-section.dragging {
+      opacity: .6;
+      border-color: #818cf8;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      flex-wrap: nowrap;
+    }
+    .section-header h2 {
+      flex: 1;
+      min-width: 0;
+    }
+    .section-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      width: 100%;
+      padding: .15rem 0;
+      background: transparent;
+      border: 0;
+      color: #f8fafc;
+      font-size: 1rem;
+      font-weight: 700;
+      text-align: left;
+      white-space: normal;
+    }
+    .section-toggle:hover:not(:disabled) { background: transparent; color: #c7d2fe; }
+    .section-arrow {
+      display: inline-block;
+      width: 1.1rem;
+      text-align: center;
+      font-size: .78rem;
+      color: #94a3b8;
+      flex-shrink: 0;
+    }
+    .section-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      flex-shrink: 0;
+    }
+    .section-body {
+      margin-top: .85rem;
+      padding-top: .85rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .section-body[hidden],
+    #stories[hidden],
+    #banned-stories[hidden],
+    #providers[hidden],
+    #ads-section[hidden] {
+      display: none !important;
+    }
+
+    /* Providers Grid */
+    .providers {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: .85rem;
+    }
+    .provider {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: .85rem;
+    }
+    .provider-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      margin-bottom: .35rem;
+    }
+    .provider h2 { font-size: .98rem; }
+    .provider p { margin: .3rem 0; font-size: .82rem; color: #cbd5e1; }
     .provider-setup.configured { color: #86efac; }
     .provider-setup.missing { color: #fcd34d; }
-    .provider-toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-    .provider-filter { padding: .5rem .75rem; border: 1px solid #475569; border-radius: 8px; background: #0f172a; color: #f8fafc; font: inherit; }
-    button { border: 0; border-radius: 8px; padding: .65rem 1rem; font: inherit; font-weight: 700; color: white; background: #4f46e5; cursor: pointer; transition: background 0.15s ease, opacity 0.15s ease; }
-    button:hover:not(:disabled) { background: #4338ca; }
-    button:disabled { opacity: .6; cursor: wait; }
-    button.secondary { background: #475569; }
-    button.secondary:hover:not(:disabled) { background: #334155; }
-    button.small-btn { padding: .35rem .7rem; font-size: .82rem; }
-    .section-toggle { padding: 0; background: transparent; text-align: left; }
-    .section-toggle:hover { background: transparent; }
-    a { color: #a5b4fc; }
-    #stories, #pending-stories, #banned-stories, #ads-list, #story-search-results { display: grid; gap: .75rem; }
-    #stories[hidden], #banned-stories[hidden], #providers[hidden], #ads-section[hidden] { display: none; }
-    
-    .story, .ad-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 1rem; cursor: pointer; transition: border-color 0.15s ease, background-color 0.15s ease; }
-    .story:hover, .ad-row:hover { border-color: #6366f1; background-color: #243248; }
-    .story:focus-visible, .ad-row:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+
+    /* Filters & Inputs */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .65rem;
+      flex-wrap: wrap;
+      margin-bottom: .75rem;
+    }
+    .provider-toolbar {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      font-size: .82rem;
+      color: #cbd5e1;
+      flex-wrap: wrap;
+    }
+    .provider-filter, .page-size-select {
+      padding: .35rem .6rem;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      background: #0f172a;
+      color: #f8fafc;
+      font: inherit;
+      font-size: .82rem;
+    }
+    .custom-input {
+      width: 100%;
+      padding: .6rem .85rem;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #f8fafc;
+      font: inherit;
+      font-size: .9rem;
+    }
+    .custom-input:focus {
+      border-color: #818cf8;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+    }
+
+    /* Category Filter Tabs */
+    .category-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .35rem;
+      margin: .5rem 0 .75rem;
+    }
+    .category-tab {
+      padding: .32rem .6rem;
+      font-size: .78rem;
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      border-radius: 6px;
+    }
+    .category-tab[aria-pressed="true"] {
+      background: #4f46e5;
+      border-color: #6366f1;
+      color: #ffffff;
+    }
+
+    /* Story & Ad List Rows */
+    #stories, #pending-stories, #banned-stories, #ads-list, #story-search-results {
+      display: grid;
+      gap: .6rem;
+    }
+    .story, .ad-row {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: .75rem;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: .65rem .75rem;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .story:hover, .ad-row:hover {
+      border-color: #6366f1;
+      background-color: #162033;
+    }
+    .story:focus-visible, .ad-row:focus-visible {
+      outline: 2px solid #a5b4fc;
+      outline-offset: 2px;
+    }
     .story-main, .story-details, .ad-main, .ad-details { min-width: 0; }
-    .story img, .ad-row img { width: 72px; height: 56px; object-fit: cover; border-radius: 6px; background: #334155; }
-    .story h3, .ad-row h3 { font-size: 1rem; margin: 0 0 .4rem; overflow-wrap: anywhere; }
-    .story-meta, .ad-meta { display: flex; flex-wrap: wrap; gap: .4rem; }
-    .story-meta span, .ad-meta span { font-size: .8rem; font-weight: 650; }
+    .story img, .ad-row img {
+      width: 64px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #1e293b;
+      display: block;
+    }
+    .story h3, .ad-row h3 {
+      font-size: .92rem;
+      font-weight: 600;
+      margin: 0 0 .25rem;
+      overflow-wrap: anywhere;
+    }
+    .story h3 a { text-decoration: none; color: #f8fafc; }
+    .story h3 a:hover { color: #a5b4fc; }
+    .story-meta, .ad-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: .35rem .5rem;
+      margin: 0;
+    }
+    .story-meta span, .ad-meta span { font-size: .75rem; font-weight: 600; }
     .meta-provider { color: #c4b5fd; }
     .meta-domain { color: #fcd34d; }
     .meta-category { color: #7dd3fc; }
     .meta-date { color: #86efac; }
-    .meta-network { color: #fbbf24; background: rgba(245, 158, 11, 0.15); padding: 0.1rem 0.4rem; border-radius: 4px; }
-    .meta-badge-status { padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; }
+    .meta-network { color: #fbbf24; }
+    .meta-badge-status {
+      padding: 0.05rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
     .meta-approved { background: rgba(16, 185, 129, 0.2); color: #86efac; }
     .meta-pending { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
     .meta-banned { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
-    .decision-note { margin: .4rem 0 0; color: #cbd5e1; font-size: .82rem; }
-    .story-actions, .ad-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
-    .story-actions button, .ad-actions button { white-space: nowrap; }
-    .custom-input { box-sizing: border-box; width: 100%; padding: .8rem 1rem; border: 1px solid #475569; border-radius: 8px; background: #0f172a; color: #f8fafc; font: inherit; }
-    .custom-input:focus { border-color: #818cf8; outline: none; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25); }
+    .decision-note { margin: .25rem 0 0; color: #94a3b8; font-size: .76rem; }
+    .story-actions, .ad-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: .35rem;
+    }
 
-    /* Preview Modal Dialog */
-    .preview-dialog { width: min(94vw, 480px); max-height: 94vh; overflow-y: auto; overflow-x: hidden; color: #f8fafc; background: #0b0f19; border: 1px solid #475569; border-radius: 16px; padding: 1.25rem; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7); }
-    .preview-dialog::backdrop { background: rgb(2 6 23 / 80%); backdrop-filter: blur(4px); }
-    
+    /* Pagination Bar */
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .6rem;
+      flex-wrap: wrap;
+      margin-top: .75rem;
+      padding-top: .65rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      font-size: .8rem;
+      color: #cbd5e1;
+    }
+    .pagination-bar[hidden] { display: none !important; }
+    .pagination-info {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+    .pagination-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+    }
+    .pagination-page-label {
+      padding: 0 .35rem;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+
+    /* Preview Modal Dialog - Fixed Top Cut-off & Scroll Lock */
+    .preview-dialog {
+      width: min(94vw, 480px);
+      max-height: calc(100dvh - 1.5rem);
+      margin: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      color: #f8fafc;
+      background: #0b0f19;
+      border: 1px solid #475569;
+      border-radius: 16px;
+      padding: 1.1rem;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8);
+    }
+    .preview-dialog::backdrop {
+      background: rgb(2 6 23 / 82%);
+      backdrop-filter: blur(4px);
+    }
+
     /* Homepage Card Replica: .news-card */
-    .news-card { overflow: hidden; display: flex; flex-direction: column; background: #1e293b; border: 1px solid #334155; border-radius: 14px; box-shadow: 0 4px 15px rgb(0 0 0 / 25%); margin-bottom: 1rem; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-    .news-card-image-wrap { position: relative; width: 100%; height: 190px; overflow: hidden; background: #334155; }
-    .news-card-image { display: block; width: 100%; height: 100%; object-fit: cover; }
-    .news-card-badge { position: absolute; top: .75rem; left: .75rem; padding: .25rem .6rem; border-radius: 6px; background: #4f46e5; color: white; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
-    .news-card-content { display: flex; flex: 1; flex-direction: column; gap: .75rem; padding: 1.25rem; }
-    .news-card-meta { display: flex; justify-content: space-between; align-items: center; gap: .5rem; color: #cbd5e1; font-size: .75rem; flex-wrap: wrap; }
-    .news-card-title { color: #f8fafc; font-size: 1.1rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; text-decoration: none; }
+    .news-card {
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      box-shadow: 0 4px 15px rgb(0 0 0 / 25%);
+      margin-bottom: .85rem;
+    }
+    .news-card-image-wrap {
+      position: relative;
+      width: 100%;
+      height: 190px;
+      overflow: hidden;
+      background: #334155;
+    }
+    .news-card-image {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .news-card-badge {
+      position: absolute;
+      top: .75rem;
+      left: .75rem;
+      padding: .25rem .6rem;
+      border-radius: 6px;
+      background: #4f46e5;
+      color: white;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .news-card-content {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: .7rem;
+      padding: 1.1rem;
+    }
+    .news-card-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .5rem;
+      color: #cbd5e1;
+      font-size: .75rem;
+      flex-wrap: wrap;
+    }
+    .news-card-title {
+      color: #f8fafc;
+      font-size: 1.05rem;
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      text-decoration: none;
+    }
     .news-card-title:hover { color: #a5b4fc; text-decoration: none; }
-    .news-card-desc { flex: 1; color: #cbd5e1; font-size: .85rem; line-height: 1.5; margin: 0; }
-    
+    .news-card-desc {
+      flex: 1;
+      color: #cbd5e1;
+      font-size: .85rem;
+      line-height: 1.5;
+      margin: 0;
+    }
+
     /* AI Summary Callout matching homepage */
-    .news-card-ai-summary { padding: .65rem .85rem; border-left: 3px solid #818cf8; border-radius: 0 8px 8px 0; background: #172554; color: #e0e7ff; font-size: .8rem; line-height: 1.45; }
-    .news-card-ai-label { margin-bottom: .25rem; color: #c7d2fe; font-size: .68rem; font-weight: 800; text-transform: uppercase; display: flex; align-items: center; gap: .35rem; }
+    .news-card-ai-summary {
+      padding: .65rem .85rem;
+      border-left: 3px solid #818cf8;
+      border-radius: 0 8px 8px 0;
+      background: #172554;
+      color: #e0e7ff;
+      font-size: .8rem;
+      line-height: 1.45;
+    }
+    .news-card-ai-label {
+      margin-bottom: .25rem;
+      color: #c7d2fe;
+      font-size: .68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+    }
     .ai-summary-text { color: #e0e7ff; overflow-wrap: anywhere; }
-    .summary-generate { padding: .45rem .75rem; background: #3730a3; font-size: .82rem; border-radius: 6px; margin-top: .25rem; }
+    .summary-generate {
+      padding: .4rem .7rem;
+      background: #3730a3;
+      font-size: .8rem;
+      border-radius: 6px;
+      align-self: flex-start;
+    }
     .summary-generate:hover:not(:disabled) { background: #4338ca; }
-    
+
     /* Card Footer matching homepage */
-    .news-card-footer { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: auto; padding-top: .65rem; border-top: 1px solid rgb(255 255 255 / 8%); }
-    .news-read-more-btn { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; font-weight: 600; color: #a5b4fc; text-decoration: none; }
+    .news-card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+      margin-top: auto;
+      padding-top: .65rem;
+      border-top: 1px solid rgb(255 255 255 / 8%);
+    }
+    .news-read-more-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: .82rem;
+      font-weight: 600;
+      color: #a5b4fc;
+      text-decoration: none;
+    }
     .news-read-more-btn:hover { color: #c7d2fe; }
-    
-    /* Reaction pills replica */
-    .news-card-reactions { display: flex; align-items: center; gap: .35rem; }
-    .reaction-pill { display: inline-flex; align-items: center; gap: .25rem; padding: .25rem .5rem; border-radius: 9999px; font-size: .75rem; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #cbd5e1; cursor: default; }
-    .reaction-count { font-weight: 600; font-size: .75rem; }
+    .news-card-reactions { display: flex; align-items: center; gap: .3rem; }
+    .reaction-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .2rem;
+      padding: .2rem .45rem;
+      border-radius: 9999px;
+      font-size: .72rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      cursor: default;
+    }
 
-    /* In-Feed Native Ad Card Replica matching homepage AdCard.tsx */
-    .news-card-ad { border: 1px dashed rgba(245, 158, 11, 0.5); background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%); position: relative; }
-    .news-card-ad:hover { border-color: #f59e0b; box-shadow: 0 10px 25px rgba(245, 158, 11, 0.2); }
-    .ad-badge { background: #f59e0b !important; color: #0b1120 !important; font-weight: 800 !important; letter-spacing: 0.6px !important; }
-    .ad-sponsor-label { font-size: 0.68rem; text-transform: uppercase; font-weight: 800; color: #f59e0b; letter-spacing: 0.8px; }
+    /* In-Feed Native Ad Card Replica */
+    .news-card-ad {
+      border: 1px dashed rgba(245, 158, 11, 0.5);
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+      position: relative;
+    }
+    .ad-badge {
+      background: #f59e0b !important;
+      color: #0b1120 !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.6px !important;
+    }
+    .ad-sponsor-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: #f59e0b;
+      letter-spacing: 0.8px;
+    }
     .ad-network-label { color: #f59e0b; font-size: 0.7rem; font-weight: bold; }
-    .ad-card-title { color: #f8fafc; font-size: 1.05rem; }
-    .ad-card-description { font-size: 0.85rem; color: #cbd5e1; line-height: 1.5; font-family: inherit; }
-    .ad-cta-btn { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 700; color: #fbbf24; text-decoration: none; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); padding: 0.35rem 0.75rem; border-radius: 6px; margin-top: auto; width: fit-content; }
+    .ad-card-title { color: #f8fafc; font-size: 1.02rem; }
+    .ad-card-description { font-size: 0.84rem; color: #cbd5e1; line-height: 1.5; }
+    .ad-cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #fbbf24;
+      text-decoration: none;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      padding: 0.3rem 0.65rem;
+      border-radius: 6px;
+      width: fit-content;
+    }
 
-    /* EDITABLE FIELD & REPLACING TEXT WITH FULL-WIDTH INPUT BOX */
-    .preview-editable { display: inline-flex; align-items: flex-start; gap: .35rem; min-width: 0; width: 100%; position: relative; }
-    .preview-editable.is-editing { display: block !important; width: 100% !important; margin: 0.35rem 0; }
-    .preview-edit { flex: 0 0 auto; padding: .15rem .35rem; background: rgba(255,255,255,0.08); border-radius: 4px; font-size: .85rem; line-height: 1; cursor: pointer; color: #cbd5e1; transition: background 0.15s ease; }
-    .preview-edit:hover { background: rgba(99, 102, 241, 0.3); color: white; }
+    /* Inline Field Editor */
+    .preview-editable {
+      display: inline-flex;
+      align-items: flex-start;
+      gap: .35rem;
+      min-width: 0;
+      width: 100%;
+      position: relative;
+    }
+    .preview-editable.is-editing {
+      display: block !important;
+      width: 100% !important;
+      margin: 0.3rem 0;
+    }
+    .preview-edit {
+      flex: 0 0 auto;
+      padding: .15rem .35rem;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      font-size: .78rem;
+      line-height: 1;
+      cursor: pointer;
+      color: #cbd5e1;
+    }
+    .preview-edit:hover { background: #4f46e5; color: white; }
     .preview-value { min-width: 0; overflow-wrap: anywhere; flex: 1; }
-    
-    /* When editing, the text content is replaced by the input box with full room to type */
-    .preview-inline-editor { display: flex; flex-direction: column; width: 100%; box-sizing: border-box; gap: .45rem; margin-top: .2rem; }
-    .preview-inline-editor input, .preview-inline-editor textarea, .preview-inline-editor select { box-sizing: border-box; width: 100%; min-width: 0; padding: .65rem .85rem; border: 1px solid #6366f1; border-radius: 8px; background: #0f172a; color: #f8fafc; font: inherit; font-size: .95rem; line-height: 1.45; outline: none; }
-    .preview-inline-editor input:focus, .preview-inline-editor textarea:focus, .preview-inline-editor select:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3); }
-    .preview-inline-editor textarea { min-height: 6.5rem; resize: vertical; }
-    .editor-btn-row { display: flex; gap: .5rem; justify-content: flex-end; }
-    .editor-btn-row button { padding: .4rem .75rem; font-size: .85rem; }
-    
+    .preview-inline-editor {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      gap: .4rem;
+      margin-top: .15rem;
+      background: rgba(15, 23, 42, 0.92);
+      padding: .45rem;
+      border-radius: 8px;
+      border: 1px solid #475569;
+    }
+    .preview-inline-editor input,
+    .preview-inline-editor textarea,
+    .preview-inline-editor select {
+      width: 100%;
+      min-width: 0;
+      padding: .55rem .7rem;
+      border: 1px solid #6366f1;
+      border-radius: 6px;
+      background: #0b0f19;
+      color: #f8fafc;
+      font: inherit;
+      font-size: .9rem;
+      line-height: 1.4;
+      outline: none;
+    }
+    .preview-inline-editor textarea { min-height: 5.5rem; resize: vertical; }
+    .editor-btn-row { display: flex; gap: .4rem; justify-content: flex-end; }
+    .editor-btn-row button { padding: .3rem .65rem; font-size: .78rem; }
+
     .preview-image-edit { position: absolute; top: .6rem; right: .6rem; z-index: 10; width: auto !important; }
-    .preview-category-edit { position: absolute; top: .75rem; left: .75rem; z-index: 10; width: auto !important; }
+    .preview-image-edit.is-editing { left: .6rem; right: .6rem; width: calc(100% - 1.2rem) !important; }
+    .preview-category-edit { position: absolute; top: .6rem; left: .6rem; z-index: 10; width: auto !important; }
+    .preview-category-edit.is-editing { right: .6rem; width: calc(100% - 1.2rem) !important; }
     .preview-category-edit .news-card-badge { position: static; }
-    .preview-actions { display: flex; justify-content: space-between; gap: .5rem; padding-top: 1rem; border-top: 1px solid #334155; margin-top: 1rem; }
-    .preview-actions .secondary { background: #475569; }
-    .preview-context { color: #cbd5e1; font-size: .85rem; margin-top: 1rem; background: #1e293b; border: 1px solid #334155; padding: .75rem; border-radius: 8px; }
-    .preview-card button { color: white; }
-    .preview-dialog > .preview-close { display: block; margin: 1rem 0 0 auto; }
-    
-    .category-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
-    .category-tab { padding: .5rem .75rem; background: #334155; border-radius: 8px; }
-    .category-tab[aria-pressed="true"] { background: #4f46e5; }
+    .preview-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+      padding-top: .85rem;
+      border-top: 1px solid #334155;
+      margin-top: .85rem;
+    }
+    .preview-context {
+      color: #cbd5e1;
+      font-size: .82rem;
+      margin-top: .75rem;
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: .7rem;
+      border-radius: 8px;
+    }
+
     .status { font-weight: 700; text-transform: capitalize; }
     .status-succeeded { color: #86efac; }
     .status-partial { color: #fcd34d; }
@@ -155,126 +653,240 @@ export function getAdminPage() {
     .status-never { color: #cbd5e1; }
     .error { color: #fca5a5 !important; }
     .success { color: #86efac !important; }
-    
+
     @media (max-width: 640px) {
-      .toolbar, .provider-head { align-items: flex-start; flex-direction: column; }
-      .story, .ad-row { grid-template-columns: 56px minmax(0, 1fr); gap: .75rem; }
-      .story img, .ad-row img { width: 56px; height: 48px; }
-      .story-actions, .ad-actions { grid-column: 2; justify-content: flex-start; }
+      body { padding: .85rem .65rem 2.5rem; }
+      h1 { font-size: 1.2rem; }
+      .admin-card-section, .summary { padding: .7rem .75rem; }
+      .story, .ad-row {
+        grid-template-columns: 52px minmax(0, 1fr);
+        gap: .55rem;
+        padding: .55rem;
+      }
+      .story img, .ad-row img { width: 52px; height: 42px; }
+      .story-actions, .ad-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+        padding-top: .25rem;
+        border-top: 1px solid rgba(255,255,255,0.05);
+      }
+      .preview-dialog {
+        width: 96vw;
+        max-height: calc(100dvh - 1rem);
+        padding: .85rem;
+      }
     }
   </style>
 </head>
 <body>
   <header class="toolbar">
-    <div><h1>Littlables news admin</h1><p id="identity" class="muted">Verifying GitHub session…</p></div>
-    <div style="display: flex; gap: .5rem; flex-wrap: wrap;">
-      <button id="refresh" type="button">Refresh data</button>
-      <button id="logout" type="button">Sign out</button>
+    <div>
+      <h1>Littlables news admin</h1>
+      <p id="identity" class="muted">Verifying GitHub session…</p>
+    </div>
+    <div class="toolbar-actions">
+      <button id="refresh" class="small-btn" type="button">Refresh</button>
+      <button id="reset-layout" class="secondary small-btn" type="button" title="Reset section order and collapse states">Reset layout</button>
+      <button id="logout" class="secondary small-btn" type="button">Sign out</button>
     </div>
   </header>
 
-  <section class="summary" aria-live="polite">
-    <h2>Saved story records: <span id="total">—</span></h2>
-    <p id="message" class="muted">Loading database status…</p>
-  </section>
-
-  <!-- SEARCH STORIES SECTION -->
-  <section class="admin-card-section" aria-labelledby="search-stories-title">
-    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: .75rem;">
-      <h2 id="search-stories-title" style="margin: 0;">🔍 Search Stories</h2>
-      <button id="clear-story-search" class="secondary small-btn" type="button" style="display: none;">Clear Search</button>
-    </div>
-    <input id="story-search-input" class="custom-input" type="search" placeholder="Type to search stories across title, description, domain, provider, category..." aria-label="Search stories">
-    <p id="story-search-count" class="muted" style="margin: .5rem 0 0; font-size: .88rem; display: none;"></p>
-    <div id="story-search-results" style="margin-top: .75rem;"></div>
-  </section>
-
-  <!-- SPONSOR & AFFILIATE ADS SECTION -->
-  <section class="admin-card-section" aria-labelledby="ads-title">
-    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
-      <h2 id="ads-title" style="margin: 0;">
-        <button id="ads-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="ads-section">
-          <span id="ads-arrow" aria-hidden="true">▼</span> Sponsor & Affiliate Ads <span id="ads-count"></span>
-        </button>
-      </h2>
-      <button id="create-ad-btn" type="button" class="small-btn">+ Add New Ad</button>
-    </div>
-    <div id="ads-section" style="margin-top: 1rem;">
-      <div style="display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem;">
-        <input id="ad-search-input" class="custom-input" type="search" placeholder="Search ads by title, sponsor, network, cta, category..." aria-label="Search ads" style="flex: 1; min-width: 240px;">
-        <label class="provider-toolbar" for="ads-network-filter">
-          Network
-          <select id="ads-network-filter" class="provider-filter">
-            <option value="all">All Networks</option>
-            <option value="Amazon">Amazon</option>
-            <option value="TikTok">TikTok</option>
-            <option value="Gumroad">Gumroad</option>
-            <option value="Partner">Partner</option>
-          </select>
-        </label>
+  <main id="admin-sections">
+    <!-- 1. DATABASE SUMMARY SECTION -->
+    <section class="summary admin-card-section" data-section-id="summary" aria-live="polite">
+      <div class="section-header">
+        <h2 id="summary-title">
+          <button id="summary-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="summary-body" data-section-toggle="summary">
+            <span id="summary-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Saved story records: <span id="total">—</span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
       </div>
-      <nav id="ads-categories" class="category-tabs" aria-label="Filter ads by category" style="margin: .5rem 0 .75rem;"></nav>
-      <p id="ads-results-count" class="muted" style="margin-bottom: .5rem; font-size: .88rem;"></p>
-      <div id="ads-list"></div>
-    </div>
-  </section>
+      <div id="summary-body" class="section-body">
+        <p id="message" class="muted">Loading database status…</p>
+      </div>
+    </section>
 
-  <!-- CUSTOM ARTICLE PREVIEW INPUT -->
-  <section aria-labelledby="custom-title" class="admin-card-section">
-    <h2 id="custom-title" style="margin-top: 0;">Custom Story URL</h2>
-    <input id="custom-link" class="custom-input" type="url" placeholder="Paste an article link to preview its card" aria-label="Paste an article link to preview its card">
-  </section>
+    <!-- 2. PENDING STORIES SECTION -->
+    <section aria-labelledby="pending-title" class="admin-card-section" data-section-id="pending">
+      <div class="section-header">
+        <h2 id="pending-title">
+          <button id="pending-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="pending-body" data-section-toggle="pending">
+            <span id="pending-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Stories awaiting approval <span id="pending-count"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="pending-body" class="section-body">
+        <nav id="approval-categories" class="category-tabs" aria-label="Filter pending stories by category"></nav>
+        <div class="filter-bar">
+          <label class="provider-toolbar" for="approval-provider">
+            Provider
+            <select id="approval-provider" class="provider-filter">
+              <option value="all">All providers</option>
+            </select>
+          </label>
+        </div>
+        <div id="pending-stories" aria-live="polite"></div>
+        <div id="pending-pagination" class="pagination-bar"></div>
+      </div>
+    </section>
 
-  <!-- UNIFIED PREVIEW DIALOG MATCHING HOMEPAGE EXACTLY -->
+    <!-- 3. SEARCH STORIES SECTION -->
+    <section class="admin-card-section" data-section-id="search" aria-labelledby="search-stories-title">
+      <div class="section-header">
+        <h2 id="search-stories-title">
+          <button id="search-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="search-body" data-section-toggle="search">
+            <span id="search-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Search Stories</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button id="clear-story-search" class="secondary small-btn" type="button" style="display: none;">Clear</button>
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="search-body" class="section-body">
+        <input id="story-search-input" class="custom-input" type="search" placeholder="Search stories by title, description, domain, provider, category..." aria-label="Search stories">
+        <p id="story-search-count" class="muted" style="margin: .5rem 0; display: none;"></p>
+        <div id="story-search-results" style="margin-top: .5rem;"></div>
+        <div id="search-pagination" class="pagination-bar" hidden></div>
+      </div>
+    </section>
+
+    <!-- 4. SPONSOR & AFFILIATE ADS SECTION -->
+    <section class="admin-card-section" data-section-id="ads" aria-labelledby="ads-title">
+      <div class="section-header">
+        <h2 id="ads-title">
+          <button id="ads-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="ads-section" data-section-toggle="ads">
+            <span id="ads-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Sponsor & Affiliate Ads <span id="ads-count"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button id="create-ad-btn" type="button" class="small-btn">+ New Ad</button>
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="ads-section" class="section-body">
+        <div class="filter-bar">
+          <input id="ad-search-input" class="custom-input" type="search" placeholder="Search ads by title, sponsor, network, CTA..." aria-label="Search ads" style="flex: 1; min-width: 200px;">
+          <label class="provider-toolbar" for="ads-network-filter">
+            Network
+            <select id="ads-network-filter" class="provider-filter">
+              <option value="all">All</option>
+              <option value="Amazon">Amazon</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Gumroad">Gumroad</option>
+              <option value="Partner">Partner</option>
+            </select>
+          </label>
+        </div>
+        <nav id="ads-categories" class="category-tabs" aria-label="Filter ads by category"></nav>
+        <p id="ads-results-count" class="muted" style="margin-bottom: .5rem;"></p>
+        <div id="ads-list"></div>
+        <div id="ads-pagination" class="pagination-bar"></div>
+      </div>
+    </section>
+
+    <!-- 5. CUSTOM ARTICLE PREVIEW INPUT -->
+    <section aria-labelledby="custom-title" class="admin-card-section" data-section-id="custom">
+      <div class="section-header">
+        <h2 id="custom-title">
+          <button id="custom-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="custom-body" data-section-toggle="custom">
+            <span id="custom-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Custom Story URL</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="custom-body" class="section-body">
+        <input id="custom-link" class="custom-input" type="url" placeholder="Paste an article link to preview its card" aria-label="Paste an article link to preview its card">
+      </div>
+    </section>
+
+    <!-- 6. PROVIDERS SECTION -->
+    <section aria-labelledby="providers-title" class="admin-card-section" data-section-id="providers">
+      <div class="section-header">
+        <h2 id="providers-title">
+          <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers" data-section-toggle="providers">
+            <span id="providers-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>News providers</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="providers" class="providers" aria-live="polite" hidden style="margin-top: .85rem;"></div>
+    </section>
+
+    <!-- 7. DECIDED STORIES SECTION -->
+    <section aria-labelledby="stories-title" class="admin-card-section" data-section-id="decisions">
+      <div class="section-header">
+        <h2 id="stories-title">
+          <button id="decisions-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="stories" data-section-toggle="decisions">
+            <span id="decisions-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>Last 10 decided-on stories</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="decisions-body" class="section-body" hidden>
+        <div id="stories" aria-controls="stories"></div>
+        <div id="decided-pagination" class="pagination-bar"></div>
+      </div>
+    </section>
+
+    <!-- 8. BANNED STORIES SECTION -->
+    <section aria-labelledby="banned-title" class="admin-card-section" data-section-id="banned">
+      <div class="section-header">
+        <h2 id="banned-title">
+          <button id="banned-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="banned-stories" data-section-toggle="banned">
+            <span id="banned-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>Banned stories</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="banned-body" class="section-body" hidden>
+        <div id="banned-stories"></div>
+        <div id="banned-pagination" class="pagination-bar"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- UNIFIED PREVIEW DIALOG (Single Close Button inside Preview Actions) -->
   <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
     <div id="preview-card"></div>
-    <button id="preview-close" class="preview-close secondary" type="button">Close preview</button>
   </dialog>
 
-  <!-- PROVIDERS SECTION -->
-  <section aria-labelledby="providers-title" class="admin-card-section">
-    <h2 id="providers-title" style="margin: 0;">
-      <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers">
-        <span id="providers-arrow" aria-hidden="true">▼</span> News providers
-      </button>
-    </h2>
-    <div id="providers" class="providers" aria-live="polite" hidden style="margin-top: 1rem;"></div>
-  </section>
-
-  <!-- PENDING STORIES SECTION -->
-  <section aria-labelledby="pending-title" class="admin-card-section">
-    <h2 id="pending-title" style="margin-top: 0;">Stories awaiting approval <span id="pending-count"></span></h2>
-    <nav id="approval-categories" class="category-tabs" aria-label="Filter pending stories by category"></nav>
-    <label class="provider-toolbar" for="approval-provider" style="margin-bottom: .75rem;">
-      Provider
-      <select id="approval-provider" class="provider-filter">
-        <option value="all">All providers</option>
-      </select>
-    </label>
-    <div id="pending-stories" aria-live="polite"></div>
-  </section>
-
-  <!-- DECIDED STORIES SECTION -->
-  <section aria-labelledby="stories-title" class="admin-card-section">
-    <h2 id="stories-title" style="margin: 0;">
-      <button id="decisions-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="stories">
-        <span id="decisions-arrow" aria-hidden="true">▼</span> Last 10 decided-on stories
-      </button>
-    </h2>
-    <div id="stories" hidden style="margin-top: 1rem;"></div>
-  </section>
-
-  <!-- BANNED STORIES SECTION -->
-  <section aria-labelledby="banned-title" class="admin-card-section">
-    <h2 id="banned-title" style="margin: 0;">
-      <button id="banned-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="banned-stories">
-        <span id="banned-arrow" aria-hidden="true">▼</span> Banned stories
-      </button>
-    </h2>
-    <div id="banned-stories" hidden style="margin-top: 1rem;"></div>
-  </section>
-
   <script>
+    const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
+    const STORAGE_ORDER_KEY = 'littlables_admin_section_order_v1';
+    const STORAGE_COLLAPSED_KEY = 'littlables_admin_collapsed_v1';
+    const STORAGE_PAGE_SIZES_KEY = 'littlables_admin_page_sizes_v1';
+
     const categories = [
       { id: 'all', label: 'Top Currents', icon: '⚡' },
       { id: 'childcare', label: 'Childcare & Family', icon: '👨‍👩‍👧' },
@@ -284,6 +896,22 @@ export function getAdminPage() {
       { id: 'world', label: 'Global Currents', icon: '🌍' },
       { id: 'uplifting', label: 'Uplifting News', icon: '✨' }
     ];
+
+    function loadSavedPageSizes() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_PAGE_SIZES_KEY) || '{}');
+        return {
+          pending: PAGE_SIZE_OPTIONS.includes(Number(saved.pending)) ? Number(saved.pending) : 10,
+          search: PAGE_SIZE_OPTIONS.includes(Number(saved.search)) ? Number(saved.search) : 10,
+          ads: PAGE_SIZE_OPTIONS.includes(Number(saved.ads)) ? Number(saved.ads) : 10,
+          decided: PAGE_SIZE_OPTIONS.includes(Number(saved.decided)) ? Number(saved.decided) : 10,
+          banned: PAGE_SIZE_OPTIONS.includes(Number(saved.banned)) ? Number(saved.banned) : 10
+        };
+      } catch {
+        return { pending: 10, search: 10, ads: 10, decided: 10, banned: 10 };
+      }
+    }
+
     const state = {
       busy: new Set(),
       approving: new Set(),
@@ -292,7 +920,7 @@ export function getAdminPage() {
       undoing: new Set(),
       ignored: new Set(),
       previewTimer: null,
-      previewType: 'story', // 'story' or 'ad'
+      previewType: 'story',
       previewDraft: null,
       previewStoryId: null,
       previewAdDraft: null,
@@ -310,8 +938,18 @@ export function getAdminPage() {
       decidedStories: [],
       bannedStories: [],
       searchResults: [],
-      ads: []
+      ads: [],
+      pages: {
+        pending: 1,
+        search: 1,
+        ads: 1,
+        decided: 1,
+        banned: 1
+      },
+      pageSizes: loadSavedPageSizes()
     };
+
+    const adminSectionsEl = document.getElementById('admin-sections');
     const providersEl = document.getElementById('providers');
     const messageEl = document.getElementById('message');
     const categoryEl = document.getElementById('approval-categories');
@@ -324,6 +962,227 @@ export function getAdminPage() {
     const storySearchResultsEl = document.getElementById('story-search-results');
     const storySearchCountEl = document.getElementById('story-search-count');
     const clearStorySearchBtn = document.getElementById('clear-story-search');
+    const previewDialog = document.getElementById('preview-dialog');
+
+    /* Lock background scroll when preview modal is open */
+    function lockModalScroll() {
+      document.documentElement.classList.add('modal-open');
+      document.body.classList.add('modal-open');
+    }
+    function unlockModalScroll() {
+      document.documentElement.classList.remove('modal-open');
+      document.body.classList.remove('modal-open');
+    }
+    previewDialog.addEventListener('close', unlockModalScroll);
+    previewDialog.addEventListener('click', (event) => {
+      if (event.target === previewDialog) previewDialog.close();
+    });
+
+    /* Collapsible & Reorderable Sections with localStorage persistence */
+    const sectionTargets = {
+      summary: { toggle: 'summary-toggle', arrow: 'summary-arrow', body: 'summary-body', defaultOpen: true },
+      pending: { toggle: 'pending-toggle', arrow: 'pending-arrow', body: 'pending-body', defaultOpen: true },
+      search: { toggle: 'search-toggle', arrow: 'search-arrow', body: 'search-body', defaultOpen: true },
+      ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
+      custom: { toggle: 'custom-toggle', arrow: 'custom-arrow', body: 'custom-body', defaultOpen: true },
+      providers: { toggle: 'providers-toggle', arrow: 'providers-arrow', body: 'providers', defaultOpen: false },
+      decisions: { toggle: 'decisions-toggle', arrow: 'decisions-arrow', body: 'decisions-body', defaultOpen: false },
+      banned: { toggle: 'banned-toggle', arrow: 'banned-arrow', body: 'banned-body', defaultOpen: false }
+    };
+
+    function setSectionExpanded(sectionId, expanded, persist = true) {
+      const cfg = sectionTargets[sectionId];
+      if (!cfg) return;
+      const toggleBtn = document.getElementById(cfg.toggle);
+      const arrowEl = document.getElementById(cfg.arrow);
+      const bodyEl = document.getElementById(cfg.body);
+      if (!toggleBtn || !arrowEl || !bodyEl) return;
+      toggleBtn.setAttribute('aria-expanded', String(expanded));
+      arrowEl.textContent = expanded ? '▲' : '▼';
+      if (sectionId === 'providers') {
+        providersEl.hidden = !expanded;
+      } else {
+        bodyEl.hidden = !expanded;
+      }
+      if (persist) {
+        try {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_COLLAPSED_KEY) || '{}');
+          saved[sectionId] = expanded;
+          localStorage.setItem(STORAGE_COLLAPSED_KEY, JSON.stringify(saved));
+        } catch {}
+      }
+    }
+
+    function updateSectionMoveButtons() {
+      const sections = Array.from(adminSectionsEl.querySelectorAll(':scope > section[data-section-id]'));
+      sections.forEach((sec, idx) => {
+        const upBtn = sec.querySelector('.move-up-btn');
+        const downBtn = sec.querySelector('.move-down-btn');
+        if (upBtn) upBtn.disabled = idx === 0;
+        if (downBtn) downBtn.disabled = idx === sections.length - 1;
+      });
+    }
+
+    function saveSectionOrder() {
+      try {
+        const order = Array.from(adminSectionsEl.querySelectorAll(':scope > section[data-section-id]'))
+          .map(sec => sec.dataset.sectionId);
+        localStorage.setItem(STORAGE_ORDER_KEY, JSON.stringify(order));
+      } catch {}
+      updateSectionMoveButtons();
+    }
+
+    function restoreSectionLayout() {
+      try {
+        const savedOrder = JSON.parse(localStorage.getItem(STORAGE_ORDER_KEY) || 'null');
+        if (Array.isArray(savedOrder) && savedOrder.length) {
+          savedOrder.forEach((id) => {
+            const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
+            if (sec) adminSectionsEl.append(sec);
+          });
+        }
+      } catch {}
+      try {
+        const savedCollapsed = JSON.parse(localStorage.getItem(STORAGE_COLLAPSED_KEY) || '{}');
+        Object.keys(sectionTargets).forEach((id) => {
+          const expanded = typeof savedCollapsed[id] === 'boolean'
+            ? savedCollapsed[id]
+            : sectionTargets[id].defaultOpen;
+          setSectionExpanded(id, expanded, false);
+        });
+      } catch {}
+      updateSectionMoveButtons();
+    }
+
+    Object.keys(sectionTargets).forEach((sectionId) => {
+      const cfg = sectionTargets[sectionId];
+      const toggleBtn = document.getElementById(cfg.toggle);
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', (event) => {
+          const button = event.currentTarget;
+          const expanded = button.getAttribute('aria-expanded') !== 'true';
+          setSectionExpanded(sectionId, expanded, true);
+        });
+      }
+    });
+
+    adminSectionsEl.addEventListener('click', (event) => {
+      const upBtn = event.target.closest('.move-up-btn');
+      const downBtn = event.target.closest('.move-down-btn');
+      if (!upBtn && !downBtn) return;
+      const section = event.target.closest('section[data-section-id]');
+      if (!section) return;
+      if (upBtn && section.previousElementSibling) {
+        adminSectionsEl.insertBefore(section, section.previousElementSibling);
+        saveSectionOrder();
+      } else if (downBtn && section.nextElementSibling) {
+        adminSectionsEl.insertBefore(section.nextElementSibling, section);
+        saveSectionOrder();
+      }
+    });
+
+    document.getElementById('reset-layout').addEventListener('click', () => {
+      try {
+        localStorage.removeItem(STORAGE_ORDER_KEY);
+        localStorage.removeItem(STORAGE_COLLAPSED_KEY);
+      } catch {}
+      ['summary', 'pending', 'search', 'ads', 'custom', 'providers', 'decisions', 'banned'].forEach((id) => {
+        const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
+        if (sec) adminSectionsEl.append(sec);
+        setSectionExpanded(id, sectionTargets[id].defaultOpen, false);
+      });
+      updateSectionMoveButtons();
+    });
+
+    /* Reusable Pagination Renderer */
+    function renderPaginationBar(containerId, listKey, totalItems, onRender) {
+      const bar = document.getElementById(containerId);
+      if (!bar) return { slice: (items) => items };
+      const pageSize = state.pageSizes[listKey] || 10;
+      const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+      if (state.pages[listKey] > totalPages) state.pages[listKey] = totalPages;
+      if (state.pages[listKey] < 1) state.pages[listKey] = 1;
+      const currentPage = state.pages[listKey];
+
+      bar.replaceChildren();
+      if (totalItems === 0) {
+        bar.hidden = true;
+        return { slice: () => [] };
+      }
+      bar.hidden = false;
+
+      const startIdx = (currentPage - 1) * pageSize;
+      const endIdx = Math.min(totalItems, startIdx + pageSize);
+
+      const info = document.createElement('div');
+      info.className = 'pagination-info';
+
+      const perPageLabel = document.createElement('label');
+      perPageLabel.className = 'provider-toolbar';
+      perPageLabel.textContent = 'Show ';
+      const select = document.createElement('select');
+      select.className = 'page-size-select';
+      select.setAttribute('aria-label', 'Results per page');
+      PAGE_SIZE_OPTIONS.forEach((size) => {
+        const opt = document.createElement('option');
+        opt.value = String(size);
+        opt.textContent = String(size);
+        select.append(opt);
+      });
+      select.value = String(pageSize);
+      select.addEventListener('change', () => {
+        state.pageSizes[listKey] = Number(select.value);
+        state.pages[listKey] = 1;
+        try {
+          localStorage.setItem(STORAGE_PAGE_SIZES_KEY, JSON.stringify(state.pageSizes));
+        } catch {}
+        onRender();
+      });
+      perPageLabel.append(select);
+
+      const rangeText = document.createElement('span');
+      rangeText.className = 'muted';
+      rangeText.textContent = (startIdx + 1) + '–' + endIdx + ' of ' + totalItems;
+      info.append(perPageLabel, rangeText);
+
+      const controls = document.createElement('div');
+      controls.className = 'pagination-controls';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'secondary small-btn';
+      prevBtn.textContent = '‹ Prev';
+      prevBtn.disabled = currentPage <= 1;
+      prevBtn.addEventListener('click', () => {
+        if (state.pages[listKey] > 1) {
+          state.pages[listKey]--;
+          onRender();
+        }
+      });
+
+      const pageIndicator = document.createElement('span');
+      pageIndicator.className = 'pagination-page-label';
+      pageIndicator.textContent = currentPage + ' / ' + totalPages;
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'secondary small-btn';
+      nextBtn.textContent = 'Next ›';
+      nextBtn.disabled = currentPage >= totalPages;
+      nextBtn.addEventListener('click', () => {
+        if (state.pages[listKey] < totalPages) {
+          state.pages[listKey]++;
+          onRender();
+        }
+      });
+
+      controls.append(prevBtn, pageIndicator, nextBtn);
+      bar.append(info, controls);
+
+      return {
+        slice: (items) => items.slice(startIdx, endIdx)
+      };
+    }
 
     const text = (value) => value == null || value === '' ? '—' : String(value);
     const formatDateTime = (date) => date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
@@ -385,6 +1244,7 @@ export function getAdminPage() {
         title.textContent = provider.name;
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'small-btn';
         button.textContent = state.busy.has(provider.id) ? 'Updating…' : 'Update';
         button.disabled = state.busy.has(provider.id) || provider.status === 'running' || !provider.configured;
         button.addEventListener('click', () => updateProvider(provider.id));
@@ -444,6 +1304,7 @@ export function getAdminPage() {
         button.textContent = category.icon + ' ' + category.label;
         button.addEventListener('click', () => {
           state.activeCategory = category.id;
+          state.pages.pending = 1;
           renderCategoryTabs();
           renderStories(state.pendingStories, { pending: true });
         });
@@ -461,6 +1322,7 @@ export function getAdminPage() {
         button.textContent = category.icon + ' ' + category.label;
         button.addEventListener('click', () => {
           state.activeAdCategory = category.id;
+          state.pages.ads = 1;
           renderAdsCategoryTabs();
           filterAndRenderAds();
         });
@@ -576,11 +1438,11 @@ export function getAdminPage() {
 
       const actions = document.createElement('div');
       actions.className = 'story-actions';
-      
+
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.className = 'secondary small-btn';
-      editBtn.textContent = '✏️ Edit Preview';
+      editBtn.textContent = 'Edit';
       editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         openStoryPreview(story);
@@ -649,7 +1511,10 @@ export function getAdminPage() {
     }
 
     function renderStories(stories, { pending = false, decided = false, banned = false } = {}) {
-      const container = document.getElementById(pending ? 'pending-stories' : banned ? 'banned-stories' : 'stories');
+      const containerId = pending ? 'pending-stories' : banned ? 'banned-stories' : 'stories';
+      const paginationId = pending ? 'pending-pagination' : banned ? 'banned-pagination' : 'decided-pagination';
+      const listKey = pending ? 'pending' : banned ? 'banned' : 'decided';
+      const container = document.getElementById(containerId);
       container.replaceChildren();
       const visibleStories = pending
         ? stories.filter((story) =>
@@ -657,7 +1522,14 @@ export function getAdminPage() {
           (state.activeCategory === 'all' || story.category === state.activeCategory) &&
           (state.activeProvider === 'all' || story.provider === state.activeProvider))
         : stories;
-      visibleStories.forEach((story) => {
+
+      const pager = renderPaginationBar(paginationId, listKey, visibleStories.length, () => {
+        renderStories(stories, { pending, decided, banned });
+        refreshStoryAges();
+      });
+
+      const pagedStories = pager.slice(visibleStories);
+      pagedStories.forEach((story) => {
         container.append(createStoryCardRow(story, { pending, decided, banned }));
       });
       if (!visibleStories.length) {
@@ -678,13 +1550,38 @@ export function getAdminPage() {
       }
     }
 
-    /* STORY SEARCH LOGIC */
+    /* STORY SEARCH WITH PAGINATION */
+    function renderStorySearchMatches(matched, q) {
+      storySearchResultsEl.replaceChildren();
+      storySearchCountEl.style.display = 'block';
+      storySearchCountEl.textContent = 'Found ' + matched.length + ' matching stories for "' + q + '":';
+
+      const pager = renderPaginationBar('search-pagination', 'search', matched.length, () => {
+        renderStorySearchMatches(matched, q);
+        refreshStoryAges();
+      });
+
+      if (!matched.length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = 'No matching stories found.';
+        storySearchResultsEl.append(empty);
+        return;
+      }
+
+      pager.slice(matched).forEach((story) => {
+        storySearchResultsEl.append(createStoryCardRow(story, { isSearch: true }));
+      });
+      refreshStoryAges();
+    }
+
     function performStorySearch() {
       const q = state.storySearchQuery.toLowerCase().trim();
       if (!q) {
         storySearchResultsEl.replaceChildren();
         storySearchCountEl.style.display = 'none';
         clearStorySearchBtn.style.display = 'none';
+        document.getElementById('search-pagination').hidden = true;
         return;
       }
       clearStorySearchBtn.style.display = 'inline-block';
@@ -711,33 +1608,25 @@ export function getAdminPage() {
         }
       });
 
-      storySearchResultsEl.replaceChildren();
-      storySearchCountEl.style.display = 'block';
-      storySearchCountEl.textContent = 'Found ' + matched.length + ' matching stories for "' + q + '":';
-      if (!matched.length) {
-        const empty = document.createElement('p');
-        empty.className = 'muted';
-        empty.textContent = 'No matching stories found.';
-        storySearchResultsEl.append(empty);
-      } else {
-        matched.forEach((story) => {
-          storySearchResultsEl.append(createStoryCardRow(story, { isSearch: true }));
-        });
-      }
+      renderStorySearchMatches(matched, q);
 
-      // Query database if query length >= 2
       if (q.length >= 2) {
         request('/admin/api/stories/search?q=' + encodeURIComponent(q))
           .then((data) => {
             if (data.items && data.items.length) {
+              let added = false;
               data.items.forEach((item) => {
-                if (!seen.has(item.id || item.link)) {
-                  seen.add(item.id || item.link);
+                const key = item.id || item.link;
+                if (!seen.has(key)) {
+                  seen.add(key);
                   matched.push(item);
-                  storySearchResultsEl.append(createStoryCardRow(item, { isSearch: true }));
+                  state.searchResults.push(item);
+                  added = true;
                 }
               });
-              storySearchCountEl.textContent = 'Found ' + matched.length + ' matching stories for "' + q + '":';
+              if (added && state.storySearchQuery.toLowerCase().trim() === q) {
+                renderStorySearchMatches(matched, q);
+              }
             }
           })
           .catch(() => {});
@@ -746,6 +1635,7 @@ export function getAdminPage() {
 
     storySearchInput.addEventListener('input', () => {
       state.storySearchQuery = storySearchInput.value;
+      state.pages.search = 1;
       clearTimeout(state.storySearchTimer);
       state.storySearchTimer = setTimeout(performStorySearch, 250);
     });
@@ -753,10 +1643,11 @@ export function getAdminPage() {
     clearStorySearchBtn.addEventListener('click', () => {
       storySearchInput.value = '';
       state.storySearchQuery = '';
+      state.pages.search = 1;
       performStorySearch();
     });
 
-    /* ADS MANAGEMENT & SEARCH LOGIC */
+    /* ADS MANAGEMENT, SEARCH & PAGINATION */
     async function loadAds() {
       try {
         const data = await request('/admin/api/ads');
@@ -771,7 +1662,7 @@ export function getAdminPage() {
       const q = state.adSearchQuery.toLowerCase().trim();
       const cat = state.activeAdCategory;
       const net = state.activeAdNetwork;
-      let filtered = state.ads.filter((ad) => {
+      const filtered = state.ads.filter((ad) => {
         if (cat !== 'all' && ad.category !== cat && ad.category !== 'all') return false;
         if (net !== 'all' && (ad.network || '').toLowerCase() !== net.toLowerCase()) return false;
         if (q) {
@@ -790,8 +1681,10 @@ export function getAdminPage() {
       });
 
       document.getElementById('ads-count').textContent = '(' + state.ads.length + ')';
-      document.getElementById('ads-results-count').textContent = 'Showing ' + filtered.length + ' of ' + state.ads.length + ' ads:';
+      document.getElementById('ads-results-count').textContent = 'Matching ads: ' + filtered.length + ' of ' + state.ads.length;
       adsListEl.replaceChildren();
+
+      const pager = renderPaginationBar('ads-pagination', 'ads', filtered.length, filterAndRenderAds);
 
       if (!filtered.length) {
         const empty = document.createElement('p');
@@ -801,7 +1694,7 @@ export function getAdminPage() {
         return;
       }
 
-      filtered.forEach((ad) => {
+      pager.slice(filtered).forEach((ad) => {
         const row = document.createElement('article');
         row.className = 'ad-row';
         row.tabIndex = 0;
@@ -833,8 +1726,8 @@ export function getAdminPage() {
 
         const sponsor = document.createElement('span');
         sponsor.className = 'meta-domain';
-        sponsor.textContent = '📢 ' + (ad.sponsor || 'Featured Partner');
-        
+        sponsor.textContent = ad.sponsor || 'Featured Partner';
+
         const network = document.createElement('span');
         network.className = 'meta-network';
         network.textContent = ad.network || 'Partner';
@@ -856,7 +1749,7 @@ export function getAdminPage() {
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
         editBtn.className = 'secondary small-btn';
-        editBtn.textContent = '✏️ Edit Ad Preview';
+        editBtn.textContent = 'Edit';
         editBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           openAdPreview(ad);
@@ -870,20 +1763,14 @@ export function getAdminPage() {
 
     adSearchInput.addEventListener('input', () => {
       state.adSearchQuery = adSearchInput.value;
+      state.pages.ads = 1;
       filterAndRenderAds();
     });
 
     adsNetworkFilterEl.addEventListener('change', () => {
       state.activeAdNetwork = adsNetworkFilterEl.value;
+      state.pages.ads = 1;
       filterAndRenderAds();
-    });
-
-    document.getElementById('ads-toggle').addEventListener('click', (event) => {
-      const content = document.getElementById('ads-section');
-      const expanded = event.currentTarget.getAttribute('aria-expanded') === 'true';
-      event.currentTarget.setAttribute('aria-expanded', String(!expanded));
-      document.getElementById('ads-arrow').textContent = expanded ? '▼' : '▲';
-      content.hidden = expanded;
     });
 
     document.getElementById('create-ad-btn').addEventListener('click', () => {
@@ -891,6 +1778,7 @@ export function getAdminPage() {
     });
 
     async function refreshData() {
+      state.pages.pending = 1;
       messageEl.className = 'muted';
       messageEl.textContent = 'Refreshing database status…';
       try {
@@ -995,20 +1883,6 @@ export function getAdminPage() {
     }
 
     document.getElementById('refresh').addEventListener('click', refreshData);
-    document.getElementById('decisions-toggle').addEventListener('click', (event) => {
-      const content = document.getElementById('stories');
-      const expanded = event.currentTarget.getAttribute('aria-expanded') === 'true';
-      event.currentTarget.setAttribute('aria-expanded', String(!expanded));
-      document.getElementById('decisions-arrow').textContent = expanded ? '▼' : '▲';
-      content.hidden = expanded;
-    });
-    document.getElementById('banned-toggle').addEventListener('click', (event) => {
-      const content = document.getElementById('banned-stories');
-      const expanded = event.currentTarget.getAttribute('aria-expanded') === 'true';
-      event.currentTarget.setAttribute('aria-expanded', String(!expanded));
-      document.getElementById('banned-arrow').textContent = expanded ? '▼' : '▲';
-      content.hidden = expanded;
-    });
 
     function editButton(label, className = '') {
       const button = document.createElement('button');
@@ -1020,17 +1894,24 @@ export function getAdminPage() {
       return button;
     }
 
-    /* EDITABLE FIELD REPLACING TEXT CONTENT WITH INPUT BOX */
+    /* Commit any open inline editors before saving the card */
+    function commitAllOpenEditors() {
+      document.querySelectorAll('#preview-card .preview-inline-editor').forEach((editorEl) => {
+        if (typeof editorEl._commit === 'function') editorEl._commit();
+      });
+    }
+
+    /* EDITABLE FIELD: Isolated per-field commit & cancel so canceling one field never closes other open fields */
     function editableField(parent, field, label, {
       tag = 'span',
       value = '',
       editor = 'text',
       className = '',
-      display = value => value || 'Not set',
+      display = val => val || 'Not set',
       onSave = null
     } = {}) {
       const currentDraft = state.previewType === 'ad' ? state.previewAdDraft : state.previewDraft;
-      const actualValue = value || currentDraft?.[field] || '';
+      let currentValue = value !== '' ? value : (currentDraft?.[field] || '');
       const wrapper = document.createElement('span');
       wrapper.className = 'preview-editable ' + className;
       const visible = document.createElement(tag);
@@ -1038,18 +1919,24 @@ export function getAdminPage() {
       if (field === 'title') {
         visible.classList.add(state.previewType === 'ad' ? 'ad-card-title' : 'news-card-title');
       }
-      const displayValue = display(actualValue);
-      if (displayValue instanceof Node) visible.append(displayValue);
-      else visible.textContent = decodeHtmlEntities(displayValue);
-      if (tag === 'a') {
-        visible.href = currentDraft.link || currentDraft.url || '#';
-        visible.target = '_blank';
-        visible.rel = 'noopener noreferrer';
-      }
+
+      const updateVisibleDom = (val) => {
+        visible.replaceChildren();
+        const displayValue = display(val);
+        if (displayValue instanceof Node) visible.append(displayValue);
+        else visible.textContent = decodeHtmlEntities(displayValue);
+        if (tag === 'a') {
+          visible.href = currentDraft.link || currentDraft.url || '#';
+          visible.target = '_blank';
+          visible.rel = 'noopener noreferrer';
+        }
+      };
+      updateVisibleDom(currentValue);
+
       const pencil = editButton(label);
       pencil.addEventListener('click', (event) => {
         event.stopPropagation();
-        // Replace text content with input box so there is ample room to type
+        if (wrapper.classList.contains('is-editing')) return;
         visible.style.display = 'none';
         pencil.style.display = 'none';
         wrapper.classList.add('is-editing');
@@ -1065,7 +1952,7 @@ export function getAdminPage() {
             option.textContent = category.icon + ' ' + category.label;
             input.append(option);
           });
-          input.value = actualValue || 'all';
+          input.value = currentValue || 'all';
         } else if (editor === 'network') {
           input = document.createElement('select');
           ['Amazon', 'TikTok', 'Gumroad', 'Partner'].forEach((net) => {
@@ -1074,38 +1961,60 @@ export function getAdminPage() {
             option.textContent = net;
             input.append(option);
           });
-          input.value = actualValue || 'Partner';
+          input.value = currentValue || 'Partner';
         } else if (editor === 'textarea') {
           input = document.createElement('textarea');
-          input.value = actualValue;
+          input.value = currentValue;
           input.rows = 4;
         } else {
           input = document.createElement('input');
           input.type = editor;
-          input.value = editor === 'datetime-local' && actualValue
+          input.value = editor === 'datetime-local' && currentValue
             ? (() => {
-              const date = new Date(actualValue);
+              const date = new Date(currentValue);
               date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
               return date.toISOString().slice(0, 16);
             })()
-            : actualValue;
+            : currentValue;
         }
         input.setAttribute('aria-label', label);
         input.placeholder = 'Enter ' + label + '…';
 
+        const closeInlineEditor = () => {
+          editorWrap.remove();
+          wrapper.classList.remove('is-editing');
+          visible.style.display = '';
+          pencil.style.display = '';
+        };
+
         const commitValue = () => {
           let next = input.value.trim();
           if (editor === 'datetime-local' && next) next = new Date(next).toISOString();
+          currentValue = next;
           currentDraft[field] = next;
           if (onSave) onSave(next);
-          if (state.previewType === 'ad') renderAdPreview();
-          else renderPreview();
+          updateVisibleDom(next);
+
+          // Update live card elements in-place without destroying other open field editors
+          const cardEl = wrapper.closest('.news-card');
+          if (cardEl) {
+            if (field === 'image') {
+              const imgEl = cardEl.querySelector('.news-card-image');
+              if (imgEl) imgEl.src = next || 'img/' + (currentDraft.category || 'all') + '_1.jpg';
+            } else if (field === 'link' || field === 'url') {
+              cardEl.querySelectorAll('a').forEach((aEl) => {
+                aEl.href = next || '#';
+              });
+            }
+          }
+          closeInlineEditor();
         };
 
         const cancelValue = () => {
-          if (state.previewType === 'ad') renderAdPreview();
-          else renderPreview();
+          closeInlineEditor();
         };
+
+        editorWrap._commit = commitValue;
 
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' && editor !== 'textarea') {
@@ -1116,6 +2025,7 @@ export function getAdminPage() {
             commitValue();
           } else if (e.key === 'Escape') {
             e.preventDefault();
+            e.stopPropagation();
             cancelValue();
           }
         });
@@ -1125,12 +2035,13 @@ export function getAdminPage() {
 
         const done = document.createElement('button');
         done.type = 'button';
-        done.textContent = 'Done';
+        done.className = 'small-btn';
+        done.textContent = 'OK';
         done.addEventListener('click', commitValue);
 
         const cancel = document.createElement('button');
         cancel.type = 'button';
-        cancel.className = 'secondary';
+        cancel.className = 'secondary small-btn';
         cancel.textContent = 'Cancel';
         cancel.addEventListener('click', cancelValue);
 
@@ -1176,14 +2087,14 @@ export function getAdminPage() {
       image.onerror = () => { image.src = 'img/' + (stockImages[draft.category] || stockImages.all); };
       imageWrap.append(image);
 
-      const category = categories.find(item => item.id === draft.category) || categories[0];
       editableField(imageWrap, 'category', 'category', {
         className: 'preview-category-edit',
         editor: 'category',
-        display: () => {
+        display: (val) => {
+          const catObj = categories.find(item => item.id === (val || draft.category)) || categories[0];
           const badge = document.createElement('span');
           badge.className = 'news-card-badge';
-          badge.textContent = category.icon + ' ' + category.label;
+          badge.textContent = catObj.icon + ' ' + catObj.label;
           return badge;
         }
       });
@@ -1198,11 +2109,11 @@ export function getAdminPage() {
       const meta = document.createElement('div');
       meta.className = 'news-card-meta';
       const date = document.createElement('span');
-      const displayDate = draft.pubDate
-        ? new Date(draft.pubDate).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
-        : new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
       editableField(date, 'pubDate', 'publication date', {
-        display: () => '🕒 ' + displayDate,
+        display: (val) => {
+          const d = val ? new Date(val) : (draft.pubDate ? new Date(draft.pubDate) : new Date());
+          return '🕒 ' + d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+        },
         editor: 'datetime-local'
       });
       meta.append(date);
@@ -1236,8 +2147,6 @@ export function getAdminPage() {
         aiLabel.className = 'news-card-ai-label';
         aiLabel.textContent = '✨ Quick AI Brief';
         aiSummary.append(aiLabel);
-        const aiText = document.createElement('div');
-        aiText.className = 'ai-summary-text';
         editableField(aiSummary, 'aiSummary', 'AI summary', {
           editor: 'textarea',
           display: value => value
@@ -1248,7 +2157,7 @@ export function getAdminPage() {
       const generateSummary = document.createElement('button');
       generateSummary.type = 'button';
       generateSummary.className = 'summary-generate';
-      generateSummary.textContent = state.generatingSummary ? 'Generating summary…' : 'Generate AI summary';
+      generateSummary.textContent = state.generatingSummary ? 'Generating…' : 'Generate AI summary';
       generateSummary.disabled = state.generatingSummary;
       generateSummary.addEventListener('click', generatePreviewSummary);
       content.append(generateSummary);
@@ -1266,7 +2175,7 @@ export function getAdminPage() {
       editableField(footer, 'link', 'article URL', {
         tag: 'span',
         editor: 'url',
-        display: () => '✏️ Link'
+        display: () => 'Link'
       });
 
       const reactions = document.createElement('div');
@@ -1296,21 +2205,24 @@ export function getAdminPage() {
       const actions = document.createElement('div');
       actions.className = 'preview-actions';
       const close = document.createElement('button');
+      close.id = 'preview-close';
       close.type = 'button';
-      close.className = 'secondary';
+      close.className = 'secondary small-btn';
       close.textContent = 'Close';
-      close.addEventListener('click', () => document.getElementById('preview-dialog').close());
+      close.addEventListener('click', () => previewDialog.close());
       actions.append(close);
 
       const save = document.createElement('button');
       save.type = 'button';
-      save.textContent = state.previewStoryId === null ? 'Add to approved stories' : 'Save changes';
+      save.className = 'small-btn';
+      save.textContent = state.previewStoryId === null ? 'Add to approved stories' : 'Save';
       save.addEventListener('click', () => savePreview(false));
       actions.append(save);
 
       if (state.previewStoryId !== null && draft.approved !== true && draft.removed !== true) {
         const approve = document.createElement('button');
         approve.type = 'button';
+        approve.className = 'small-btn';
         approve.textContent = 'Save & approve';
         approve.addEventListener('click', () => savePreview(true));
         actions.append(approve);
@@ -1351,16 +2263,16 @@ export function getAdminPage() {
         onSave: (val) => { draft.img = val; }
       });
 
-      const category = categories.find(item => item.id === draft.category) || categories[0];
       editableField(imageWrap, 'category', 'category', {
         className: 'preview-category-edit',
         editor: 'category',
         value: draft.category,
-        display: () => {
+        display: (val) => {
+          const catObj = categories.find(item => item.id === (val || draft.category)) || categories[0];
           const catSpan = document.createElement('span');
           catSpan.className = 'news-card-badge';
           catSpan.style.background = '#0f172a';
-          catSpan.textContent = category.icon + ' ' + category.label;
+          catSpan.textContent = catObj.icon + ' ' + catObj.label;
           return catSpan;
         },
         onSave: (val) => { draft.category = val; }
@@ -1426,7 +2338,7 @@ export function getAdminPage() {
       editableField(footer, 'url', 'destination URL', {
         editor: 'url',
         value: draft.url,
-        display: () => '✏️ Link URL',
+        display: () => 'Link URL',
         onSave: (val) => { draft.url = val; }
       });
       content.append(footer);
@@ -1437,15 +2349,17 @@ export function getAdminPage() {
       const actions = document.createElement('div');
       actions.className = 'preview-actions';
       const close = document.createElement('button');
+      close.id = 'preview-close';
       close.type = 'button';
-      close.className = 'secondary';
+      close.className = 'secondary small-btn';
       close.textContent = 'Close';
-      close.addEventListener('click', () => document.getElementById('preview-dialog').close());
+      close.addEventListener('click', () => previewDialog.close());
       actions.append(close);
 
       const save = document.createElement('button');
       save.type = 'button';
-      save.textContent = state.previewAdId ? 'Save Ad changes' : 'Create & Save Ad';
+      save.className = 'small-btn';
+      save.textContent = state.previewAdId ? 'Save' : 'Create';
       save.addEventListener('click', saveAdPreview);
       actions.append(save);
 
@@ -1469,8 +2383,9 @@ export function getAdminPage() {
         removed: story.removed === true
       };
       renderPreview();
-      const dialog = document.getElementById('preview-dialog');
-      if (!dialog.open) dialog.showModal();
+      lockModalScroll();
+      if (!previewDialog.open) previewDialog.showModal();
+      previewDialog.scrollTop = 0;
     }
 
     function openAdPreview(ad) {
@@ -1489,11 +2404,13 @@ export function getAdminPage() {
         price: 'Free'
       };
       renderAdPreview();
-      const dialog = document.getElementById('preview-dialog');
-      if (!dialog.open) dialog.showModal();
+      lockModalScroll();
+      if (!previewDialog.open) previewDialog.showModal();
+      previewDialog.scrollTop = 0;
     }
 
     async function savePreview(approve) {
+      commitAllOpenEditors();
       const draft = state.previewDraft;
       const existingId = state.previewStoryId;
       try {
@@ -1513,7 +2430,7 @@ export function getAdminPage() {
             await request('/admin/api/stories/' + encodeURIComponent(existingId) + '/approve', { method: 'POST' });
           }
         }
-        document.getElementById('preview-dialog').close();
+        previewDialog.close();
         await refreshData();
         messageEl.className = 'success';
         messageEl.textContent = existingId === null
@@ -1528,6 +2445,7 @@ export function getAdminPage() {
     }
 
     async function saveAdPreview() {
+      commitAllOpenEditors();
       const draft = state.previewAdDraft;
       const existingId = state.previewAdId;
       try {
@@ -1548,7 +2466,7 @@ export function getAdminPage() {
           if (res.ad) state.ads.unshift(res.ad);
           else state.ads.unshift(draft);
         }
-        document.getElementById('preview-dialog').close();
+        previewDialog.close();
         filterAndRenderAds();
         messageEl.className = 'success';
         messageEl.textContent = existingId ? 'Ad changes saved.' : 'New ad created and saved.';
@@ -1559,6 +2477,7 @@ export function getAdminPage() {
     }
 
     async function generatePreviewSummary() {
+      commitAllOpenEditors();
       if (!state.previewDraft || state.generatingSummary) return;
       state.generatingSummary = true;
       renderPreview();
@@ -1631,12 +2550,11 @@ export function getAdminPage() {
     const customLink = document.getElementById('custom-link');
     customLink.addEventListener('input', queueCustomPreview);
     customLink.addEventListener('paste', () => setTimeout(queueCustomPreview, 0));
-    document.getElementById('preview-close').addEventListener('click', () => {
-      document.getElementById('preview-dialog').close();
-    });
+
     request('/admin/api/identity')
       .then((data) => { document.getElementById('identity').textContent = 'Signed in as @' + data.login; })
       .catch((error) => { document.getElementById('identity').textContent = error.message; });
+
     document.getElementById('logout').addEventListener('click', async () => {
       try {
         const response = await fetch('/admin/logout', { method: 'POST' });
@@ -1647,17 +2565,13 @@ export function getAdminPage() {
         messageEl.textContent = error.message;
       }
     });
+
     providerFilterEl.addEventListener('change', () => {
       state.activeProvider = providerFilterEl.value;
       refreshData();
     });
-    document.getElementById('providers-toggle').addEventListener('click', (event) => {
-      const button = event.currentTarget;
-      const expanded = button.getAttribute('aria-expanded') !== 'true';
-      button.setAttribute('aria-expanded', String(expanded));
-      document.getElementById('providers-arrow').textContent = expanded ? '▲' : '▼';
-      providersEl.hidden = !expanded;
-    });
+
+    restoreSectionLayout();
     refreshData();
     setInterval(refreshStoryAges, 1000);
     setInterval(() => {

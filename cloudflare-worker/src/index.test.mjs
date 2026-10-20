@@ -70,7 +70,14 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /aria-expanded="false" aria-controls="banned-stories"/);
   assert.ok(page.indexOf('Saved story records:') < page.indexOf('id="providers-title"'));
   assert.ok(page.indexOf('id="custom-title"') < page.indexOf('id="providers-title"'));
+  assert.match(page, /const PAGE_SIZE_OPTIONS = \[5, 10, 20, 50, 100\];/);
+  assert.match(page, /littlables_admin_section_order_v1/);
+  assert.match(page, /littlables_admin_collapsed_v1/);
+  assert.match(page, /lockModalScroll\(\)/);
+  assert.match(page, /closeInlineEditor\(\)/);
+  assert.doesNotMatch(page, /Close preview/);
 });
+
 
 test('admin APIs reject missing and non-allowlisted GitHub sessions', async () => {
   const missing = await worker.fetch(new Request('https://worker.example/admin/api/status'), {}, {});
