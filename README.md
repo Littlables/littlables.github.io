@@ -45,7 +45,7 @@ npm run preview
 
 ### GitHub Actions Deployment (Pages + Cloudflare Worker)
 
-`.github/workflows/deploy.yml` deploys the frontend to GitHub Pages and automatically tests and deploys the Cloudflare Worker (`cloudflare-worker/`) **only when files in `cloudflare-worker/`, `ads/`, or `scripts/export_ads.py` have changed** (or when manually triggered via `workflow_dispatch` with `deploy_worker: true`).
+`.github/workflows/deploy.yml` deploys the frontend to GitHub Pages and automatically tests and deploys the Cloudflare Worker (`cloudflare-worker/`) **only when files in `cloudflare-worker/` have changed** (or when manually triggered via `workflow_dispatch` with `deploy_worker: true`).
 
 Configure the following GitHub Actions repository secrets for Worker deployment:
 - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with **Edit Cloudflare Workers** permissions.

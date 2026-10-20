@@ -90,11 +90,11 @@ jobs:
           echo "Changed files in push:"
           echo "$CHANGED_FILES"
 
-          if echo "$CHANGED_FILES" | grep -Eq '^(cloudflare-worker/|ads/|scripts/export_ads\.py)'; then
-            echo "Changes detected in cloudflare-worker/ or ads/ — worker deployment enabled."
+          if echo "$CHANGED_FILES" | grep -Eq '^(cloudflare-worker/|\.github/workflows/deploy\.yml)'; then
+            echo "Changes detected in cloudflare-worker/ — worker deployment enabled."
             echo "should_deploy=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No changes in cloudflare-worker/ or ads/ — skipping Cloudflare Worker deployment."
+            echo "No changes in cloudflare-worker/ — skipping Cloudflare Worker deployment."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -103,10 +103,6 @@ jobs:
         uses: actions/setup-node@v4.4.0
         with:
           node-version: 20
-
-      - name: Sync ads catalog into Worker bundle
-        if: steps.check_changes.outputs.should_deploy == 'true'
-        run: python3 scripts/export_ads.py
 
       - name: Run Cloudflare Worker unit tests
         if: steps.check_changes.outputs.should_deploy == 'true'
