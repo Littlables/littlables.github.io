@@ -33,7 +33,11 @@ import {
   recordNewsProviderFetchLog,
   getNewsProviderFetchLogs,
   clearNewsProviderFetchLogs,
-  DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS
+  DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,
+  getAiCurationState,
+  updateAiCurationConfig,
+  runAiStoryCuration,
+  bulkDecideNewsStories
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 
@@ -503,13 +507,29 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     updatedBy
   });
 
+  // Automatically trigger 3x/day AI story curation (Morning, Afternoon, Evening) if current slot is due
+  let aiCurationResult = null;
+  try {
+    const curationState = getAiCurationState();
+    if (curationState.enabled && curationState.isSlotDue) {
+      aiCurationResult = await runAiStoryCuration(env, {
+        slot: curationState.currentSlot,
+        triggerSource: `auto_${triggerSource}`,
+        updatedBy: `ai-scheduler:${updatedBy}`
+      });
+    }
+  } catch (err) {
+    console.error('Scheduled AI story curation check failed:', err);
+  }
+
   console.info(JSON.stringify({
     event: 'HOURLY_AUTO_SYNC_COMPLETE',
     triggerSource,
     overallStatus,
     totalStoriesSaved,
     rateLimitedCount,
-    providersCount: results.length
+    providersCount: results.length,
+    aiCurationTriggered: Boolean(aiCurationResult && !aiCurationResult.skipped)
   }));
 
   return {
@@ -519,7 +539,8 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     totalStoriesSaved,
     rateLimitedCount,
     results,
-    autoSync: updatedAutoSync
+    autoSync: updatedAutoSync,
+    aiCuration: aiCurationResult?.aiCuration || getAiCurationState()
   };
 }
 
@@ -898,15 +919,104 @@ async function serveAdmin(request, env) {
       }
       if (payload.action === 'check_stale' || payload.action === 'run_if_stale') {
         const current = getAutoSyncState();
+        const aiState = getAiCurationState();
+        let triggered = false;
+        let summary = null;
         if (current.enabled && current.isStale) {
-          const summary = await runHourlyAutoSync(env, 'stale_check', `stale-check:${identity.login}`);
-          return jsonResponse({ triggered: true, summary, autoSync: getAutoSyncState() });
+          summary = await runHourlyAutoSync(env, 'stale_check', `stale-check:${identity.login}`);
+          triggered = true;
+        } else if (aiState.enabled && aiState.isSlotDue) {
+          summary = await runAiStoryCuration(env, {
+            slot: aiState.currentSlot,
+            triggerSource: 'scheduled_window',
+            updatedBy: `window-check:${identity.login}`
+          });
+          triggered = !summary.skipped;
         }
-        return jsonResponse({ triggered: false, autoSync: current });
+        return jsonResponse({
+          triggered,
+          summary,
+          autoSync: getAutoSyncState(),
+          aiCuration: getAiCurationState()
+        });
       }
       return jsonResponse({ autoSync: getAutoSyncState() });
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update auto-sync settings' }, 500);
+    }
+  }
+
+  if (url.pathname === '/admin/api/ai-curation' && request.method === 'GET') {
+    return jsonResponse({ aiCuration: getAiCurationState() });
+  }
+
+  if (url.pathname === '/admin/api/ai-curation' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'AI curation settings must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      const updated = updateAiCurationConfig(payload, identity.login);
+      if (payload.reCurate) {
+        const runResult = await runAiStoryCuration(env, {
+          slot: payload.slot || updated.currentSlot,
+          triggerSource: 'taste_profile_update',
+          updatedBy: identity.login,
+          force: true
+        });
+        return jsonResponse({
+          updated: true,
+          curated: true,
+          runResult,
+          aiCuration: getAiCurationState()
+        });
+      }
+      return jsonResponse({ updated: true, aiCuration: updated });
+    } catch (err) {
+      return jsonResponse({
+        error: err instanceof Error ? err.message : 'Could not update AI curation settings'
+      }, 500);
+    }
+  }
+
+  if (url.pathname === '/admin/api/ai-curation/run' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'AI curation runs must be requested from the admin origin' }, 403);
+    }
+    try {
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-curation:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'AI curation rate limit exceeded; try again shortly' }, 429);
+      const payload = await request.json().catch(() => ({}));
+      const result = await runAiStoryCuration(env, {
+        slot: payload.slot || null,
+        triggerSource: payload.triggerSource || 'manual',
+        updatedBy: identity.login,
+        force: true
+      });
+      return jsonResponse(result);
+    } catch (err) {
+      console.error('Admin AI story curation run failed:', err);
+      return jsonResponse({
+        error: err instanceof Error ? err.message : 'Could not run AI story curation'
+      }, 502);
+    }
+  }
+
+  if (url.pathname === '/admin/api/ai-curation/bulk' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Bulk story decisions must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      const storyIds = Array.isArray(payload.storyIds) ? payload.storyIds : [];
+      const action = typeof payload.action === 'string' ? payload.action : 'approve';
+      const result = await bulkDecideNewsStories(env, storyIds, action, identity.login);
+      return jsonResponse(result);
+    } catch (err) {
+      console.error('Bulk AI story decision failed:', err);
+      return jsonResponse({
+        error: err instanceof Error ? err.message : 'Could not complete bulk story decision'
+      }, 502);
     }
   }
 

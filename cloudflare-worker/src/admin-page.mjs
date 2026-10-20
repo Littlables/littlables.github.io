@@ -815,6 +815,162 @@ export function getAdminPage() {
       overflow-wrap: anywhere;
     }
 
+    /* AI Daily Story Curation & Staging Queue */
+    #ai-staged-stories {
+      display: grid;
+      gap: .6rem;
+    }
+    .ai-curation-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .75rem;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: .75rem .9rem;
+      margin-bottom: .65rem;
+    }
+    .ai-curation-info {
+      display: flex;
+      flex-direction: column;
+      gap: .22rem;
+      min-width: 240px;
+      flex: 1;
+    }
+    .ai-curation-title {
+      font-size: .9rem;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+    .ai-curation-meta {
+      font-size: .76rem;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+    .ai-curation-actions {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      flex-wrap: wrap;
+    }
+    .ai-taste-drawer {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: .85rem .95rem;
+      margin-bottom: .75rem;
+      display: grid;
+      gap: .75rem;
+    }
+    .ai-taste-drawer[hidden] { display: none !important; }
+    .ai-signal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: .55rem;
+    }
+    .ai-signal-box {
+      background: #131b2e;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: .55rem .7rem;
+      font-size: .76rem;
+      color: #cbd5e1;
+      line-height: 1.4;
+    }
+    .ai-signal-box strong {
+      display: block;
+      font-size: .72rem;
+      color: #94a3b8;
+      margin-bottom: .2rem;
+      font-weight: 600;
+    }
+    .ai-taste-field {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+      font-size: .8rem;
+      color: #cbd5e1;
+    }
+    .ai-taste-field label {
+      font-weight: 600;
+      color: #f8fafc;
+    }
+    .ai-taste-field textarea,
+    .ai-taste-field input {
+      width: 100%;
+      padding: .55rem .7rem;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #0b0f19;
+      color: #f8fafc;
+      font: inherit;
+      font-size: .84rem;
+      line-height: 1.45;
+    }
+    .ai-taste-field textarea:focus,
+    .ai-taste-field input:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+    .ai-taste-two-col {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: .65rem;
+    }
+    .ai-bulk-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .55rem;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: .5rem .75rem;
+      margin-bottom: .65rem;
+      font-size: .8rem;
+    }
+    .ai-bulk-left, .ai-bulk-right {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      flex-wrap: wrap;
+    }
+    .story.ai-pick-row {
+      grid-template-columns: auto 64px minmax(0, 1fr) auto;
+    }
+    .ai-pick-checkbox {
+      width: 18px;
+      height: 18px;
+      accent-color: #4f46e5;
+      cursor: pointer;
+      margin: 0;
+    }
+    .ai-pick-reason {
+      margin: .28rem 0 0;
+      font-size: .77rem;
+      color: #a5b4fc;
+      line-height: 1.4;
+    }
+    .meta-slot { color: #38bdf8; }
+    .meta-rank { color: #f472b6; font-variant-numeric: tabular-nums; }
+    .btn-approve-accent { background: #059669; }
+    .btn-approve-accent:hover:not(:disabled) { background: #047857; }
+    .btn-danger-outline {
+      background: rgba(239, 68, 68, 0.14);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+    }
+    .btn-danger-outline:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.26);
+    }
+
     @media (max-width: 640px) {
       body { padding: .85rem .65rem 2.5rem; }
       h1 { font-size: 1.2rem; }
@@ -823,6 +979,9 @@ export function getAdminPage() {
         grid-template-columns: 52px minmax(0, 1fr);
         gap: .55rem;
         padding: .55rem;
+      }
+      .story.ai-pick-row {
+        grid-template-columns: auto 52px minmax(0, 1fr);
       }
       .story img, .ad-row img { width: 52px; height: 42px; }
       .story-actions, .ad-actions {
@@ -869,6 +1028,34 @@ export function getAdminPage() {
       </div>
       <div id="summary-body" class="section-body">
         <p id="message" class="muted">Loading database status…</p>
+      </div>
+    </section>
+
+    <!-- 1B. AI CURATED STAGING QUEUE SECTION (5 Stories/Category · 3x/Day) -->
+    <section aria-labelledby="ai-staging-title" class="admin-card-section" data-section-id="ai-staging">
+      <div class="section-header">
+        <h2 id="ai-staging-title">
+          <button id="ai-staging-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="ai-staging-body" data-section-toggle="ai-staging">
+            <span id="ai-staging-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>AI Picked for You · Staging Queue <span id="ai-staging-count" class="tabular-nums"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button id="toggle-taste-drawer-btn" type="button" class="secondary small-btn" aria-expanded="false" aria-controls="ai-taste-drawer">Taste Profile &amp; Schedule</button>
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="ai-staging-body" class="section-body">
+        <div id="ai-curation-bar" class="ai-curation-bar"></div>
+        <div id="ai-taste-drawer" class="ai-taste-drawer" hidden></div>
+        <div class="filter-bar" style="justify-content: space-between;">
+          <nav id="ai-edition-tabs" class="category-tabs" aria-label="Filter AI picks by daily edition" style="margin: 0;"></nav>
+        </div>
+        <nav id="ai-staging-categories" class="category-tabs" aria-label="Filter AI staged stories by category"></nav>
+        <div id="ai-bulk-bar" class="ai-bulk-bar"></div>
+        <div id="ai-staged-stories" aria-live="polite"></div>
+        <div id="ai-staging-pagination" class="pagination-bar"></div>
       </div>
     </section>
 
@@ -1109,6 +1296,7 @@ export function getAdminPage() {
       try {
         const saved = JSON.parse(localStorage.getItem(STORAGE_PAGE_SIZES_KEY) || '{}');
         return {
+          aiStaging: PAGE_SIZE_OPTIONS.includes(Number(saved.aiStaging)) ? Number(saved.aiStaging) : 10,
           pending: PAGE_SIZE_OPTIONS.includes(Number(saved.pending)) ? Number(saved.pending) : 10,
           search: PAGE_SIZE_OPTIONS.includes(Number(saved.search)) ? Number(saved.search) : 10,
           ads: PAGE_SIZE_OPTIONS.includes(Number(saved.ads)) ? Number(saved.ads) : 10,
@@ -1117,7 +1305,7 @@ export function getAdminPage() {
           logs: PAGE_SIZE_OPTIONS.includes(Number(saved.logs)) ? Number(saved.logs) : 20
         };
       } catch {
-        return { pending: 10, search: 10, ads: 10, decided: 10, banned: 10, logs: 20 };
+        return { aiStaging: 10, pending: 10, search: 10, ads: 10, decided: 10, banned: 10, logs: 20 };
       }
     }
 
@@ -1125,6 +1313,15 @@ export function getAdminPage() {
       busy: new Set(),
       syncingAll: false,
       togglingAutoSync: false,
+      curatingAi: false,
+      togglingAiSchedule: false,
+      savingTasteProfile: false,
+      bulkDecidingAi: false,
+      tasteDrawerOpen: false,
+      selectedAiStoryIds: new Set(),
+      activeAiCategory: 'all_categories',
+      activeAiSlot: 'all',
+      selectedRunSlot: 'auto',
       approving: new Set(),
       banning: new Set(),
       unapproving: new Set(),
@@ -1164,6 +1361,38 @@ export function getAdminPage() {
         lastSummary: null,
         isStale: false
       },
+      aiCuration: {
+        enabled: true,
+        picksPerCategory: 5,
+        currentSlot: 'morning',
+        currentSlotLabel: 'Morning Edition (08:00)',
+        isSlotDue: false,
+        lastRunAt: null,
+        lastSlot: null,
+        lastBatchId: null,
+        lastTrigger: null,
+        lastStatus: 'never',
+        lastSummary: null,
+        nextSlot: 'morning',
+        nextRunAt: null,
+        completedSlotsToday: [],
+        tasteProfile: {
+          customInstructions: '',
+          preferredKeywords: '',
+          mutedKeywords: ''
+        },
+        learnedSignals: {
+          approvedCount: 0,
+          rejectedCount: 0,
+          topApprovedSources: [],
+          topApprovedCategories: [],
+          topApprovedTerms: [],
+          avoidedSources: [],
+          avoidedTerms: []
+        },
+        stagedPicks: [],
+        categoryCounts: {}
+      },
       providerLogs: [],
       providerLogsSummary: {
         totalRequests: 0,
@@ -1178,6 +1407,7 @@ export function getAdminPage() {
       searchResults: [],
       ads: [],
       pages: {
+        aiStaging: 1,
         pending: 1,
         search: 1,
         ads: 1,
@@ -1222,6 +1452,7 @@ export function getAdminPage() {
     /* Collapsible & Reorderable Sections with localStorage persistence */
     const sectionTargets = {
       summary: { toggle: 'summary-toggle', arrow: 'summary-arrow', body: 'summary-body', defaultOpen: true },
+      'ai-staging': { toggle: 'ai-staging-toggle', arrow: 'ai-staging-arrow', body: 'ai-staging-body', defaultOpen: true },
       pending: { toggle: 'pending-toggle', arrow: 'pending-arrow', body: 'pending-body', defaultOpen: true },
       search: { toggle: 'search-toggle', arrow: 'search-arrow', body: 'search-body', defaultOpen: true },
       ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
@@ -1328,7 +1559,7 @@ export function getAdminPage() {
         localStorage.removeItem(STORAGE_ORDER_KEY);
         localStorage.removeItem(STORAGE_COLLAPSED_KEY);
       } catch {}
-      ['summary', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned'].forEach((id) => {
+      ['summary', 'ai-staging', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned'].forEach((id) => {
         const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
         if (sec) adminSectionsEl.append(sec);
         setSectionExpanded(id, sectionTargets[id].defaultOpen, false);
@@ -2179,6 +2410,692 @@ export function getAdminPage() {
       openAdPreview(null);
     });
 
+    /* ============================================================================
+     * AI DAILY STORY CURATION & STAGING QUEUE (5 Stories/Category · 3x/Day)
+     * ============================================================================ */
+
+    function getVisibleAiStagedPicks() {
+      const picks = Array.isArray(state.aiCuration?.stagedPicks) ? state.aiCuration.stagedPicks : [];
+      return picks.filter((pick) => {
+        if (state.ignored.has(pick.id)) return false;
+        if (state.activeAiSlot !== 'all' && pick.slot !== state.activeAiSlot) return false;
+        if (state.activeAiCategory !== 'all_categories' && pick.category !== state.activeAiCategory) return false;
+        return true;
+      });
+    }
+
+    function renderAiCurationHeaderBar() {
+      const bar = document.getElementById('ai-curation-bar');
+      const countEl = document.getElementById('ai-staging-count');
+      if (!bar) return;
+
+      const ai = state.aiCuration || {};
+      const stagedCount = Array.isArray(ai.stagedPicks) ? ai.stagedPicks.length : 0;
+      if (countEl) {
+        countEl.textContent = stagedCount > 0 ? '(' + stagedCount + ' staged)' : '(0 staged)';
+      }
+
+      bar.replaceChildren();
+
+      const info = document.createElement('div');
+      info.className = 'ai-curation-info';
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'ai-curation-title';
+      titleRow.textContent = '3x Daily AI Curation (5 / category): ';
+      const statusBadge = document.createElement('span');
+      statusBadge.className = 'status ' + (ai.enabled ? 'status-succeeded' : 'status-partial');
+      statusBadge.textContent = ai.enabled
+        ? 'Active · Morning (08:00), Afternoon (13:00), Evening (18:00)'
+        : 'Paused';
+      titleRow.append(statusBadge);
+
+      const metaRow = document.createElement('div');
+      metaRow.className = 'ai-curation-meta tabular-nums';
+      const lastRunStr = ai.lastRunAt
+        ? formatDateTime(new Date(ai.lastRunAt)) + ' (' + (ai.lastSlot || 'latest') + ' · ' + (ai.lastTrigger || 'auto') + ')'
+        : 'Not run yet';
+      const completedStr = Array.isArray(ai.completedSlotsToday) && ai.completedSlotsToday.length
+        ? ai.completedSlotsToday.join(', ')
+        : 'none yet';
+      metaRow.textContent = 'Active window: ' + (ai.currentSlotLabel || 'Morning Edition') +
+        ' · Last run: ' + lastRunStr +
+        ' · Completed today: ' + completedStr + ' · ';
+
+      if (ai.enabled && ai.nextRunAt) {
+        const nextSpan = document.createElement('span');
+        nextSpan.dataset.countdownPrefix = 'Next window (' + (ai.nextSlot || 'scheduled') + ') in ';
+        nextSpan.dataset.countdownTo = ai.nextRunAt;
+        nextSpan.textContent = 'Next window (' + (ai.nextSlot || 'scheduled') + ') in ' + formatCountdown(ai.nextRunAt);
+        metaRow.append(nextSpan);
+      }
+
+      info.append(titleRow, metaRow);
+      if (ai.lastSummary) {
+        const sumLine = document.createElement('div');
+        sumLine.className = 'ai-curation-meta';
+        sumLine.textContent = ai.lastSummary;
+        info.append(sumLine);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'ai-curation-actions';
+
+      const slotSelect = document.createElement('select');
+      slotSelect.id = 'ai-slot-select';
+      slotSelect.className = 'provider-filter';
+      slotSelect.setAttribute('aria-label', 'Select daily edition slot to curate');
+      [
+        { value: 'auto', label: 'Current Window (' + (ai.currentSlot || 'morning') + ')' },
+        { value: 'morning', label: 'Morning Edition (08:00)' },
+        { value: 'afternoon', label: 'Afternoon Edition (13:00)' },
+        { value: 'evening', label: 'Evening Edition (18:00)' }
+      ].forEach((optItem) => {
+        const opt = document.createElement('option');
+        opt.value = optItem.value;
+        opt.textContent = optItem.label;
+        slotSelect.append(opt);
+      });
+      slotSelect.value = state.selectedRunSlot || 'auto';
+      slotSelect.addEventListener('change', () => {
+        state.selectedRunSlot = slotSelect.value;
+      });
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'secondary small-btn';
+      toggleBtn.disabled = state.togglingAiSchedule;
+      toggleBtn.textContent = ai.enabled ? 'Pause 3x/day schedule' : 'Enable 3x/day schedule';
+      toggleBtn.addEventListener('click', toggleAiSchedule);
+
+      const runBtn = document.createElement('button');
+      runBtn.id = 'run-ai-curation-btn';
+      runBtn.type = 'button';
+      runBtn.className = 'small-btn';
+      runBtn.disabled = state.curatingAi;
+      runBtn.textContent = state.curatingAi ? 'Curating 5/Category…' : 'Curate 5/Category Now';
+      runBtn.addEventListener('click', () => runAiCurationNow());
+
+      actions.append(slotSelect, toggleBtn, runBtn);
+      bar.append(info, actions);
+    }
+
+    function renderAiTasteDrawer() {
+      const drawer = document.getElementById('ai-taste-drawer');
+      const toggleBtn = document.getElementById('toggle-taste-drawer-btn');
+      if (!drawer) return;
+      drawer.hidden = !state.tasteDrawerOpen;
+      if (toggleBtn) {
+        toggleBtn.setAttribute('aria-expanded', String(state.tasteDrawerOpen));
+        toggleBtn.textContent = state.tasteDrawerOpen ? 'Hide Taste Profile' : 'Taste Profile & Schedule';
+      }
+      if (!state.tasteDrawerOpen) return;
+
+      drawer.replaceChildren();
+      const signals = state.aiCuration?.learnedSignals || {};
+      const profile = state.aiCuration?.tasteProfile || {};
+
+      const signalGrid = document.createElement('div');
+      signalGrid.className = 'ai-signal-grid';
+
+      const historyBox = document.createElement('div');
+      historyBox.className = 'ai-signal-box tabular-nums';
+      const histTitle = document.createElement('strong');
+      histTitle.textContent = 'Learned Decision History';
+      historyBox.append(
+        histTitle,
+        document.createTextNode(
+          (signals.approvedCount || 0) + ' approved stories · ' +
+          (signals.rejectedCount || 0) + ' rejected/banned stories analyzed'
+        )
+      );
+
+      const sourcesBox = document.createElement('div');
+      sourcesBox.className = 'ai-signal-box';
+      const srcTitle = document.createElement('strong');
+      srcTitle.textContent = 'Top Approved Sources';
+      const topSources = (signals.topApprovedSources || []).map(s => s.name + ' (' + s.count + ')').join(', ');
+      sourcesBox.append(srcTitle, document.createTextNode(topSources || 'Learning as you approve stories'));
+
+      const termsBox = document.createElement('div');
+      termsBox.className = 'ai-signal-box';
+      const termsTitle = document.createElement('strong');
+      termsTitle.textContent = 'Learned High-Affinity Themes';
+      const topTerms = (signals.topApprovedTerms || []).slice(0, 8).map(t => t.name).join(', ');
+      termsBox.append(termsTitle, document.createTextNode(topTerms || 'Building keyword affinity from approvals'));
+
+      const avoidedBox = document.createElement('div');
+      avoidedBox.className = 'ai-signal-box';
+      const avoidTitle = document.createElement('strong');
+      avoidTitle.textContent = 'Avoided Patterns (Rejected/Banned)';
+      const avoidedTerms = (signals.avoidedTerms || []).slice(0, 6).map(t => t.name).join(', ');
+      avoidedBox.append(avoidTitle, document.createTextNode(avoidedTerms || 'None flagged yet'));
+
+      signalGrid.append(historyBox, sourcesBox, termsBox, avoidedBox);
+      drawer.append(signalGrid);
+
+      const instructionsWrap = document.createElement('div');
+      instructionsWrap.className = 'ai-taste-field';
+      const instLabel = document.createElement('label');
+      instLabel.setAttribute('for', 'ai-taste-instructions');
+      instLabel.textContent = 'Editable Editorial Taste Profile (guides AI story selection across all categories)';
+      const instTextarea = document.createElement('textarea');
+      instTextarea.id = 'ai-taste-instructions';
+      instTextarea.rows = 3;
+      instTextarea.value = profile.customInstructions || '';
+      instTextarea.placeholder = 'Describe the stories, tone, and themes you enjoy and approve…';
+      instructionsWrap.append(instLabel, instTextarea);
+      drawer.append(instructionsWrap);
+
+      const twoCol = document.createElement('div');
+      twoCol.className = 'ai-taste-two-col';
+
+      const prefWrap = document.createElement('div');
+      prefWrap.className = 'ai-taste-field';
+      const prefLabel = document.createElement('label');
+      prefLabel.setAttribute('for', 'ai-taste-preferred');
+      prefLabel.textContent = 'Preferred Keywords (comma-separated boost)';
+      const prefInput = document.createElement('input');
+      prefInput.id = 'ai-taste-preferred';
+      prefInput.type = 'text';
+      prefInput.value = profile.preferredKeywords || '';
+      prefWrap.append(prefLabel, prefInput);
+
+      const mutedWrap = document.createElement('div');
+      mutedWrap.className = 'ai-taste-field';
+      const mutedLabel = document.createElement('label');
+      mutedLabel.setAttribute('for', 'ai-taste-muted');
+      mutedLabel.textContent = 'Muted / Excluded Keywords (comma-separated penalty)';
+      const mutedInput = document.createElement('input');
+      mutedInput.id = 'ai-taste-muted';
+      mutedInput.type = 'text';
+      mutedInput.value = profile.mutedKeywords || '';
+      mutedWrap.append(mutedLabel, mutedInput);
+
+      twoCol.append(prefWrap, mutedWrap);
+      drawer.append(twoCol);
+
+      const btnRow = document.createElement('div');
+      btnRow.className = 'editor-btn-row';
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'secondary small-btn';
+      saveBtn.disabled = state.savingTasteProfile;
+      saveBtn.textContent = state.savingTasteProfile ? 'Saving…' : 'Save Taste Profile';
+      saveBtn.addEventListener('click', () => saveAiTasteProfile(false));
+
+      const saveAndRunBtn = document.createElement('button');
+      saveAndRunBtn.type = 'button';
+      saveAndRunBtn.className = 'small-btn';
+      saveAndRunBtn.disabled = state.savingTasteProfile || state.curatingAi;
+      saveAndRunBtn.textContent = state.savingTasteProfile ? 'Re-curating…' : 'Save & Re-Curate 5/Category Now';
+      saveAndRunBtn.addEventListener('click', () => saveAiTasteProfile(true));
+
+      btnRow.append(saveBtn, saveAndRunBtn);
+      drawer.append(btnRow);
+    }
+
+    function renderAiEditionAndCategoryTabs() {
+      const editionNav = document.getElementById('ai-edition-tabs');
+      const catNav = document.getElementById('ai-staging-categories');
+      const allStaged = Array.isArray(state.aiCuration?.stagedPicks) ? state.aiCuration.stagedPicks : [];
+
+      if (editionNav) {
+        editionNav.replaceChildren();
+        const editions = [
+          { id: 'all', label: 'All Editions (' + allStaged.length + ')' },
+          { id: 'morning', label: 'Morning · 08:00 (' + allStaged.filter(p => p.slot === 'morning').length + ')' },
+          { id: 'afternoon', label: 'Afternoon · 13:00 (' + allStaged.filter(p => p.slot === 'afternoon').length + ')' },
+          { id: 'evening', label: 'Evening · 18:00 (' + allStaged.filter(p => p.slot === 'evening').length + ')' }
+        ];
+        editions.forEach((ed) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'category-tab tabular-nums';
+          btn.setAttribute('aria-pressed', String(state.activeAiSlot === ed.id));
+          btn.textContent = ed.label;
+          btn.addEventListener('click', () => {
+            state.activeAiSlot = ed.id;
+            state.pages.aiStaging = 1;
+            renderAiStagingSection();
+          });
+          editionNav.append(btn);
+        });
+      }
+
+      if (catNav) {
+        catNav.replaceChildren();
+        const slotFiltered = state.activeAiSlot === 'all'
+          ? allStaged
+          : allStaged.filter(p => p.slot === state.activeAiSlot);
+
+        const allCatBtn = document.createElement('button');
+        allCatBtn.type = 'button';
+        allCatBtn.className = 'category-tab tabular-nums';
+        allCatBtn.setAttribute('aria-pressed', String(state.activeAiCategory === 'all_categories'));
+        allCatBtn.textContent = 'All Categories (' + slotFiltered.length + ')';
+        allCatBtn.addEventListener('click', () => {
+          state.activeAiCategory = 'all_categories';
+          state.pages.aiStaging = 1;
+          renderAiStagingSection();
+        });
+        catNav.append(allCatBtn);
+
+        categories.forEach((cat) => {
+          const count = slotFiltered.filter(p => p.category === cat.id).length;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'category-tab tabular-nums';
+          btn.setAttribute('aria-pressed', String(state.activeAiCategory === cat.id));
+          btn.textContent = cat.icon + ' ' + cat.label + ' (' + count + '/5)';
+          btn.addEventListener('click', () => {
+            state.activeAiCategory = cat.id;
+            state.pages.aiStaging = 1;
+            renderAiStagingSection();
+          });
+          catNav.append(btn);
+        });
+      }
+    }
+
+    function renderAiBulkActionBar(visiblePicks) {
+      const bulkBar = document.getElementById('ai-bulk-bar');
+      if (!bulkBar) return;
+      bulkBar.replaceChildren();
+
+      // Clean up selected IDs that are no longer in stagedPicks
+      const activeIds = new Set((state.aiCuration?.stagedPicks || []).map(p => Number(p.id)));
+      Array.from(state.selectedAiStoryIds).forEach((id) => {
+        if (!activeIds.has(Number(id))) state.selectedAiStoryIds.delete(id);
+      });
+
+      const selectedCount = state.selectedAiStoryIds.size;
+      const allVisibleSelected = visiblePicks.length > 0 &&
+        visiblePicks.every(p => state.selectedAiStoryIds.has(Number(p.id)));
+
+      const left = document.createElement('div');
+      left.className = 'ai-bulk-left';
+
+      const selectAllBtn = document.createElement('button');
+      selectAllBtn.type = 'button';
+      selectAllBtn.className = 'secondary small-btn';
+      selectAllBtn.disabled = visiblePicks.length === 0;
+      selectAllBtn.textContent = allVisibleSelected
+        ? 'Clear Visible (' + visiblePicks.length + ')'
+        : 'Select Visible (' + visiblePicks.length + ')';
+      selectAllBtn.addEventListener('click', () => {
+        if (allVisibleSelected) {
+          visiblePicks.forEach(p => state.selectedAiStoryIds.delete(Number(p.id)));
+        } else {
+          visiblePicks.forEach(p => state.selectedAiStoryIds.add(Number(p.id)));
+        }
+        renderAiStagingSection();
+      });
+
+      const selectionLabel = document.createElement('span');
+      selectionLabel.className = 'muted tabular-nums';
+      selectionLabel.textContent = selectedCount > 0
+        ? selectedCount + ' story' + (selectedCount === 1 ? '' : 'ies') + ' selected'
+        : 'Select stories for bulk promotion or rejection';
+
+      left.append(selectAllBtn, selectionLabel);
+
+      const right = document.createElement('div');
+      right.className = 'ai-bulk-right';
+
+      const approveSelectedBtn = document.createElement('button');
+      approveSelectedBtn.type = 'button';
+      approveSelectedBtn.className = 'small-btn btn-approve-accent tabular-nums';
+      approveSelectedBtn.disabled = selectedCount === 0 || state.bulkDecidingAi;
+      approveSelectedBtn.textContent = 'Approve Selected (' + selectedCount + ')';
+      approveSelectedBtn.addEventListener('click', () => {
+        bulkDecideAiStagedStories(Array.from(state.selectedAiStoryIds), 'approve');
+      });
+
+      const approveVisibleBtn = document.createElement('button');
+      approveVisibleBtn.type = 'button';
+      approveVisibleBtn.className = 'secondary small-btn tabular-nums';
+      approveVisibleBtn.disabled = visiblePicks.length === 0 || state.bulkDecidingAi;
+      approveVisibleBtn.textContent = state.activeAiCategory === 'all_categories'
+        ? 'Approve All Staged (' + visiblePicks.length + ')'
+        : 'Approve Category (' + visiblePicks.length + ')';
+      approveVisibleBtn.addEventListener('click', () => {
+        bulkDecideAiStagedStories(visiblePicks.map(p => Number(p.id)), 'approve');
+      });
+
+      const disapproveSelectedBtn = document.createElement('button');
+      disapproveSelectedBtn.type = 'button';
+      disapproveSelectedBtn.className = 'secondary small-btn tabular-nums';
+      disapproveSelectedBtn.disabled = selectedCount === 0 || state.bulkDecidingAi;
+      disapproveSelectedBtn.textContent = 'Disapprove Selected (' + selectedCount + ')';
+      disapproveSelectedBtn.addEventListener('click', () => {
+        bulkDecideAiStagedStories(Array.from(state.selectedAiStoryIds), 'disapprove');
+      });
+
+      const banSelectedBtn = document.createElement('button');
+      banSelectedBtn.type = 'button';
+      banSelectedBtn.className = 'small-btn btn-danger-outline tabular-nums';
+      banSelectedBtn.disabled = selectedCount === 0 || state.bulkDecidingAi;
+      banSelectedBtn.textContent = 'Ban Selected (' + selectedCount + ')';
+      banSelectedBtn.addEventListener('click', () => {
+        bulkDecideAiStagedStories(Array.from(state.selectedAiStoryIds), 'ban');
+      });
+
+      right.append(approveSelectedBtn, approveVisibleBtn, disapproveSelectedBtn, banSelectedBtn);
+      bulkBar.append(left, right);
+    }
+
+    function createAiStagedStoryRow(pick) {
+      const row = document.createElement('article');
+      row.className = 'story ai-pick-row';
+      row.tabIndex = 0;
+      row.setAttribute('aria-label', 'Review AI staged story: ' + decodeHtmlEntities(pick.title));
+      row.addEventListener('click', (event) => {
+        if (event.target.closest('button') || event.target.closest('input[type="checkbox"]')) return;
+        openStoryPreview(pick);
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          openStoryPreview(pick);
+        }
+      });
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'ai-pick-checkbox';
+      checkbox.checked = state.selectedAiStoryIds.has(Number(pick.id));
+      checkbox.setAttribute('aria-label', 'Select ' + decodeHtmlEntities(pick.title));
+      checkbox.addEventListener('change', (e) => {
+        e.stopPropagation();
+        if (checkbox.checked) state.selectedAiStoryIds.add(Number(pick.id));
+        else state.selectedAiStoryIds.delete(Number(pick.id));
+        renderAiBulkActionBar(getVisibleAiStagedPicks());
+      });
+      row.append(checkbox);
+
+      const image = document.createElement('img');
+      image.src = pick.image || ('img/' + (pick.category || 'all') + '_1.jpg');
+      image.alt = '';
+      image.loading = 'lazy';
+      image.onerror = () => { image.src = 'img/' + (pick.category || 'all') + '_1.jpg'; };
+      row.append(image);
+
+      const details = document.createElement('div');
+      details.className = 'story-details';
+
+      const title = document.createElement('h3');
+      const link = document.createElement('a');
+      link.href = decodeHtmlEntities(pick.link);
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = decodeHtmlEntities(pick.title);
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openStoryPreview(pick);
+      });
+      title.append(link);
+
+      const meta = document.createElement('p');
+      meta.className = 'story-meta';
+      const catLabel = categories.find(c => c.id === pick.category)?.label || pick.category;
+      const slotShort = pick.slot === 'morning'
+        ? 'Morning Edition'
+        : pick.slot === 'afternoon'
+          ? 'Afternoon Edition'
+          : 'Evening Edition';
+
+      [
+        ['meta-rank', 'Pick #' + (pick.rank || 1) + ' in ' + catLabel],
+        ['meta-slot', '· ' + slotShort],
+        ['meta-provider', '· ' + (pick.provider || 'unknown')],
+        ['meta-domain', '· ' + getStoryDomain(pick.link)]
+      ].forEach(([cls, val]) => {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = val;
+        meta.append(span);
+      });
+
+      const updated = document.createElement('span');
+      updated.className = 'meta-date';
+      updated.dataset.updatedPrefix = '· Curated: ';
+      updated.dataset.updatedAt = pick.curatedAt || pick.updatedAt || '';
+      meta.append(updated);
+
+      const reasonP = document.createElement('p');
+      reasonP.className = 'ai-pick-reason';
+      reasonP.textContent = pick.reason || 'Selected by AI curator based on your editorial taste profile and approval history.';
+
+      details.append(title, meta, reasonP);
+      const main = document.createElement('div');
+      main.className = 'story-main';
+      main.append(details);
+      row.append(main);
+
+      const actions = document.createElement('div');
+      actions.className = 'story-actions';
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'secondary small-btn';
+      editBtn.textContent = 'Preview / Edit';
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openStoryPreview(pick);
+      });
+
+      const approveBtn = document.createElement('button');
+      approveBtn.type = 'button';
+      approveBtn.className = 'small-btn btn-approve-accent';
+      approveBtn.textContent = state.approving.has(pick.id) ? 'Approving…' : 'Approve';
+      approveBtn.disabled = state.approving.has(pick.id);
+      approveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        approveStory(pick.id);
+      });
+
+      const disapproveBtn = document.createElement('button');
+      disapproveBtn.type = 'button';
+      disapproveBtn.className = 'secondary small-btn';
+      disapproveBtn.textContent = state.unapproving.has(pick.id) ? 'Rejecting…' : 'Disapprove';
+      disapproveBtn.disabled = state.unapproving.has(pick.id);
+      disapproveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        disapproveStory(pick.id);
+      });
+
+      const banBtn = document.createElement('button');
+      banBtn.type = 'button';
+      banBtn.className = 'small-btn btn-danger-outline';
+      banBtn.textContent = state.banning.has(pick.id) ? 'Banning…' : 'Ban';
+      banBtn.disabled = state.banning.has(pick.id);
+      banBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        banStory(pick.id);
+      });
+
+      actions.append(editBtn, approveBtn, disapproveBtn, banBtn);
+      row.append(actions);
+      return row;
+    }
+
+    function renderAiStagingSection() {
+      renderAiCurationHeaderBar();
+      renderAiTasteDrawer();
+      renderAiEditionAndCategoryTabs();
+
+      const visiblePicks = getVisibleAiStagedPicks();
+      renderAiBulkActionBar(visiblePicks);
+
+      const listEl = document.getElementById('ai-staged-stories');
+      if (!listEl) return;
+      listEl.replaceChildren();
+
+      const pager = renderPaginationBar('ai-staging-pagination', 'aiStaging', visiblePicks.length, () => {
+        renderAiStagingSection();
+        refreshStoryAges();
+      });
+
+      if (!visiblePicks.length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        const totalStaged = (state.aiCuration?.stagedPicks || []).length;
+        empty.textContent = totalStaged === 0
+          ? 'No AI-curated stories are currently staged. Click "Curate 5/Category Now" above to have the AI select 5 stories from each category tailored to your approval history and taste profile.'
+          : 'No staged AI picks match the selected edition or category filter.';
+        listEl.append(empty);
+        return;
+      }
+
+      pager.slice(visiblePicks).forEach((pick) => {
+        listEl.append(createAiStagedStoryRow(pick));
+      });
+    }
+
+    async function runAiCurationNow(overrideSlot = null) {
+      if (state.curatingAi) return;
+      state.curatingAi = true;
+      renderAiCurationHeaderBar();
+      const targetSlot = overrideSlot || (state.selectedRunSlot !== 'auto' ? state.selectedRunSlot : null);
+      messageEl.className = 'muted';
+      messageEl.textContent = 'AI Curator is evaluating unapproved stories across all 7 categories…';
+      try {
+        const res = await request('/admin/api/ai-curation/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slot: targetSlot,
+            triggerSource: 'manual'
+          })
+        });
+        if (res.aiCuration) state.aiCuration = res.aiCuration;
+        state.pages.aiStaging = 1;
+        renderAiStagingSection();
+        refreshStoryAges();
+        messageEl.className = 'success';
+        messageEl.textContent = res.aiCuration?.lastSummary ||
+          ('AI staged ' + (res.totalStagedInRun || 0) + ' stories across categories.');
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'AI story curation failed: ' + error.message;
+      } finally {
+        state.curatingAi = false;
+        renderAiCurationHeaderBar();
+      }
+    }
+
+    async function toggleAiSchedule() {
+      if (state.togglingAiSchedule) return;
+      state.togglingAiSchedule = true;
+      renderAiCurationHeaderBar();
+      try {
+        const nextEnabled = !(state.aiCuration?.enabled);
+        const res = await request('/admin/api/ai-curation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: nextEnabled })
+        });
+        if (res.aiCuration) state.aiCuration = res.aiCuration;
+        renderAiStagingSection();
+        messageEl.className = 'success';
+        messageEl.textContent = state.aiCuration.enabled
+          ? '3x/day automatic AI story curation (Morning, Afternoon, Evening) enabled.'
+          : '3x/day automatic AI story curation paused.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not update AI schedule: ' + error.message;
+      } finally {
+        state.togglingAiSchedule = false;
+        renderAiCurationHeaderBar();
+      }
+    }
+
+    async function saveAiTasteProfile(reCurate = false) {
+      if (state.savingTasteProfile) return;
+      state.savingTasteProfile = true;
+      renderAiTasteDrawer();
+      const instructionsEl = document.getElementById('ai-taste-instructions');
+      const preferredEl = document.getElementById('ai-taste-preferred');
+      const mutedEl = document.getElementById('ai-taste-muted');
+      const payload = {
+        customInstructions: instructionsEl ? instructionsEl.value.trim() : '',
+        preferredKeywords: preferredEl ? preferredEl.value.trim() : '',
+        mutedKeywords: mutedEl ? mutedEl.value.trim() : '',
+        reCurate: Boolean(reCurate),
+        slot: state.selectedRunSlot !== 'auto' ? state.selectedRunSlot : null
+      };
+      messageEl.className = 'muted';
+      messageEl.textContent = reCurate
+        ? 'Saving taste profile and re-curating 5 stories per category…'
+        : 'Saving editorial taste profile…';
+      try {
+        const res = await request('/admin/api/ai-curation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.aiCuration) state.aiCuration = res.aiCuration;
+        renderAiStagingSection();
+        refreshStoryAges();
+        messageEl.className = 'success';
+        messageEl.textContent = reCurate
+          ? (res.aiCuration?.lastSummary || 'Taste profile saved and staging queue refreshed.')
+          : 'Editorial taste profile saved.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not save taste profile: ' + error.message;
+      } finally {
+        state.savingTasteProfile = false;
+        renderAiTasteDrawer();
+      }
+    }
+
+    async function bulkDecideAiStagedStories(storyIds, action) {
+      const ids = Array.isArray(storyIds) ? storyIds.filter(Boolean) : [];
+      if (!ids.length || state.bulkDecidingAi) return;
+      state.bulkDecidingAi = true;
+      renderAiBulkActionBar(getVisibleAiStagedPicks());
+      const actionVerb = action === 'approve'
+        ? 'Approving'
+        : action === 'ban'
+          ? 'Banning'
+          : 'Disapproving';
+      messageEl.className = 'muted';
+      messageEl.textContent = actionVerb + ' ' + ids.length + ' staged ' + (ids.length === 1 ? 'story' : 'stories') + '…';
+      try {
+        const res = await request('/admin/api/ai-curation/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storyIds: ids, action })
+        });
+        ids.forEach(id => state.selectedAiStoryIds.delete(Number(id)));
+        if (res.aiCuration) state.aiCuration = res.aiCuration;
+        await refreshData();
+        messageEl.className = 'success';
+        const doneLabel = action === 'approve'
+          ? 'promoted to Approved Stories'
+          : action === 'ban'
+            ? 'banned from public feeds'
+            : 'marked Disapproved';
+        messageEl.textContent = (res.succeededCount || ids.length) + ' AI-staged ' +
+          ((res.succeededCount || ids.length) === 1 ? 'story ' : 'stories ') + doneLabel + '.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Bulk ' + action + ' failed: ' + error.message;
+      } finally {
+        state.bulkDecidingAi = false;
+        renderAiStagingSection();
+      }
+    }
+
+    document.getElementById('toggle-taste-drawer-btn').addEventListener('click', () => {
+      state.tasteDrawerOpen = !state.tasteDrawerOpen;
+      renderAiTasteDrawer();
+    });
+
     async function refreshData() {
       state.pages.pending = 1;
       messageEl.className = 'muted';
@@ -2193,6 +3110,7 @@ export function getAdminPage() {
         state.decidedStories = data.recentStories || [];
         state.bannedStories = data.bannedStories || [];
         if (data.autoSync) state.autoSync = data.autoSync;
+        if (data.aiCuration) state.aiCuration = data.aiCuration;
         if (data.providerLogs) {
           state.providerLogs = data.providerLogs.logs || [];
           state.providerLogsSummary = data.providerLogs.summary || state.providerLogsSummary;
@@ -2201,6 +3119,7 @@ export function getAdminPage() {
         renderProviderFilter();
         renderLogFilterOptions();
         renderProviderLogs();
+        renderAiStagingSection();
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
@@ -2230,8 +3149,10 @@ export function getAdminPage() {
       if (state.approving.has(storyId)) return;
       state.approving.add(storyId);
       renderStories(state.pendingStories, { pending: true });
+      renderAiStagingSection();
       try {
         await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/approve', { method: 'POST' });
+        state.selectedAiStoryIds.delete(Number(storyId));
         await refreshData();
         messageEl.className = 'success';
         messageEl.textContent = 'Story approved and published.';
@@ -2240,6 +3161,7 @@ export function getAdminPage() {
         messageEl.textContent = 'Story approval failed: ' + error.message;
       } finally {
         state.approving.delete(storyId);
+        renderAiStagingSection();
       }
     }
 
@@ -2249,8 +3171,10 @@ export function getAdminPage() {
       renderStories(state.pendingStories, { pending: true });
       renderStories(state.decidedStories, { decided: true });
       renderStories(state.bannedStories, { banned: true });
+      renderAiStagingSection();
       try {
         await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/' + action, { method: 'POST' });
+        state.selectedAiStoryIds.delete(Number(storyId));
         await refreshData();
         messageEl.className = 'success';
         messageEl.textContent = successMessage;
@@ -2262,6 +3186,7 @@ export function getAdminPage() {
         renderStories(state.pendingStories, { pending: true });
         renderStories(state.decidedStories, { decided: true });
         renderStories(state.bannedStories, { banned: true });
+        renderAiStagingSection();
       }
     }
 
@@ -3365,20 +4290,33 @@ export function getAdminPage() {
 
 
     async function checkStaleHourlySync() {
-      if (!state.autoSync?.enabled || state.syncingAll) return;
+      if (state.syncingAll || state.curatingAi) return;
+      const syncEnabled = state.autoSync?.enabled;
       const nextMs = Date.parse(state.autoSync?.nextRunAt || '');
-      if (Number.isFinite(nextMs) && Date.now() < nextMs) return;
+      const syncDue = syncEnabled && (!Number.isFinite(nextMs) || Date.now() >= nextMs);
+      const aiDue = state.aiCuration?.enabled && state.aiCuration?.isSlotDue;
+      if (!syncDue && !aiDue) return;
       try {
         const res = await request('/admin/api/auto-sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'check_stale' })
         });
-        if (res.triggered) {
+        if (res.triggered || res.aiTriggered) {
           await refreshData();
-        } else if (res.autoSync) {
-          state.autoSync = res.autoSync;
-          renderProviders(state.providers);
+          if (res.aiTriggered && res.aiRun?.summaryText) {
+            messageEl.className = 'success';
+            messageEl.textContent = 'Scheduled AI Curation completed: ' + res.aiRun.summaryText;
+          }
+        } else {
+          if (res.autoSync) {
+            state.autoSync = res.autoSync;
+            renderProviders(state.providers);
+          }
+          if (res.aiCuration) {
+            state.aiCuration = res.aiCuration;
+            renderAiStagingSection();
+          }
         }
       } catch {}
     }
