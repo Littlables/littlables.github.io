@@ -41,7 +41,7 @@ import {
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 
-const MAX_REQUEST_BYTES = 16_000;
+const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
 const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
@@ -1108,13 +1108,13 @@ async function readAdminStoryPayload(request) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return jsonResponse({ error: 'Story details must be an object' }, 400);
   }
-  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 500) : '';
   const link = typeof body.link === 'string' ? body.link.trim() : '';
   const image = typeof body.image === 'string' ? body.image.trim() : '';
-  const description = typeof body.description === 'string' ? body.description.trim() : '';
-  const content = typeof body.content === 'string' ? body.content.trim() : '';
-  const aiSummary = typeof body.aiSummary === 'string' ? body.aiSummary.trim() : '';
-  const source = typeof body.source === 'string' ? body.source.trim() : '';
+  const description = typeof body.description === 'string' ? body.description.trim().slice(0, 4_000) : '';
+  const content = typeof body.content === 'string' ? body.content.trim().slice(0, 4_000) : '';
+  const aiSummary = typeof body.aiSummary === 'string' ? body.aiSummary.trim().slice(0, 4_000) : '';
+  const source = typeof body.source === 'string' ? body.source.trim().slice(0, 500) : '';
   const category = typeof body.category === 'string' ? body.category : '';
   const pubDate = typeof body.pubDate === 'string' ? body.pubDate.trim() : '';
 

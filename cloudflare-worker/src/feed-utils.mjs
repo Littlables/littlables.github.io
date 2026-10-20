@@ -414,13 +414,13 @@ export function normalizeArticle({
   const normalizedLink = normalizeArticleUrl(link);
   if (!normalizedLink) return null;
   return {
-    title: decodeXml(title).trim(),
+    title: decodeXml(title).trim().slice(0, 500),
     link: normalizedLink,
     image: normalizeImageUrl(image),
-    description: typeof description === 'string' ? decodeXml(description).trim() : '',
-    content: typeof content === 'string' ? decodeXml(content).trim() : '',
+    description: typeof description === 'string' ? decodeXml(description).trim().slice(0, 4_000) : '',
+    content: typeof content === 'string' ? decodeXml(content).trim().slice(0, 4_000) : '',
     pubDate: typeof pubDate === 'string' ? pubDate.trim() : '',
-    source: typeof source === 'string' ? decodeXml(source).trim() : ''
+    source: typeof source === 'string' ? decodeXml(source).trim().slice(0, 500) : ''
   };
 }
 

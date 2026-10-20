@@ -3630,6 +3630,9 @@ export function getAdminPage() {
         const commitValue = () => {
           let next = input.value.trim();
           if (editor === 'datetime-local' && next) next = new Date(next).toISOString();
+          if (state.previewType !== 'ad' && STORY_FIELD_LIMITS[field]) {
+            next = next.slice(0, STORY_FIELD_LIMITS[field]);
+          }
           currentValue = next;
           currentDraft[field] = next;
           if (onSave) onSave(next);
@@ -4032,12 +4035,30 @@ export function getAdminPage() {
       preview.append(actions);
     }
 
+    const STORY_FIELD_LIMITS = {
+      title: 500,
+      description: 4000,
+      content: 4000,
+      aiSummary: 4000,
+      source: 500
+    };
+
+    function trimStoryDraftFields(draft) {
+      if (!draft || typeof draft !== 'object') return draft;
+      for (const [field, maxLen] of Object.entries(STORY_FIELD_LIMITS)) {
+        if (typeof draft[field] === 'string') {
+          draft[field] = draft[field].trim().slice(0, maxLen);
+        }
+      }
+      return draft;
+    }
+
     function openStoryPreview(story) {
       state.previewType = 'story';
       state.previewStoryId = story.id ?? null;
       state.previewStatusMessage = '';
       state.previewStatusType = 'muted';
-      state.previewDraft = {
+      state.previewDraft = trimStoryDraftFields({
         title: decodeHtmlEntities(story.title || ''),
         link: decodeHtmlEntities(story.link || ''),
         image: decodeHtmlEntities(story.image || ''),
@@ -4049,7 +4070,7 @@ export function getAdminPage() {
         category: story.category || 'all',
         approved: story.approved === true,
         removed: story.removed === true
-      };
+      });
       renderPreview();
       lockModalScroll();
       if (!previewDialog.open) previewDialog.showModal();
@@ -4081,7 +4102,7 @@ export function getAdminPage() {
 
     async function savePreview(approve) {
       commitAllOpenEditors();
-      const draft = state.previewDraft;
+      const draft = trimStoryDraftFields(state.previewDraft);
       const existingId = state.previewStoryId;
       try {
         if (existingId === null) {
@@ -4152,6 +4173,7 @@ export function getAdminPage() {
     async function generatePreviewSummary() {
       commitAllOpenEditors();
       if (!state.previewDraft || state.generatingSummary || state.generatingImage) return;
+      trimStoryDraftFields(state.previewDraft);
       state.generatingSummary = true;
       state.previewStatusType = 'muted';
       state.previewStatusMessage = 'Generating an AI summary from the current story details…';
@@ -4183,6 +4205,7 @@ export function getAdminPage() {
     async function generatePreviewImage() {
       commitAllOpenEditors();
       if (!state.previewDraft || state.generatingImage || state.generatingSummary) return;
+      trimStoryDraftFields(state.previewDraft);
       state.generatingImage = true;
       state.previewStatusType = 'muted';
       state.previewStatusMessage = 'Generating a fun Littlables AI image from the story details…';
