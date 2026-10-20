@@ -482,6 +482,12 @@ export function getAdminPage() {
       gap: .35rem;
     }
     .ai-summary-text { color: #e0e7ff; overflow-wrap: anywhere; }
+    .preview-ai-actions {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      flex-wrap: wrap;
+    }
     .summary-generate {
       padding: .4rem .7rem;
       background: #3730a3;
@@ -490,6 +496,29 @@ export function getAdminPage() {
       align-self: flex-start;
     }
     .summary-generate:hover:not(:disabled) { background: #4338ca; }
+    .image-generate {
+      background: #0f766e;
+    }
+    .image-generate:hover:not(:disabled) {
+      background: #0d9488;
+    }
+    .preview-image-loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(11, 15, 25, 0.72);
+      color: #f8fafc;
+      font-size: .82rem;
+      font-weight: 700;
+      z-index: 5;
+      text-align: center;
+      padding: 1rem;
+    }
+    .preview-status-msg {
+      margin: .65rem 0 0;
+      font-size: .8rem;
+    }
 
     /* Card Footer matching homepage */
     .news-card-footer {
@@ -935,6 +964,9 @@ export function getAdminPage() {
       previewAdDraft: null,
       previewAdId: null,
       generatingSummary: false,
+      generatingImage: false,
+      previewStatusMessage: '',
+      previewStatusType: 'muted',
       activeCategory: 'all',
       activeProvider: 'all',
       activeHistoryCategory: 'all',
@@ -2165,6 +2197,12 @@ export function getAdminPage() {
       image.alt = draft.title || '';
       image.onerror = () => { image.src = 'img/' + (stockImages[draft.category] || stockImages.all); };
       imageWrap.append(image);
+      if (state.generatingImage) {
+        const loadingBadge = document.createElement('div');
+        loadingBadge.className = 'preview-image-loading';
+        loadingBadge.textContent = '✨ Creating fun Littlables AI image…';
+        imageWrap.append(loadingBadge);
+      }
 
       editableField(imageWrap, 'category', 'category', {
         className: 'preview-category-edit',
@@ -2233,13 +2271,25 @@ export function getAdminPage() {
         content.append(aiSummary);
       }
 
+      const aiActions = document.createElement('div');
+      aiActions.className = 'preview-ai-actions';
+
       const generateSummary = document.createElement('button');
       generateSummary.type = 'button';
       generateSummary.className = 'summary-generate';
       generateSummary.textContent = state.generatingSummary ? 'Generating…' : 'Generate AI summary';
-      generateSummary.disabled = state.generatingSummary;
+      generateSummary.disabled = state.generatingSummary || state.generatingImage;
       generateSummary.addEventListener('click', generatePreviewSummary);
-      content.append(generateSummary);
+
+      const generateImage = document.createElement('button');
+      generateImage.type = 'button';
+      generateImage.className = 'summary-generate image-generate';
+      generateImage.textContent = state.generatingImage ? 'Generating image…' : 'Generate AI image';
+      generateImage.disabled = state.generatingImage || state.generatingSummary;
+      generateImage.addEventListener('click', generatePreviewImage);
+
+      aiActions.append(generateSummary, generateImage);
+      content.append(aiActions);
 
       const footer = document.createElement('div');
       footer.className = 'news-card-footer';
@@ -2280,6 +2330,14 @@ export function getAdminPage() {
         display: value => value || 'No extra source content'
       });
       preview.append(context);
+
+      if (state.previewStatusMessage) {
+        const statusMsg = document.createElement('p');
+        statusMsg.id = 'preview-status';
+        statusMsg.className = 'preview-status-msg ' + (state.previewStatusType || 'muted');
+        statusMsg.textContent = state.previewStatusMessage;
+        preview.append(statusMsg);
+      }
 
       const actions = document.createElement('div');
       actions.className = 'preview-actions';
@@ -2448,6 +2506,8 @@ export function getAdminPage() {
     function openStoryPreview(story) {
       state.previewType = 'story';
       state.previewStoryId = story.id ?? null;
+      state.previewStatusMessage = '';
+      state.previewStatusType = 'muted';
       state.previewDraft = {
         title: decodeHtmlEntities(story.title || ''),
         link: decodeHtmlEntities(story.link || ''),
@@ -2470,6 +2530,8 @@ export function getAdminPage() {
     function openAdPreview(ad) {
       state.previewType = 'ad';
       state.previewAdId = ad ? ad.id : null;
+      state.previewStatusMessage = '';
+      state.previewStatusType = 'muted';
       state.previewAdDraft = ad ? { ...ad } : {
         id: 'ad-' + Date.now(),
         title: 'New Curated Discovery',
@@ -2518,6 +2580,9 @@ export function getAdminPage() {
             ? 'Story changes saved and approved.'
             : 'Story changes saved.';
       } catch (error) {
+        state.previewStatusType = 'error';
+        state.previewStatusMessage = 'Could not save story: ' + error.message;
+        renderPreview();
         messageEl.className = 'error';
         messageEl.textContent = 'Could not save story: ' + error.message;
       }
@@ -2557,8 +2622,10 @@ export function getAdminPage() {
 
     async function generatePreviewSummary() {
       commitAllOpenEditors();
-      if (!state.previewDraft || state.generatingSummary) return;
+      if (!state.previewDraft || state.generatingSummary || state.generatingImage) return;
       state.generatingSummary = true;
+      state.previewStatusType = 'muted';
+      state.previewStatusMessage = 'Generating an AI summary from the current story details…';
       renderPreview();
       messageEl.className = 'muted';
       messageEl.textContent = 'Generating an AI summary from the current story details…';
@@ -2569,13 +2636,48 @@ export function getAdminPage() {
           body: JSON.stringify(state.previewDraft)
         });
         state.previewDraft.aiSummary = result.summary;
+        state.previewStatusType = 'success';
+        state.previewStatusMessage = 'AI summary generated. Save the card to publish it.';
         messageEl.className = 'success';
         messageEl.textContent = 'AI summary generated. Save the card to publish it.';
       } catch (error) {
+        state.previewStatusType = 'error';
+        state.previewStatusMessage = 'Could not generate AI summary: ' + error.message;
         messageEl.className = 'error';
         messageEl.textContent = 'Could not generate AI summary: ' + error.message;
       } finally {
         state.generatingSummary = false;
+        renderPreview();
+      }
+    }
+
+    async function generatePreviewImage() {
+      commitAllOpenEditors();
+      if (!state.previewDraft || state.generatingImage || state.generatingSummary) return;
+      state.generatingImage = true;
+      state.previewStatusType = 'muted';
+      state.previewStatusMessage = 'Generating a fun Littlables AI image from the story details…';
+      renderPreview();
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Generating a fun Littlables AI image from the story details…';
+      try {
+        const result = await request('/admin/api/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(state.previewDraft)
+        });
+        state.previewDraft.image = result.image;
+        state.previewStatusType = 'success';
+        state.previewStatusMessage = 'AI image generated! Click Save to keep this image.';
+        messageEl.className = 'success';
+        messageEl.textContent = 'AI image generated. Save the card to publish it.';
+      } catch (error) {
+        state.previewStatusType = 'error';
+        state.previewStatusMessage = 'Could not generate AI image: ' + error.message;
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not generate AI image: ' + error.message;
+      } finally {
+        state.generatingImage = false;
         renderPreview();
       }
     }

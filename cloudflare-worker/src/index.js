@@ -32,8 +32,12 @@ const MAX_PAGE_BYTES = 1_000_000;
 const MAX_PAGE_TEXT = 16_000;
 const MAX_REDIRECTS = 4;
 const MODEL = '@cf/meta/llama-3.2-3b-instruct';
+const IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
+const FALLBACK_IMAGE_MODEL = '@cf/bytedance/stable-diffusion-xl-lightning';
+const MAX_IMAGE_CACHE_ENTRIES = 30;
 const ADMIN_MARKET = 'en-US';
 const NEWS_CATEGORY_SET = new Set(NEWS_CATEGORIES);
+const imageMemoryCache = new Map();
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -275,7 +279,7 @@ async function serveAdmin(request, env) {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; connect-src 'self'; img-src https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        'Content-Security-Policy': "default-src 'none'; connect-src 'self'; img-src 'self' https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
       }
     });
   }
@@ -343,6 +347,28 @@ async function serveAdmin(request, env) {
       console.error('Admin AI summary generation failed:', err);
       return jsonResponse({
         error: err instanceof Error ? err.message : 'Could not generate an AI summary'
+      }, 502);
+    }
+  }
+
+  if (url.pathname === '/admin/api/image' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Image generation must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await readAdminStoryPayload(request);
+      if (payload instanceof Response) return payload;
+      if (!env.AI) return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+      if (!env.SUMMARY_RATE_LIMITER) {
+        return jsonResponse({ error: 'Summary rate limiter is not configured for this Worker' }, 503);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-image:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Image generation rate limit exceeded' }, 429);
+      return jsonResponse(await generateAdminStoryImage(payload, request.url, env));
+    } catch (err) {
+      console.error('Admin AI image generation failed:', err);
+      return jsonResponse({
+        error: err instanceof Error ? err.message : 'Could not generate an AI image'
       }, 502);
     }
   }
@@ -760,6 +786,240 @@ async function generateAdminSummary(story, env) {
   return summary.slice(0, 4_000);
 }
 
+function base64ToBytes(base64) {
+  const clean = base64.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '').replace(/\s+/g, '');
+  const binary = atob(clean);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function detectImageContentType(bytes) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png';
+  }
+  if (bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+    return 'image/webp';
+  }
+  return 'image/jpeg';
+}
+
+function createImageResponse({ bytes, contentType }) {
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': contentType || 'image/jpeg',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'X-Content-Type-Options': 'nosniff'
+    }
+  });
+}
+
+function rememberGeneratedImage(cacheKey, generated) {
+  if (imageMemoryCache.has(cacheKey)) {
+    imageMemoryCache.delete(cacheKey);
+  } else if (imageMemoryCache.size >= MAX_IMAGE_CACHE_ENTRIES) {
+    const oldestKey = imageMemoryCache.keys().next().value;
+    if (oldestKey) imageMemoryCache.delete(oldestKey);
+  }
+  imageMemoryCache.set(cacheKey, generated);
+}
+
+async function putImageInEdgeCache(cacheKey, generated) {
+  try {
+    if (typeof caches !== 'undefined' && caches?.default) {
+      await caches.default.put(cacheKey, createImageResponse(generated));
+    }
+  } catch (err) {
+    console.warn('Could not store generated image in edge cache:', err);
+  }
+}
+
+async function matchImageFromEdgeCache(cacheKey) {
+  try {
+    if (typeof caches !== 'undefined' && caches?.default) {
+      const matched = await caches.default.match(cacheKey);
+      if (matched) return matched;
+    }
+  } catch (err) {
+    console.warn('Could not read generated image from edge cache:', err);
+  }
+  return null;
+}
+
+async function buildLittlablesImagePrompt(story, env) {
+  const suppliedText = [story.aiSummary, story.description, story.content]
+    .map(value => extractPageText(decodeHtml(value || '')))
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 2_000);
+
+  let articleExcerpt = '';
+  if (suppliedText.length < 120 && story.link) {
+    try {
+      const page = await fetchPublicPage(story.link);
+      const scrapedText = extractPageText(page.content);
+      if (isReadableArticleText(scrapedText)) {
+        articleExcerpt = scrapedText.slice(0, 1_500);
+      }
+    } catch (err) {
+      console.warn(`Could not scrape article while preparing admin AI image ${story.link}:`, err);
+    }
+  }
+
+  const storyDetails = [
+    `Title: ${story.title}`,
+    story.category && story.category !== 'all' ? `Category: ${story.category}` : '',
+    suppliedText ? `Story details: ${suppliedText}` : '',
+    articleExcerpt ? `Article excerpt: ${articleExcerpt}` : ''
+  ].filter(Boolean).join('\n');
+
+  let sceneDescription = '';
+  try {
+    const generated = await env.AI.run(MODEL, {
+      messages: [
+        {
+          role: 'system',
+          content: 'Create a fun image prompt based around the provided story details that fits the theme of Littlables (a joyful, cozy, family-friendly, whimsical storybook news and discovery platform). Describe one charming, colorful visual scene inspired by the story details. Do not include any text, words, letters, logos, or watermarks in the image description. Output only the scene description in 1-2 sentences.'
+        },
+        {
+          role: 'user',
+          content: `Create a fun image based around these story details that fit the theme of Littlables:\n\n${storyDetails}`
+        }
+      ],
+      max_tokens: 120,
+      temperature: 0.6
+    });
+    if (typeof generated?.response === 'string') {
+      sceneDescription = generated.response.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 320);
+    }
+  } catch (err) {
+    console.warn('Could not refine image prompt with LLM, using story details directly:', err);
+  }
+
+  const fallbackDetails = [story.title, suppliedText.slice(0, 180)].filter(Boolean).join(' — ');
+  const coreScene = sceneDescription || fallbackDetails;
+
+  return `Create a fun image based around the story details that fit the theme of Littlables: ${coreScene}. Whimsical, warm, colorful family-friendly storybook illustration, cozy and uplifting Littlables aesthetic, charming characters and scenery, soft lighting, no text, no words, no watermarks.`.slice(0, 650);
+}
+
+async function runWorkersAiImageModel(prompt, seed, env) {
+  let rawResult;
+  try {
+    rawResult = await env.AI.run(IMAGE_MODEL, {
+      prompt,
+      num_steps: 4,
+      ...(Number.isFinite(seed) ? { seed } : {})
+    });
+  } catch (primaryErr) {
+    console.warn(`Primary image model (${IMAGE_MODEL}) failed, trying fallback:`, primaryErr);
+    try {
+      rawResult = await env.AI.run(FALLBACK_IMAGE_MODEL, {
+        prompt,
+        ...(Number.isFinite(seed) ? { seed } : {})
+      });
+    } catch {
+      console.error('Workers AI image generation failed:', primaryErr);
+      const details = primaryErr instanceof Error ? `: ${primaryErr.message.slice(0, 250)}` : '';
+      throw new Error(`Workers AI could not generate the image${details}`);
+    }
+  }
+
+  let bytes;
+  if (rawResult && typeof rawResult === 'object' && typeof rawResult.image === 'string' && rawResult.image.trim()) {
+    bytes = base64ToBytes(rawResult.image);
+  } else if (rawResult instanceof Uint8Array) {
+    bytes = rawResult;
+  } else if (rawResult instanceof ArrayBuffer) {
+    bytes = new Uint8Array(rawResult);
+  } else if (rawResult && (typeof rawResult.getReader === 'function' || (typeof ReadableStream !== 'undefined' && rawResult instanceof ReadableStream))) {
+    const ab = await new Response(rawResult).arrayBuffer();
+    bytes = new Uint8Array(ab);
+  } else {
+    throw new Error('Workers AI returned an empty or unsupported image payload.');
+  }
+
+  if (!bytes || bytes.byteLength === 0) {
+    throw new Error('Workers AI returned an empty image.');
+  }
+
+  return {
+    bytes,
+    contentType: detectImageContentType(bytes)
+  };
+}
+
+async function generateAdminStoryImage(story, requestUrl, env) {
+  const prompt = await buildLittlablesImagePrompt(story, env);
+  const seed = Math.floor(Math.random() * 1_000_000);
+  const generated = await runWorkersAiImageModel(prompt, seed, env);
+
+  const imageUrlObj = new URL('/ai-image', requestUrl);
+  imageUrlObj.searchParams.set('prompt', prompt);
+  imageUrlObj.searchParams.set('seed', String(seed));
+  const imageUrl = imageUrlObj.href;
+
+  rememberGeneratedImage(imageUrl, generated);
+  await putImageInEdgeCache(imageUrl, generated);
+
+  return {
+    image: imageUrl,
+    prompt
+  };
+}
+
+async function serveAiStoryImage(request, env) {
+  const url = new URL(request.url);
+  const prompt = (url.searchParams.get('prompt') || '').trim();
+  if (!prompt || prompt.length > 1_000) {
+    return jsonResponse({ error: 'A valid image prompt is required' }, 400);
+  }
+  const seedParam = Number(url.searchParams.get('seed'));
+  const seed = Number.isInteger(seedParam) && seedParam >= 0 ? seedParam : 0;
+
+  const cacheKey = url.href;
+  const memCached = imageMemoryCache.get(cacheKey);
+  if (memCached) {
+    return createImageResponse(memCached);
+  }
+
+  const edgeCached = await matchImageFromEdgeCache(cacheKey);
+  if (edgeCached) {
+    return edgeCached;
+  }
+
+  if (!env.AI) {
+    return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+  }
+  if (env.SUMMARY_RATE_LIMITER) {
+    const limit = await env.SUMMARY_RATE_LIMITER.limit({
+      key: `ai-image:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+    });
+    if (!limit.success) {
+      return jsonResponse({ error: 'AI image request rate limit exceeded' }, 429);
+    }
+  }
+
+  try {
+    const generated = await runWorkersAiImageModel(prompt, seed, env);
+    rememberGeneratedImage(cacheKey, generated);
+    await putImageInEdgeCache(cacheKey, generated);
+    return createImageResponse(generated);
+  } catch (err) {
+    console.error('Public AI story image generation failed:', err);
+    return jsonResponse({
+      error: err instanceof Error ? err.message : 'Unable to generate story image'
+    }, 502);
+  }
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -769,7 +1029,10 @@ export default {
     if (pathname === '/admin' || pathname.startsWith('/admin/')) {
       return serveAdmin(request, env);
     }
-    if (request.method === 'GET' && new URL(request.url).pathname === '/feed') {
+    if (request.method === 'GET' && pathname === '/ai-image') {
+      return serveAiStoryImage(request, env);
+    }
+    if (request.method === 'GET' && pathname === '/feed') {
       return serveNewsFeed(request, env);
     }
     return jsonResponse({ error: 'Route not found' }, 404);

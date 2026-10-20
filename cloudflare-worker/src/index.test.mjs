@@ -52,6 +52,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /AI summary source content/);
   assert.match(page, /editableField\(aiSummary, 'aiSummary', 'AI summary'/);
   assert.match(page, /Generate AI summary/);
+  assert.match(page, /Generate AI image/);
+  assert.match(page, /generatePreviewImage/);
   assert.match(page, /Total stories saved:/);
   assert.match(page, /Childcare & Family/);
   assert.match(page, /Future Tech & AI/);
@@ -962,3 +964,67 @@ test('admin ads API returns ads list and allows editing and creation', async () 
   assert.equal(postData.created, true);
   assert.equal(postData.ad.title, 'Brand New Showcase Product');
 });
+
+test('admin AI image endpoint creates a fun Littlables-themed prompt from story details and caches the generated image', async () => {
+  const aiCalls = [];
+  // Minimal valid JPEG header bytes in base64 (0xFF, 0xD8, 0xFF, 0xD9)
+  const fakeJpegBase64 = btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xd9));
+  const cookie = (await adminCookie()).split(';')[0];
+
+  const response = await worker.fetch(
+    new Request('https://worker.example/admin/api/image', {
+      method: 'POST',
+      headers: {
+        Origin: 'https://worker.example',
+        Cookie: cookie,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        title: 'Baby Sea Otters Learn to Juggle Shells at the Aquarium',
+        category: 'animals',
+        link: 'https://publisher.example/otters',
+        image: '',
+        description: 'Playful rescued sea otter pups practice dexterity with colorful seashells in a warm coastal habitat.',
+        content: 'Caretakers introduced enrichment toys and shells to help the young otters build foraging skills.',
+        aiSummary: 'Rescued sea otter pups are learning foraging skills through playful shell games.',
+        pubDate: '2026-10-19T12:00:00Z',
+        source: 'Ocean Wire'
+      })
+    }),
+    {
+      ...authEnv,
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      AI: {
+        run: async (model, input) => {
+          aiCalls.push({ model, input });
+          if (model === '@cf/meta/llama-3.2-3b-instruct') {
+            return {
+              response: 'Cheerful sea otter pups floating on cozy turquoise waves while juggling pastel seashells under warm sunlight.'
+            };
+          }
+          return { image: fakeJpegBase64 };
+        }
+      }
+    }
+  );
+
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.ok(data.image.startsWith('https://worker.example/ai-image?prompt='));
+  assert.match(data.prompt, /Create a fun image based around the story details that fit the theme of Littlables/i);
+  assert.match(data.prompt, /sea otter/i);
+  assert.equal(aiCalls.length, 2);
+  assert.equal(aiCalls[0].model, '@cf/meta/llama-3.2-3b-instruct');
+  assert.match(aiCalls[0].input.messages[1].content, /Create a fun image based around these story details that fit the theme of Littlables/);
+  assert.match(aiCalls[0].input.messages[1].content, /Baby Sea Otters Learn to Juggle Shells/);
+  assert.equal(aiCalls[1].model, '@cf/black-forest-labs/flux-1-schnell');
+
+  // Verify GET /ai-image serves the cached image without re-invoking AI
+  const imageGetResponse = await worker.fetch(new Request(data.image), {});
+  assert.equal(imageGetResponse.status, 200);
+  assert.equal(imageGetResponse.headers.get('Content-Type'), 'image/jpeg');
+  const servedBytes = new Uint8Array(await imageGetResponse.arrayBuffer());
+  assert.deepEqual(Array.from(servedBytes), [0xff, 0xd8, 0xff, 0xd9]);
+  assert.equal(aiCalls.length, 2);
+});
+
