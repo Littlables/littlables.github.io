@@ -42,3 +42,13 @@ Bing News and Reddit RSS do not require API keys. Reddit uses public subreddit A
 npm run build
 npm run preview
 ```
+
+### GitHub Actions Deployment (Pages + Cloudflare Worker)
+
+`.github/workflows/deploy.yml` deploys the frontend to GitHub Pages and automatically tests and deploys the Cloudflare Worker (`cloudflare-worker/`) **only when files in `cloudflare-worker/`, `ads/`, or `scripts/export_ads.py` have changed** (or when manually triggered via `workflow_dispatch` with `deploy_worker: true`).
+
+Configure the following GitHub Actions repository secrets for Worker deployment:
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with **Edit Cloudflare Workers** permissions.
+- `CLOUDFLARE_ACCOUNT_ID` — Your Cloudflare Account ID.
+- `WRANGLER_TOML` *(optional)* — Custom `wrangler.toml` contents if not using `cloudflare-worker/wrangler.example.toml`.
+

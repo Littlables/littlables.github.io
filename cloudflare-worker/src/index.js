@@ -22,8 +22,10 @@ import {
   getStoredNewsFeed,
   undoNewsStoryDecision,
   updateNewsStory,
-  upsertNewsStories
+  upsertNewsStories,
+  searchNewsStories
 } from './news-storage.mjs';
+import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 
 const MAX_REQUEST_BYTES = 16_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -426,6 +428,55 @@ async function serveAdmin(request, env) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update news provider' }, 502);
     }
   }
+
+  if (url.pathname === '/admin/api/stories/search' && request.method === 'GET') {
+    const q = url.searchParams.get('q') || '';
+    if (!q.trim()) return jsonResponse({ items: [] });
+    try {
+      const items = await searchNewsStories(env, q);
+      return jsonResponse({ items });
+    } catch (err) {
+      console.error('Story search failed:', err);
+      return jsonResponse({ items: [] });
+    }
+  }
+
+  if (url.pathname === '/admin/api/ads' && request.method === 'GET') {
+    const category = url.searchParams.get('category') || 'all';
+    const network = url.searchParams.get('network') || 'all';
+    const query = url.searchParams.get('q') || '';
+    return jsonResponse({ ads: getAds({ category, network, query }) });
+  }
+
+  if (url.pathname === '/admin/api/ads' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Ad creation must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      const ad = createAd(payload);
+      return jsonResponse({ id: ad.id, created: true, ad });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not create ad' }, 500);
+    }
+  }
+
+  const adEditMatch = url.pathname.match(/^\/admin\/api\/ads\/([^/]+)$/);
+  if (adEditMatch && (request.method === 'PATCH' || request.method === 'PUT')) {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Ad updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      const adId = decodeURIComponent(adEditMatch[1]);
+      const updated = updateAd(adId, payload);
+      if (!updated) return jsonResponse({ error: 'Ad was not found' }, 404);
+      return jsonResponse({ id: adId, updated: true, ad: updated });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update ad' }, 500);
+    }
+  }
+
   if (url.pathname.startsWith('/admin/api/')) {
     return jsonResponse({ error: 'Admin API route not found' }, 404);
   }

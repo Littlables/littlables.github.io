@@ -448,3 +448,31 @@ export async function finishNewsProviderSync(env, provider, {
   });
   if (!response.ok) throw new Error(`Saving ${provider} update status failed (HTTP ${response.status})`);
 }
+
+export async function searchNewsStories(env, queryText, limit = 50) {
+  if (!queryText || !queryText.trim()) return [];
+  const clean = queryText.trim().replace(/[*%]/g, '');
+  const params = new URLSearchParams({
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at',
+    or: `(title.ilike.*${encodeURIComponent(clean)}*,description.ilike.*${encodeURIComponent(clean)}*,source_name.ilike.*${encodeURIComponent(clean)}*,category.ilike.*${encodeURIComponent(clean)}*)`,
+    order: 'published_at.desc.nullslast,fetched_at.desc',
+    limit: String(limit)
+  });
+  try {
+    const response = await fetch(supabaseUrl(env, STORIES_TABLE, params), {
+      headers: supabaseHeaders(env)
+    });
+    if (!response.ok) return [];
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return [];
+    return rows.map(row => ({
+      ...normalizeStory(row),
+      id: row.id,
+      approved: row.approved,
+      removed: row.removed
+    }));
+  } catch (err) {
+    console.error('searchNewsStories failed:', err);
+    return [];
+  }
+}

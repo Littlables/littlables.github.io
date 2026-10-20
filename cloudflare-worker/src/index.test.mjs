@@ -890,3 +890,66 @@ test('provider update ingests all configured GNews categories and writes status'
     globalThis.fetch = originalFetch;
   }
 });
+
+test('admin ads API returns ads list and allows editing and creation', async () => {
+  const cookie = (await adminCookie()).split(';')[0];
+  
+  // 1. GET /admin/api/ads
+  const getResponse = await worker.fetch(
+    new Request('https://worker.example/admin/api/ads', {
+      headers: { Cookie: cookie }
+    }),
+    authEnv
+  );
+  assert.equal(getResponse.status, 200);
+  const data = await getResponse.json();
+  assert.ok(Array.isArray(data.ads));
+  assert.ok(data.ads.length > 0);
+  const firstAd = data.ads[0];
+
+  // 2. PATCH /admin/api/ads/:id (edit an ad)
+  const patchResponse = await worker.fetch(
+    new Request(`https://worker.example/admin/api/ads/${encodeURIComponent(firstAd.id)}`, {
+      method: 'PATCH',
+      headers: {
+        Origin: 'https://worker.example',
+        Cookie: cookie,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        title: 'Updated Test Ad Title',
+        desc: 'Updated test ad description with more details.'
+      })
+    }),
+    authEnv
+  );
+  assert.equal(patchResponse.status, 200);
+  const patchData = await patchResponse.json();
+  assert.equal(patchData.updated, true);
+  assert.equal(patchData.ad.title, 'Updated Test Ad Title');
+
+  // 3. POST /admin/api/ads (create new ad)
+  const postResponse = await worker.fetch(
+    new Request('https://worker.example/admin/api/ads', {
+      method: 'POST',
+      headers: {
+        Origin: 'https://worker.example',
+        Cookie: cookie,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        title: 'Brand New Showcase Product',
+        desc: 'Exciting learning product.',
+        sponsor: 'Creator Labs',
+        cta: 'Get Now →',
+        category: 'childcare',
+        network: 'Partner'
+      })
+    }),
+    authEnv
+  );
+  assert.equal(postResponse.status, 200);
+  const postData = await postResponse.json();
+  assert.equal(postData.created, true);
+  assert.equal(postData.ad.title, 'Brand New Showcase Product');
+});
