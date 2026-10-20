@@ -64,7 +64,9 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Set Worker secret/);
   assert.match(page, /Topics:/);
   assert.match(page, /between topic requests/);
-  assert.match(page, /Last 10 decided-on stories/);
+  assert.match(page, /History/);
+  assert.match(page, /id="history-categories"/);
+  assert.match(page, /id="history-provider"/);
   assert.match(page, /decisions-toggle/);
   assert.match(page, /aria-expanded="false" aria-controls="stories"/);
   assert.match(page, /aria-expanded="false" aria-controls="banned-stories"/);

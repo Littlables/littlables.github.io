@@ -79,8 +79,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
   const recentQuery = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
     decision_at: 'not.is.null',
-    order: 'decision_at.desc',
-    limit: '10'
+    order: 'decision_at.desc'
   });
   const pendingQuery = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action',

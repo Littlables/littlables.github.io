@@ -207,7 +207,7 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.providers[0].total_stories_saved, 17);
     assert.equal(requests.length, 6);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
-    assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), '10');
+    assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), null);
     assert.ok(requests.some(({ url }) =>
       url.searchParams.get('approved') === 'eq.false' &&
       url.searchParams.get('removed') === 'eq.false'

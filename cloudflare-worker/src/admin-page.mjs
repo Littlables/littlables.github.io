@@ -835,13 +835,13 @@ export function getAdminPage() {
       <div id="providers" class="providers" aria-live="polite" hidden style="margin-top: .85rem;"></div>
     </section>
 
-    <!-- 7. DECIDED STORIES SECTION -->
+    <!-- 7. HISTORY SECTION -->
     <section aria-labelledby="stories-title" class="admin-card-section" data-section-id="decisions">
       <div class="section-header">
         <h2 id="stories-title">
           <button id="decisions-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="stories" data-section-toggle="decisions">
             <span id="decisions-arrow" class="section-arrow" aria-hidden="true">▼</span>
-            <span>Last 10 decided-on stories</span>
+            <span>History <span id="history-count"></span></span>
           </button>
         </h2>
         <div class="section-controls">
@@ -850,6 +850,15 @@ export function getAdminPage() {
         </div>
       </div>
       <div id="decisions-body" class="section-body" hidden>
+        <nav id="history-categories" class="category-tabs" aria-label="Filter history stories by category"></nav>
+        <div class="filter-bar">
+          <label class="provider-toolbar" for="history-provider">
+            Provider
+            <select id="history-provider" class="provider-filter">
+              <option value="all">All providers</option>
+            </select>
+          </label>
+        </div>
         <div id="stories" aria-controls="stories"></div>
         <div id="decided-pagination" class="pagination-bar"></div>
       </div>
@@ -861,7 +870,7 @@ export function getAdminPage() {
         <h2 id="banned-title">
           <button id="banned-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="banned-stories" data-section-toggle="banned">
             <span id="banned-arrow" class="section-arrow" aria-hidden="true">▼</span>
-            <span>Banned stories</span>
+            <span>Banned stories <span id="banned-count"></span></span>
           </button>
         </h2>
         <div class="section-controls">
@@ -928,6 +937,8 @@ export function getAdminPage() {
       generatingSummary: false,
       activeCategory: 'all',
       activeProvider: 'all',
+      activeHistoryCategory: 'all',
+      activeHistoryProvider: 'all',
       activeAdCategory: 'all',
       activeAdNetwork: 'all',
       adSearchQuery: '',
@@ -954,6 +965,8 @@ export function getAdminPage() {
     const messageEl = document.getElementById('message');
     const categoryEl = document.getElementById('approval-categories');
     const providerFilterEl = document.getElementById('approval-provider');
+    const historyCategoryEl = document.getElementById('history-categories');
+    const historyProviderFilterEl = document.getElementById('history-provider');
     const adsCategoriesEl = document.getElementById('ads-categories');
     const adsNetworkFilterEl = document.getElementById('ads-network-filter');
     const adsListEl = document.getElementById('ads-list');
@@ -1312,6 +1325,24 @@ export function getAdminPage() {
       });
     }
 
+    function renderHistoryCategoryTabs() {
+      historyCategoryEl.replaceChildren();
+      categories.forEach((category) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'category-tab';
+        button.setAttribute('aria-pressed', String(state.activeHistoryCategory === category.id));
+        button.textContent = category.icon + ' ' + category.label;
+        button.addEventListener('click', () => {
+          state.activeHistoryCategory = category.id;
+          state.pages.decided = 1;
+          renderHistoryCategoryTabs();
+          renderStories(state.decidedStories, { decided: true });
+        });
+        historyCategoryEl.append(button);
+      });
+    }
+
     function renderAdsCategoryTabs() {
       adsCategoriesEl.replaceChildren();
       categories.forEach((category) => {
@@ -1347,6 +1378,23 @@ export function getAdminPage() {
         ? selectedProvider
         : 'all';
       providerFilterEl.value = state.activeProvider;
+
+      const selectedHistoryProvider = state.activeHistoryProvider;
+      historyProviderFilterEl.replaceChildren();
+      const allHistOption = document.createElement('option');
+      allHistOption.value = 'all';
+      allHistOption.textContent = 'All providers';
+      historyProviderFilterEl.append(allHistOption);
+      state.providers.forEach((provider) => {
+        const option = document.createElement('option');
+        option.value = provider.id;
+        option.textContent = provider.name;
+        historyProviderFilterEl.append(option);
+      });
+      state.activeHistoryProvider = state.providers.some(provider => provider.id === selectedHistoryProvider)
+        ? selectedHistoryProvider
+        : 'all';
+      historyProviderFilterEl.value = state.activeHistoryProvider;
     }
 
     function createStoryCardRow(story, { pending = false, decided = false, banned = false, isSearch = false } = {}) {
@@ -1407,7 +1455,7 @@ export function getAdminPage() {
       updated.dataset.updatedAt = story.updatedAt || story.pubDate || '';
       meta.append(updated);
 
-      if (isSearch) {
+      if (isSearch || decided) {
         const statusSpan = document.createElement('span');
         statusSpan.className = 'meta-badge-status ' + (story.removed ? 'meta-banned' : story.approved ? 'meta-approved' : 'meta-pending');
         statusSpan.textContent = story.removed ? 'Banned' : story.approved ? 'Approved' : 'Pending';
@@ -1477,14 +1525,34 @@ export function getAdminPage() {
         banButton.disabled = state.banning.has(story.id);
         banButton.addEventListener('click', () => banStory(story.id));
         actions.append(button, disapproveButton, ignoreButton, banButton);
-      } else if (story.approved && !story.removed) {
-        const disapproveButton = document.createElement('button');
-        disapproveButton.type = 'button';
-        disapproveButton.className = 'secondary small-btn';
-        disapproveButton.textContent = state.unapproving.has(story.id) ? 'Disapproving…' : 'Disapprove';
-        disapproveButton.disabled = state.unapproving.has(story.id);
-        disapproveButton.addEventListener('click', () => disapproveStory(story.id));
-        actions.append(disapproveButton);
+      } else {
+        if (!story.approved && !story.removed) {
+          const approveBtn = document.createElement('button');
+          approveBtn.type = 'button';
+          approveBtn.className = 'small-btn';
+          approveBtn.textContent = state.approving.has(story.id) ? 'Approving…' : 'Approve';
+          approveBtn.disabled = state.approving.has(story.id);
+          approveBtn.addEventListener('click', () => approveStory(story.id));
+          actions.append(approveBtn);
+        }
+        if (story.approved && !story.removed) {
+          const disapproveButton = document.createElement('button');
+          disapproveButton.type = 'button';
+          disapproveButton.className = 'secondary small-btn';
+          disapproveButton.textContent = state.unapproving.has(story.id) ? 'Disapproving…' : 'Disapprove';
+          disapproveButton.disabled = state.unapproving.has(story.id);
+          disapproveButton.addEventListener('click', () => disapproveStory(story.id));
+          actions.append(disapproveButton);
+        }
+        if (!story.removed) {
+          const banButton = document.createElement('button');
+          banButton.type = 'button';
+          banButton.className = 'secondary small-btn';
+          banButton.textContent = state.banning.has(story.id) ? 'Banning…' : 'Ban';
+          banButton.disabled = state.banning.has(story.id);
+          banButton.addEventListener('click', () => banStory(story.id));
+          actions.append(banButton);
+        }
       }
       if (
         (decided || banned) &&
@@ -1521,7 +1589,11 @@ export function getAdminPage() {
           !state.ignored.has(story.id) &&
           (state.activeCategory === 'all' || story.category === state.activeCategory) &&
           (state.activeProvider === 'all' || story.provider === state.activeProvider))
-        : stories;
+        : decided
+          ? stories.filter((story) =>
+            (state.activeHistoryCategory === 'all' || story.category === state.activeHistoryCategory) &&
+            (state.activeHistoryProvider === 'all' || story.provider === state.activeHistoryProvider))
+          : stories;
 
       const pager = renderPaginationBar(paginationId, listKey, visibleStories.length, () => {
         renderStories(stories, { pending, decided, banned });
@@ -1544,7 +1616,7 @@ export function getAdminPage() {
             : banned
               ? 'No banned stories.'
             : decided
-              ? 'No stories have been decided yet.'
+              ? 'No stories in history match the current filters.'
             : 'No stories have been saved yet.';
         container.append(empty);
       }
@@ -1796,7 +1868,14 @@ export function getAdminPage() {
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
           : '';
+        document.getElementById('history-count').textContent = state.decidedStories.length
+          ? '(' + state.decidedStories.length + ')'
+          : '';
+        document.getElementById('banned-count').textContent = state.bannedStories.length
+          ? '(' + state.bannedStories.length + ')'
+          : '';
         renderCategoryTabs();
+        renderHistoryCategoryTabs();
         renderAdsCategoryTabs();
         renderStories(state.pendingStories, { pending: true });
         renderStories(state.decidedStories, { decided: true });
@@ -2570,6 +2649,14 @@ export function getAdminPage() {
       state.activeProvider = providerFilterEl.value;
       refreshData();
     });
+
+    historyProviderFilterEl.addEventListener('change', () => {
+      state.activeHistoryProvider = historyProviderFilterEl.value;
+      state.pages.decided = 1;
+      renderStories(state.decidedStories, { decided: true });
+      refreshStoryAges();
+    });
+
 
     restoreSectionLayout();
     refreshData();
