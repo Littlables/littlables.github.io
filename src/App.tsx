@@ -9,6 +9,7 @@ import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
+import { SettingsDialog } from './components/SettingsDialog';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
 import {
@@ -54,7 +55,7 @@ export const App: React.FC = () => {
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
-  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | null>(null);
+  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | null>(null);
 
   // Set document title and lang from current locale and active story/topic
   useEffect(() => {
@@ -200,6 +201,26 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleHomeRefresh = () => {
+    setSelectedStory(null);
+    setActiveStoryParam(null);
+    try {
+      localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
+    } catch {}
+    if (typeof window !== 'undefined') {
+      const homeHref = getTopicHref('all');
+      if (window.location.pathname + window.location.search !== homeHref) {
+        window.history.pushState({ topic: 'all', story: null }, '', homeHref);
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    if (category !== 'all') {
+      setCategoryState('all');
+    } else {
+      loadFeed('all');
+    }
+  };
+
   const handleOpenStory = (item: NewsItem, index: number) => {
     setSelectedStory({ item, index });
     if (typeof window !== 'undefined') {
@@ -280,9 +301,9 @@ export const App: React.FC = () => {
     <>
       <div className="news-widget-wrapper">
         <Header
-          theme={theme}
-          onThemeChange={setTheme}
+          onHomeClick={handleHomeRefresh}
           onRefresh={() => loadFeed(category)}
+          onOpenSettings={() => setActiveDialog('settings')}
           isLoading={isLoading}
         />
 
@@ -392,6 +413,13 @@ export const App: React.FC = () => {
         id="disclaimer"
         isOpen={activeDialog === 'disclaimer'}
         onClose={() => setActiveDialog(null)}
+      />
+
+      <SettingsDialog
+        isOpen={activeDialog === 'settings'}
+        onClose={() => setActiveDialog(null)}
+        theme={theme}
+        onThemeChange={setTheme}
       />
     </>
   );
