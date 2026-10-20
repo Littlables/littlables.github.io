@@ -2,7 +2,7 @@ import React from 'react';
 import { NewsCategory } from '../types';
 import { CATEGORIES } from '../constants/config';
 import { t, TranslationStrings } from '../constants/translations';
-
+import { getTopicHref } from '../services/urlService';
 import { RIBBON_UMAMI_EVENTS, trackCategoryClick } from '../services/trackingService';
 
 interface CategoryNavProps {
@@ -21,21 +21,28 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
           const isActive = currentCategory === cat.id;
           const label = t(cat.i18nKey as keyof TranslationStrings) || cat.id;
           const eventName = RIBBON_UMAMI_EVENTS[cat.id] || `Ribbon-${cat.id}`;
+          const topicHref = getTopicHref(cat.id);
+
           return (
-            <button
+            <a
               key={cat.id}
+              href={topicHref}
               className={`cat-pill ${isActive ? 'active' : ''}`}
               data-category={cat.id}
               data-umami-event={eventName}
-              onClick={() => {
+              aria-current={isActive ? 'page' : undefined}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                  return;
+                }
+                e.preventDefault();
                 trackCategoryClick(cat.id);
                 onSelectCategory(cat.id);
               }}
-              type="button"
             >
               <span>{cat.icon}</span>
               <span className="cat-text">{label}</span>
-            </button>
+            </a>
           );
         })}
       </nav>

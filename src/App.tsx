@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { CategoryNav } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
 import { AdCard } from './components/AdCard';
+import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { fetchNewsFeed } from './services/newsService';
@@ -16,12 +17,23 @@ import {
   subscribeToReactions,
   getStoryId
 } from './services/supabaseService';
+import {
+  parseTopicFromUrl,
+  parseStoryFromUrl,
+  getTopicHref,
+  getStoryHref,
+  matchesStoryParam
+} from './services/urlService';
 import { t, getDetectedLocale } from './constants/translations';
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
 
   const [category, setCategoryState] = useState<NewsCategory>(() => {
+    const urlTopic = parseTopicFromUrl();
+    if (urlTopic) {
+      return urlTopic;
+    }
     try {
       const saved = localStorage.getItem(SAVED_CATEGORY_KEY) as NewsCategory;
       if (CATEGORIES.some(c => c.id === saved)) {
@@ -37,15 +49,51 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
+  const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
   const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | null>(null);
 
-  // Set document title and lang from current locale
+  // Set document title and lang from current locale and active story/topic
   useEffect(() => {
     const locale = getDetectedLocale();
     document.documentElement.lang = locale.lang;
     document.documentElement.dir = locale.lang === 'ar' ? 'rtl' : 'ltr';
-    document.title = t('pageTitle') || 'Littlables — A Little Scoop of the World';
+    const baseTitle = t('pageTitle') || 'Littlables — A Little Scoop of the World';
+    if (selectedStory?.item?.title) {
+      document.title = `${selectedStory.item.title} — Littlables`;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [selectedStory]);
+
+  // Ensure initial URL reflects the active topic if not already in the address bar
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const currentUrlTopic = parseTopicFromUrl();
+    const currentStory = parseStoryFromUrl();
+    if (!currentUrlTopic && !currentStory && category !== 'all') {
+      const nextHref = getTopicHref(category);
+      window.history.replaceState({ topic: category, story: null }, '', nextHref);
+    }
   }, []);
+
+  // Listen to browser Back / Forward navigation
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      const urlTopic = parseTopicFromUrl();
+      const urlStory = parseStoryFromUrl();
+      if (urlTopic && urlTopic !== category) {
+        setCategoryState(urlTopic);
+      }
+      setActiveStoryParam(urlStory);
+      if (!urlStory) {
+        setSelectedStory(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [category]);
 
   const loadFeed = useCallback(async (cat: NewsCategory) => {
     setIsLoading(true);
@@ -77,6 +125,38 @@ export const App: React.FC = () => {
     loadFeed(category);
   }, [category, loadFeed]);
 
+  // Resolve deep-linked story parameter when stories load or URL changes
+  useEffect(() => {
+    if (!activeStoryParam) {
+      setSelectedStory(null);
+      return;
+    }
+    if (stories.length === 0) return;
+
+    const matchIndex = stories.findIndex(s => matchesStoryParam(s, activeStoryParam));
+    if (matchIndex !== -1) {
+      setSelectedStory({ item: stories[matchIndex], index: matchIndex });
+      return;
+    }
+
+    // If not found in the active category feed, check the combined 'all' feed as fallback
+    let cancelled = false;
+    if (category !== 'all') {
+      fetchNewsFeed('all')
+        .then((allStories) => {
+          if (cancelled) return;
+          const idx = allStories.findIndex(s => matchesStoryParam(s, activeStoryParam));
+          if (idx !== -1) {
+            setSelectedStory({ item: allStories[idx], index: idx });
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStoryParam, stories, category]);
+
   // Subscribe to real-time reactions
   useEffect(() => {
     const unsubscribe = subscribeToReactions((storyId, type, count) => {
@@ -97,9 +177,33 @@ export const App: React.FC = () => {
 
   const handleSelectCategory = (newCat: NewsCategory) => {
     setCategoryState(newCat);
+    setSelectedStory(null);
+    setActiveStoryParam(null);
     try {
       localStorage.setItem(SAVED_CATEGORY_KEY, newCat);
     } catch {}
+    if (typeof window !== 'undefined') {
+      const nextHref = getTopicHref(newCat);
+      window.history.pushState({ topic: newCat, story: null }, '', nextHref);
+    }
+  };
+
+  const handleOpenStory = (item: NewsItem, index: number) => {
+    setSelectedStory({ item, index });
+    if (typeof window !== 'undefined') {
+      const storyHref = getStoryHref(item, category);
+      window.history.pushState({ topic: category, story: item.link }, '', storyHref);
+      setActiveStoryParam(parseStoryFromUrl());
+    }
+  };
+
+  const handleCloseStory = () => {
+    setSelectedStory(null);
+    setActiveStoryParam(null);
+    if (typeof window !== 'undefined') {
+      const topicHref = getTopicHref(category);
+      window.history.pushState({ topic: category, story: null }, '', topicHref);
+    }
   };
 
   const handleReaction = async (storyId: string, type: ReactionType) => {
@@ -138,6 +242,13 @@ export const App: React.FC = () => {
     if (targetCat === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
     return `${icon} ${t((active?.i18nKey || 'catAll') as any)}`;
   };
+
+  const selectedStoryId = selectedStory
+    ? getStoryId(selectedStory.item.title, selectedStory.item.link)
+    : null;
+  const selectedStoryReactions = selectedStoryId
+    ? (reactions[selectedStoryId] || { love: 0, mind: 0, cozy: 0 })
+    : { love: 0, mind: 0, cozy: 0 };
 
   return (
     <>
@@ -190,6 +301,7 @@ export const App: React.FC = () => {
                     categoryBadge={storyBadge}
                     reactions={cardReactions}
                     onReact={handleReaction}
+                    onOpenStory={handleOpenStory}
                   />
 
                   {shouldInsertAd && currentAd && (
@@ -201,6 +313,17 @@ export const App: React.FC = () => {
           )}
         </main>
       </div>
+
+      <StoryModal
+        story={selectedStory?.item || null}
+        index={selectedStory?.index || 0}
+        category={category}
+        categoryBadge={selectedStory ? getCategoryBadge(selectedStory.item.category) : ''}
+        reactions={selectedStoryReactions}
+        onReact={handleReaction}
+        onClose={handleCloseStory}
+        onSelectCategory={handleSelectCategory}
+      />
 
       <Footer
         onOpenAbout={() => setActiveDialog('about')}
