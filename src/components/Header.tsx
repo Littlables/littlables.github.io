@@ -38,6 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
             id="theme-select"
             className="theme-dropdown-select"
             aria-label="Select Theme"
+            data-umami-event="Select-Theme"
             value={theme}
             onChange={(e) => onThemeChange(e.target.value as ThemeId)}
           >
@@ -52,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
           id="refresh-news-btn"
           className="refresh-news-button"
           title="Refresh Stories"
+          data-umami-event="Refresh-Feed"
           onClick={onRefresh}
           disabled={isLoading}
         >

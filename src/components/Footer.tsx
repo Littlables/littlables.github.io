@@ -14,6 +14,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAbout, onOpenDisclaimer })
       <nav aria-label="About Littlables">
         <a
           href="#about-us"
+          data-umami-event="Open-About"
           onClick={(e) => {
             e.preventDefault();
             onOpenAbout();
@@ -23,6 +24,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAbout, onOpenDisclaimer })
         </a>
         <a
           href="#disclaimer"
+          data-umami-event="Open-Disclaimer"
           onClick={(e) => {
             e.preventDefault();
             onOpenDisclaimer();

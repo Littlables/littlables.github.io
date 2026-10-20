@@ -3,6 +3,7 @@ import { NewsItem, NewsCategory, ReactionType, ReactionCounts } from '../types';
 import { resolveImageUrl } from '../services/newsService';
 import { getStoryId, hasUserReacted } from '../services/supabaseService';
 import { t } from '../constants/translations';
+import { trackStoryClick } from '../services/trackingService';
 
 interface NewsCardProps {
   item: NewsItem;
@@ -41,6 +42,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     onReact(storyId, type);
   };
 
+  const handleStoryLinkClick = () => {
+    trackStoryClick(item);
+  };
+
   return (
     <article className="news-card">
       <div className="news-card-image-wrap">
@@ -69,6 +74,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           target="_blank"
           rel="noopener noreferrer"
           className="news-card-title"
+          data-umami-event="Clicked-Story"
+          data-umami-event-url={item.link || ''}
+          data-umami-event-title={item.title}
+          onClick={handleStoryLinkClick}
         >
           {item.title}
         </a>
@@ -91,6 +100,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             className="news-read-more-btn"
+            data-umami-event="Clicked-Story"
+            data-umami-event-url={item.link || ''}
+            data-umami-event-title={item.title}
+            onClick={handleStoryLinkClick}
           >
             {t('readMore') || 'Read Full Story →'}
           </a>
@@ -101,6 +114,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               onClick={() => handleReactionClick('love')}
               title="Love it"
               type="button"
+              data-umami-event="Reaction-Love"
+              data-umami-event-story={item.title}
             >
               <span>❤️</span>
               <span className="reaction-count">{reactions.love}</span>
@@ -111,6 +126,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               onClick={() => handleReactionClick('mind')}
               title="Mind Blown"
               type="button"
+              data-umami-event="Reaction-Mind"
+              data-umami-event-story={item.title}
             >
               <span>🤯</span>
               <span className="reaction-count">{reactions.mind}</span>
@@ -121,6 +138,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               onClick={() => handleReactionClick('cozy')}
               title="Cozy"
               type="button"
+              data-umami-event="Reaction-Cozy"
+              data-umami-event-story={item.title}
             >
               <span>🧸</span>
               <span className="reaction-count">{reactions.cozy}</span>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { AdItem, NewsCategory } from '../types';
 import { t } from '../constants/translations';
+import { getAdNetwork, trackAdClick } from '../services/trackingService';
 
 interface AdCardProps {
   ad: AdItem;
@@ -19,8 +20,12 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     }
   }, []);
 
+  const network = getAdNetwork(ad.url, ad.sponsor);
+  const umamiEvent = `Clicked-${network}-Card`;
+
   const handleCardClick = (e: React.MouseEvent) => {
     if (ad.url && ad.url !== '#') {
+      trackAdClick(ad);
       const target = e.target as HTMLElement;
       // If user clicked directly on an <a> element, let native link behavior handle it
       if (target.closest('a')) return;
@@ -28,9 +33,16 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     }
   };
 
+  const handleLinkClick = () => {
+    if (ad.url && ad.url !== '#') {
+      trackAdClick(ad);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.key === 'Enter' || e.key === ' ') && ad.url && ad.url !== '#') {
       e.preventDefault();
+      trackAdClick(ad);
       window.open(ad.url, '_blank', 'noopener,noreferrer');
     }
   };
@@ -45,6 +57,10 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
       tabIndex={0}
       role="link"
       aria-label={`Sponsored: ${ad.title}`}
+      data-umami-event={umamiEvent}
+      data-umami-event-url={ad.url || ''}
+      data-umami-event-title={ad.title}
+      data-umami-event-network={network}
     >
       <div className="news-card-image-wrap">
         <img
@@ -70,6 +86,10 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           target="_blank"
           rel="noopener noreferrer"
           className="news-card-title ad-card-title"
+          data-umami-event={umamiEvent}
+          data-umami-event-url={ad.url || ''}
+          data-umami-event-title={ad.title}
+          onClick={handleLinkClick}
         >
           {ad.title}
         </a>
@@ -93,6 +113,10 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
             target="_blank"
             rel="noopener noreferrer"
             className="ad-cta-btn"
+            data-umami-event={umamiEvent}
+            data-umami-event-url={ad.url || ''}
+            data-umami-event-title={ad.title}
+            onClick={handleLinkClick}
           >
             {ad.cta}
           </a>
@@ -101,3 +125,4 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     </article>
   );
 };
+
