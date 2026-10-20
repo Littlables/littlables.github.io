@@ -8,6 +8,8 @@ export interface NewsItem {
   title: string;
   link: string;
   image?: string;
+  imageUrl?: string;
+  image_url?: string;
   thumbnail?: string;
   enclosure?: {
     link?: string;
@@ -17,6 +19,9 @@ export interface NewsItem {
   pubDate?: string;
   fetchedAt?: string;
   approved?: boolean;
+  category?: NewsCategory;
+  provider?: string;
+  source?: string;
 }
 
 export interface AdItem {

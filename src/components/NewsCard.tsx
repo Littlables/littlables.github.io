@@ -54,8 +54,13 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           alt={item.title}
           className="news-card-image"
           loading="lazy"
+          referrerPolicy="no-referrer"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = `img/${category}_1.jpg`;
+            const target = e.target as HTMLImageElement;
+            const fallback = `img/${item.category || category}_1.jpg`;
+            if (target.src !== fallback && !target.src.endsWith(fallback)) {
+              target.src = fallback;
+            }
           }}
         />
         <span className="news-card-badge">{categoryBadge}</span>

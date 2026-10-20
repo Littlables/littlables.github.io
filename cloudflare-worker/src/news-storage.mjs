@@ -39,14 +39,19 @@ function normalizeStory(row) {
 }
 
 export async function getStoredNewsFeed(env, category) {
-  const makeQuery = approved => new URLSearchParams({
-    select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
-    category: `eq.${category}`,
-    approved: `eq.${approved}`,
-    removed: 'eq.false',
-    order: 'published_at.desc.nullslast,fetched_at.desc',
-    limit: '50'
-  });
+  const makeQuery = approved => {
+    const params = new URLSearchParams({
+      select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    if (category && category !== 'all') {
+      params.set('category', `eq.${category}`);
+    }
+    return params;
+  };
   const [approvedResponse, unapprovedResponse] = await Promise.all([
     fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), {
       headers: supabaseHeaders(env)

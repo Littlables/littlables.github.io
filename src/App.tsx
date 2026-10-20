@@ -131,14 +131,13 @@ export const App: React.FC = () => {
     }
   };
 
-  const getCategoryBadge = () => {
-    const active = CATEGORIES.find(c => c.id === category);
+  const getCategoryBadge = (storyCategory?: NewsCategory) => {
+    const targetCat = storyCategory || category;
+    const active = CATEGORIES.find(c => c.id === targetCat);
     const icon = active?.icon || '⚡';
-    if (category === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
+    if (targetCat === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
     return `${icon} ${t((active?.i18nKey || 'catAll') as any)}`;
   };
-
-  const categoryBadge = getCategoryBadge();
 
   return (
     <>
@@ -175,6 +174,7 @@ export const App: React.FC = () => {
             stories.map((story, index) => {
               const storyId = getStoryId(story.title, story.link);
               const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
+              const storyBadge = getCategoryBadge(story.category);
 
               // Insert ads continuously every 3 stories (after story 3, 6, 9, 12, etc.) until stories end
               const shouldInsertAd = (index + 1) % 3 === 0;
@@ -187,7 +187,7 @@ export const App: React.FC = () => {
                     item={story}
                     index={index}
                     category={category}
-                    categoryBadge={categoryBadge}
+                    categoryBadge={storyBadge}
                     reactions={cardReactions}
                     onReact={handleReaction}
                   />
