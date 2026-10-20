@@ -3,7 +3,7 @@ import { NewsCategory, NewsItem, AdItem, ReactionType, ReactionCounts } from './
 import { SAVED_CATEGORY_KEY, CATEGORIES } from './constants/config';
 import { useTheme } from './hooks/useTheme';
 import { Header } from './components/Header';
-import { CategoryNav } from './components/CategoryNav';
+import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
 import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
@@ -198,6 +198,9 @@ export const App: React.FC = () => {
     if (typeof window !== 'undefined') {
       const nextHref = getTopicHref(newCat);
       window.history.pushState({ topic: newCat, story: null }, '', nextHref);
+      window.requestAnimationFrame(() => {
+        scrollActiveCategoryIntoView();
+      });
     }
   };
 
@@ -213,6 +216,9 @@ export const App: React.FC = () => {
         window.history.pushState({ topic: 'all', story: null }, '', homeHref);
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.requestAnimationFrame(() => {
+        scrollActiveCategoryIntoView();
+      });
     }
     if (category !== 'all') {
       setCategoryState('all');
@@ -314,9 +320,22 @@ export const App: React.FC = () => {
 
         <main id="news-grid-container" className="news-grid">
           {isLoading && stories.length === 0 && ads.length === 0 ? (
-            <div className="news-loading-skeleton" id="news-loading-text">
-              {t('loading') || 'Fetching the freshest stories...'}
-            </div>
+            <>
+              <div className="news-loading-skeleton" id="news-loading-text" role="status">
+                {t('loading') || 'Fetching the freshest stories...'}
+              </div>
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <article key={`skeleton-${idx}`} className="news-card news-skeleton-card" aria-hidden="true">
+                  <div className="news-card-image-wrap" />
+                  <div className="news-card-content">
+                    <div className="news-skeleton-line short" />
+                    <div className="news-skeleton-line title" />
+                    <div className="news-skeleton-line" />
+                    <div className="news-skeleton-line medium" />
+                  </div>
+                </article>
+              ))}
+            </>
           ) : error && stories.length === 0 && ads.length === 0 ? (
             <div className="news-feed-error" role="alert">
               <p>{t('error') || 'Unable to load live wire right now.'}</p>

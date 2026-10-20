@@ -147,17 +147,30 @@
       }
     }
 
+    function scrollActivePillIntoView(pill) {
+      const container = document.querySelector('.news-category-container');
+      if (!container || !pill || container.scrollWidth <= container.clientWidth) return;
+      const containerRect = container.getBoundingClientRect();
+      const pillRect = pill.getBoundingClientRect();
+      const pillCenter = (pillRect.left - containerRect.left) + container.scrollLeft + (pillRect.width / 2);
+      const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+      const targetLeft = Math.min(maxScroll, Math.max(0, pillCenter - (container.clientWidth / 2)));
+      container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+    }
+
     function restoreCategoryPills() {
       const targetPill = document.querySelector(`.cat-pill[data-category="${currentCategory}"]`);
       if (!targetPill) return;
       document.querySelectorAll('.cat-pill').forEach(button => button.classList.remove('active'));
       targetPill.classList.add('active');
+      requestAnimationFrame(() => scrollActivePillIntoView(targetPill));
     }
 
     document.querySelectorAll('.cat-pill').forEach(button => {
       button.addEventListener('click', () => {
         document.querySelectorAll('.cat-pill').forEach(pill => pill.classList.remove('active'));
         button.classList.add('active');
+        requestAnimationFrame(() => scrollActivePillIntoView(button));
         currentCategory = button.getAttribute('data-category');
         try {
           localStorage.setItem(SAVED_CATEGORY_KEY, currentCategory);

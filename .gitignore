@@ -3,6 +3,9 @@ cloudflare-worker/.dev.vars*
 cloudflare-worker/.wrangler/cache/wrangler-account.json
 cloudflare-worker/wrangler.toml
 .wrangler/cache/wrangler-account.json
+dist/
+*.zip
+.vite/
 node_modules/
 public/assets/aistudio/
 .aistudio/

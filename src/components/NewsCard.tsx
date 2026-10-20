@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NewsItem, NewsCategory, ReactionType, ReactionCounts } from '../types';
 import { resolveImageUrl } from '../services/newsService';
 import { getStoryId, hasUserReacted } from '../services/supabaseService';
@@ -37,6 +37,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({
 
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+  const [imageLoaded, setImageLoaded] = useState<boolean>(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setImageLoaded(true);
+    } else {
+      setImageLoaded(false);
+    }
+  }, [imageUrl]);
 
   const isVotedLove = hasUserReacted(storyId, 'love');
   const isVotedMind = hasUserReacted(storyId, 'mind');
@@ -102,18 +112,23 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
     >
-      <div className="news-card-image-wrap">
+      <div className={`news-card-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
         <img
+          ref={imgRef}
           src={imageUrl}
           alt={item.title}
-          className="news-card-image"
+          className={`news-card-image ${imageLoaded ? 'is-loaded' : ''}`}
           loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer"
+          onLoad={() => setImageLoaded(true)}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             const fallback = `img/${effectiveCategory}_1.jpg`;
             if (target.src !== fallback && !target.src.endsWith(fallback)) {
               target.src = fallback;
+            } else {
+              setImageLoaded(true);
             }
           }}
         />

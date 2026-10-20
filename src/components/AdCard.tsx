@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AdItem, NewsCategory } from '../types';
 import { t } from '../constants/translations';
 import { getAdNetwork, trackAdClick } from '../services/trackingService';
@@ -11,6 +11,8 @@ interface AdCardProps {
 
 export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   const adPushedRef = useRef(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     if (!adPushedRef.current && typeof window !== 'undefined') {
@@ -20,6 +22,14 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
       } catch {}
     }
   }, []);
+
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setImageLoaded(true);
+    } else {
+      setImageLoaded(false);
+    }
+  }, [ad.img]);
 
   const network = getAdNetwork(ad.url, ad.sponsor);
   const umamiEvent = `Clicked-${network}-Card`;
@@ -66,14 +76,23 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
       data-umami-event-title={ad.title}
       data-umami-event-network={network}
     >
-      <div className="news-card-image-wrap">
+      <div className={`news-card-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
         <img
+          ref={imgRef}
           src={ad.img}
           alt={ad.title}
-          className="news-card-image"
+          className={`news-card-image ${imageLoaded ? 'is-loaded' : ''}`}
           loading="lazy"
+          decoding="async"
+          onLoad={() => setImageLoaded(true)}
           onError={(e) => {
-            (e.target as HTMLImageElement).src = `img/${fallbackImgCategory}_1.jpg`;
+            const target = e.target as HTMLImageElement;
+            const fallback = `img/${fallbackImgCategory}_1.jpg`;
+            if (target.src !== fallback && !target.src.endsWith(fallback)) {
+              target.src = fallback;
+            } else {
+              setImageLoaded(true);
+            }
           }}
         />
         <span className="news-card-badge ad-badge">{sponsoredText}</span>

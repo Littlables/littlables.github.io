@@ -34,8 +34,10 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   onSelectCategory
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -70,7 +72,12 @@ export const StoryModal: React.FC<StoryModalProps> = ({
 
   useEffect(() => {
     setCopied(false);
-  }, [story?.link, story?.title]);
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setImageLoaded(true);
+    } else {
+      setImageLoaded(false);
+    }
+  }, [story?.link, story?.title, story?.image]);
 
   if (!story) return null;
 
@@ -125,17 +132,22 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       onClose={onClose}
     >
       <article className="story-modal-card">
-        <div className="story-modal-image-wrap">
+        <div className={`story-modal-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
           <img
+            ref={imgRef}
             src={imageUrl}
             alt={story.title}
-            className="story-modal-image"
+            className={`story-modal-image ${imageLoaded ? 'is-loaded' : ''}`}
+            decoding="async"
             referrerPolicy="no-referrer"
+            onLoad={() => setImageLoaded(true)}
             onError={(e) => {
               const target = e.target as HTMLImageElement;
               const fallback = `img/${effectiveCategory}_1.jpg`;
               if (target.src !== fallback && !target.src.endsWith(fallback)) {
                 target.src = fallback;
+              } else {
+                setImageLoaded(true);
               }
             }}
           />

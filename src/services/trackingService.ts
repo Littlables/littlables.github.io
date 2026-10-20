@@ -112,3 +112,13 @@ export function trackCategoryClick(category: NewsCategory) {
     }
   }
 }
+
+export function trackHomeLogoRefresh() {
+  if (typeof window !== 'undefined' && window.umami && typeof window.umami.track === 'function') {
+    try {
+      window.umami.track('Home-Logo-Refresh');
+    } catch (err) {
+      console.debug('Umami home logo track failed:', err);
+    }
+  }
+}

@@ -1,5 +1,4 @@
 import React from 'react';
-import { getTopicHref } from '../services/urlService';
 import { t } from '../constants/translations';
 
 interface HeaderProps {
@@ -15,23 +14,24 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   isLoading
 }) => {
-  const handleBrandClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-      return;
-    }
-    e.preventDefault();
+  const handleBrandClick = () => {
+    if (isLoading) return;
+    try {
+      if (typeof window !== 'undefined' && window.umami && typeof window.umami.track === 'function') {
+        window.umami.track('Home-Logo-Refresh');
+      }
+    } catch {}
     onHomeClick();
   };
 
   return (
     <header className="news-widget-header">
-      <a
-        href={getTopicHref('all')}
+      <button
+        type="button"
         className="news-widget-title"
         id="widget-main-title"
-        title="Refresh Homepage"
-        aria-label={`${t('headerTitle') || 'Littlables Feed'} — Refresh Homepage`}
-        data-umami-event="Home-Logo-Refresh"
+        title="Refresh Stories"
+        aria-label={`${t('headerTitle') || 'Littlables Feed'} — Refresh Stories`}
         onClick={handleBrandClick}
       >
         <img
@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         />
         <span id="widget-title-text">{t('headerTitle') || 'Littlables Feed'}</span>
-      </a>
+      </button>
 
       <div className="news-header-controls">
         <button

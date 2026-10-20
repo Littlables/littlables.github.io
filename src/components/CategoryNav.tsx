@@ -1,13 +1,45 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { NewsCategory } from '../types';
 import { CATEGORIES } from '../constants/config';
 import { t, TranslationStrings } from '../constants/translations';
 import { getTopicHref, isCustomTopic, formatCustomTopicLabel } from '../services/urlService';
-import { RIBBON_UMAMI_EVENTS, trackCategoryClick } from '../services/trackingService';
+import { trackCategoryClick } from '../services/trackingService';
 
 interface CategoryNavProps {
   currentCategory: NewsCategory;
   onSelectCategory: (category: NewsCategory) => void;
+}
+
+export function scrollActiveCategoryIntoView(containerEl?: HTMLElement | null) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const container =
+    containerEl ||
+    (document.querySelector('.news-category-container') as HTMLElement | null);
+  if (!container) return;
+
+  const activePill = container.querySelector('.cat-pill.active') as HTMLElement | null;
+  if (!activePill) return;
+
+  if (container.scrollWidth > container.clientWidth) {
+    const containerRect = container.getBoundingClientRect();
+    const pillRect = activePill.getBoundingClientRect();
+    const pillCenterInContainer =
+      pillRect.left - containerRect.left + container.scrollLeft + pillRect.width / 2;
+    const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+    const targetScrollLeft = Math.min(
+      maxScroll,
+      Math.max(0, pillCenterInContainer - container.clientWidth / 2)
+    );
+
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({
+        left: targetScrollLeft,
+        behavior: 'smooth'
+      });
+    } else {
+      container.scrollLeft = targetScrollLeft;
+    }
+  }
 }
 
 export const CategoryNav: React.FC<CategoryNavProps> = ({
@@ -15,14 +47,21 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
   onSelectCategory
 }) => {
   const hasCustomTopic = isCustomTopic(currentCategory);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const rafId = window.requestAnimationFrame(() => {
+      scrollActiveCategoryIntoView(containerRef.current);
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [currentCategory]);
 
   return (
-    <div className="news-category-container">
+    <div ref={containerRef} className="news-category-container">
       <nav className="news-category-bar" id="news-category-bar" aria-label="News Categories">
         {CATEGORIES.map((cat) => {
           const isActive = !hasCustomTopic && currentCategory === cat.id;
           const label = t(cat.i18nKey as keyof TranslationStrings) || cat.id;
-          const eventName = RIBBON_UMAMI_EVENTS[cat.id] || `Ribbon-${cat.id}`;
           const topicHref = getTopicHref(cat.id);
 
           return (
@@ -31,7 +70,6 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
               href={topicHref}
               className={`cat-pill ${isActive ? 'active' : ''}`}
               data-category={cat.id}
-              data-umami-event={eventName}
               aria-current={isActive ? 'page' : undefined}
               onClick={(e) => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
@@ -40,6 +78,9 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
                 e.preventDefault();
                 trackCategoryClick(cat.id);
                 onSelectCategory(cat.id);
+                window.requestAnimationFrame(() => {
+                  scrollActiveCategoryIntoView(containerRef.current);
+                });
               }}
             >
               <span>{cat.icon}</span>
@@ -60,6 +101,9 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
               }
               e.preventDefault();
               onSelectCategory(currentCategory);
+              window.requestAnimationFrame(() => {
+                scrollActiveCategoryIntoView(containerRef.current);
+              });
             }}
           >
             <span>🔍</span>

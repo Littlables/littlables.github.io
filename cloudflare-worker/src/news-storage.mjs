@@ -786,7 +786,7 @@ export async function searchNewsStories(env, queryText, limit = 100) {
   if (!orFilter) return [];
 
   const params = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,approved_at,removed_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
     or: orFilter,
     order: 'published_at.desc.nullslast,fetched_at.desc',
     limit: String(limit)
@@ -802,7 +802,12 @@ export async function searchNewsStories(env, queryText, limit = 100) {
       ...normalizeStory(row),
       id: row.id,
       approved: row.approved,
-      removed: row.removed
+      removed: row.removed,
+      updatedAt: row.decision_at || row.approved_at || row.removed_at || row.fetched_at || row.published_at || '',
+      decisionAction: row.decision_action || (row.removed ? 'ban' : row.approved ? 'approve' : ''),
+      decisionBy: row.decision_by || '',
+      previousApproved: row.previous_approved,
+      previousRemoved: row.previous_removed
     }));
   } catch (err) {
     console.error('searchNewsStories failed:', err);
@@ -1042,6 +1047,7 @@ export function syncAiStagedPickDetails(storyId, updatedFields = {}) {
   if (updatedFields.aiSummary !== undefined) existing.aiSummary = updatedFields.aiSummary;
   if (updatedFields.pubDate !== undefined) existing.pubDate = updatedFields.pubDate;
   if (updatedFields.source !== undefined) existing.source = updatedFields.source;
+  existing.updatedAt = new Date().toISOString();
 }
 
 export function getAiCurationState() {

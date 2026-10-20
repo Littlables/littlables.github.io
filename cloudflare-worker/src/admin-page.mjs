@@ -271,9 +271,13 @@ export function getAdminPage() {
       display: grid;
       gap: .6rem;
     }
+    @keyframes adminImageShimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
     .story, .ad-row {
       display: grid;
-      grid-template-columns: 64px minmax(0, 1fr) auto;
+      grid-template-columns: 80px minmax(0, 1fr) auto;
       align-items: center;
       gap: .75rem;
       background: #0f172a;
@@ -293,12 +297,20 @@ export function getAdminPage() {
     }
     .story-main, .story-details, .ad-main, .ad-details { min-width: 0; }
     .story img, .ad-row img {
-      width: 64px;
-      height: 50px;
+      width: 80px;
+      height: auto;
+      aspect-ratio: 16 / 9;
       object-fit: cover;
       border-radius: 6px;
-      background: #1e293b;
+      background: linear-gradient(110deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+      background-size: 200% 100%;
+      animation: adminImageShimmer 1.6s ease-in-out infinite;
       display: block;
+      transition: opacity 0.25s ease;
+    }
+    .story img.is-loaded, .ad-row img.is-loaded {
+      animation: none;
+      background: #1e293b;
     }
     .story h3, .ad-row h3 {
       font-size: .92rem;
@@ -404,15 +416,29 @@ export function getAdminPage() {
     .news-card-image-wrap {
       position: relative;
       width: 100%;
-      height: 190px;
+      height: auto;
+      aspect-ratio: 16 / 9;
       overflow: hidden;
-      background: #334155;
+      background: linear-gradient(110deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+      background-size: 200% 100%;
+      animation: adminImageShimmer 1.6s ease-in-out infinite;
+    }
+    .news-card-image-wrap.is-loaded {
+      animation: none;
+      background: #1e293b;
     }
     .news-card-image {
       display: block;
       width: 100%;
       height: 100%;
+      aspect-ratio: 16 / 9;
       object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.28s ease;
+    }
+    .news-card-image-wrap.is-loaded .news-card-image,
+    .news-card-image.is-loaded {
+      opacity: 1;
     }
     .news-card-badge {
       position: absolute;
@@ -943,7 +969,7 @@ export function getAdminPage() {
       flex-wrap: wrap;
     }
     .story.ai-pick-row {
-      grid-template-columns: auto 64px minmax(0, 1fr) auto;
+      grid-template-columns: auto 80px minmax(0, 1fr) auto;
     }
     .ai-pick-checkbox {
       width: 18px;
@@ -976,14 +1002,14 @@ export function getAdminPage() {
       h1 { font-size: 1.2rem; }
       .admin-card-section, .summary { padding: .7rem .75rem; }
       .story, .ad-row {
-        grid-template-columns: 52px minmax(0, 1fr);
+        grid-template-columns: 64px minmax(0, 1fr);
         gap: .55rem;
         padding: .55rem;
       }
       .story.ai-pick-row {
-        grid-template-columns: auto 52px minmax(0, 1fr);
+        grid-template-columns: auto 64px minmax(0, 1fr);
       }
-      .story img, .ad-row img { width: 52px; height: 42px; }
+      .story img, .ad-row img { width: 64px; height: auto; aspect-ratio: 16 / 9; }
       .story-actions, .ad-actions {
         grid-column: 1 / -1;
         justify-content: flex-start;
@@ -1958,6 +1984,25 @@ export function getAdminPage() {
       historyProviderFilterEl.value = state.activeHistoryProvider;
     }
 
+    function attachSmoothImageLoader(imgEl, wrapEl = null, fallbackSrc = '') {
+      imgEl.decoding = 'async';
+      const markLoaded = () => {
+        imgEl.classList.add('is-loaded');
+        if (wrapEl) wrapEl.classList.add('is-loaded');
+      };
+      imgEl.addEventListener('load', markLoaded);
+      imgEl.addEventListener('error', () => {
+        if (fallbackSrc && imgEl.src !== fallbackSrc && !imgEl.src.endsWith(fallbackSrc)) {
+          imgEl.src = fallbackSrc;
+        } else {
+          markLoaded();
+        }
+      });
+      if (imgEl.complete && imgEl.naturalWidth > 0) {
+        markLoaded();
+      }
+    }
+
     function createStoryCardRow(story, { pending = false, decided = false, banned = false, isSearch = false } = {}) {
       const row = document.createElement('article');
       row.className = 'story';
@@ -1973,19 +2018,13 @@ export function getAdminPage() {
           openStoryPreview(story);
         }
       });
-      if (story.image) {
-        const image = document.createElement('img');
-        image.src = story.image;
-        image.alt = '';
-        image.loading = 'lazy';
-        image.onerror = () => { image.src = 'img/' + (story.category || 'all') + '_1.jpg'; };
-        row.append(image);
-      } else {
-        const spacer = document.createElement('img');
-        spacer.src = 'img/' + (story.category || 'all') + '_1.jpg';
-        spacer.alt = '';
-        row.append(spacer);
-      }
+      const fallbackImg = 'img/' + (story.category || 'all') + '_1.jpg';
+      const image = document.createElement('img');
+      image.src = story.image || fallbackImg;
+      image.alt = '';
+      image.loading = 'lazy';
+      attachSmoothImageLoader(image, null, fallbackImg);
+      row.append(image);
       const title = document.createElement('h3');
       const link = document.createElement('a');
       link.href = decodeHtmlEntities(story.link);
@@ -2208,7 +2247,65 @@ export function getAdminPage() {
       refreshStoryAges();
     }
 
-    function performStorySearch() {
+    function doesStoryMatchQuery(story, q) {
+      if (!story || !q) return false;
+      const matchTitle = (story.title || '').toLowerCase().includes(q);
+      const matchDesc = (story.description || '').toLowerCase().includes(q);
+      const matchContent = (story.content || '').toLowerCase().includes(q);
+      const matchSummary = (story.aiSummary || '').toLowerCase().includes(q);
+      const matchSource = (story.source || '').toLowerCase().includes(q);
+      const matchDomain = getStoryDomain(story.link).toLowerCase().includes(q);
+      const matchCat = (story.category || '').toLowerCase().includes(q);
+      const matchProvider = (story.provider || '').toLowerCase().includes(q);
+      return Boolean(matchTitle || matchDesc || matchContent || matchSummary || matchSource || matchDomain || matchCat || matchProvider);
+    }
+
+    function applyStoryPatchAcrossAllLists(storyId, patch) {
+      if (storyId == null || !patch) return;
+      const numId = Number(storyId);
+      const collections = [
+        state.pendingStories,
+        state.decidedStories,
+        state.bannedStories,
+        state.searchResults,
+        state.aiCuration?.stagedPicks,
+        state.aiCuration?.recentCuratedPicks
+      ];
+      collections.forEach((list) => {
+        if (!Array.isArray(list)) return;
+        list.forEach((item) => {
+          if (item && Number(item.id) === numId) {
+            Object.assign(item, patch);
+          }
+        });
+      });
+    }
+
+    function syncSearchResultsWithKnownLists() {
+      if (!Array.isArray(state.searchResults) || !state.searchResults.length) return;
+      const freshById = new Map();
+      const freshByLink = new Map();
+      [
+        ...(state.aiCuration?.stagedPicks || []),
+        ...state.pendingStories,
+        ...state.decidedStories,
+        ...state.bannedStories
+      ].forEach((story) => {
+        if (!story) return;
+        if (story.id != null) freshById.set(Number(story.id), story);
+        if (story.link) freshByLink.set(story.link, story);
+      });
+      state.searchResults.forEach((searchItem) => {
+        if (!searchItem) return;
+        const fresh = (searchItem.id != null && freshById.get(Number(searchItem.id))) ||
+          (searchItem.link && freshByLink.get(searchItem.link));
+        if (fresh) {
+          Object.assign(searchItem, fresh);
+        }
+      });
+    }
+
+    function performStorySearch(skipRemoteFetch = false) {
       const q = state.storySearchQuery.toLowerCase().trim();
       if (!q) {
         storySearchResultsEl.replaceChildren();
@@ -2222,42 +2319,58 @@ export function getAdminPage() {
         ...state.pendingStories,
         ...state.decidedStories,
         ...state.bannedStories,
+        ...(state.aiCuration?.stagedPicks || []),
         ...state.searchResults
       ];
-      const seen = new Set();
-      const matched = [];
+      const byKey = new Map();
       allKnownStories.forEach((story) => {
-        const key = story.id || story.link;
-        if (seen.has(key)) return;
-        seen.add(key);
-        const matchTitle = (story.title || '').toLowerCase().includes(q);
-        const matchDesc = (story.description || '').toLowerCase().includes(q);
-        const matchSource = (story.source || '').toLowerCase().includes(q);
-        const matchDomain = getStoryDomain(story.link).toLowerCase().includes(q);
-        const matchCat = (story.category || '').toLowerCase().includes(q);
-        const matchProvider = (story.provider || '').toLowerCase().includes(q);
-        if (matchTitle || matchDesc || matchSource || matchDomain || matchCat || matchProvider) {
+        if (!story) return;
+        const key = story.id != null ? 'id:' + Number(story.id) : 'link:' + story.link;
+        if (!byKey.has(key)) {
+          byKey.set(key, story);
+        } else {
+          Object.assign(byKey.get(key), story);
+        }
+      });
+
+      const matched = [];
+      byKey.forEach((story) => {
+        if (doesStoryMatchQuery(story, q)) {
           matched.push(story);
         }
       });
 
       renderStorySearchMatches(matched, q);
 
-      if (q.length >= 2) {
+      if (!skipRemoteFetch && q.length >= 2) {
         request('/admin/api/stories/search?q=' + encodeURIComponent(q))
           .then((data) => {
-            if (data.items && data.items.length) {
-              let added = false;
+            if (Array.isArray(data.items) && data.items.length) {
+              let changed = false;
               data.items.forEach((item) => {
-                const key = item.id || item.link;
-                if (!seen.has(key)) {
-                  seen.add(key);
-                  matched.push(item);
+                const existingSearchIdx = state.searchResults.findIndex((s) =>
+                  (item.id != null && s.id != null && Number(s.id) === Number(item.id)) ||
+                  (item.link && s.link === item.link)
+                );
+                if (existingSearchIdx !== -1) {
+                  Object.assign(state.searchResults[existingSearchIdx], item);
+                } else {
                   state.searchResults.push(item);
-                  added = true;
+                }
+
+                const existingMatchIdx = matched.findIndex((s) =>
+                  (item.id != null && s.id != null && Number(s.id) === Number(item.id)) ||
+                  (item.link && s.link === item.link)
+                );
+                if (existingMatchIdx !== -1) {
+                  Object.assign(matched[existingMatchIdx], item);
+                  changed = true;
+                } else if (doesStoryMatchQuery(item, q)) {
+                  matched.push(item);
+                  changed = true;
                 }
               });
-              if (added && state.storySearchQuery.toLowerCase().trim() === q) {
+              if (changed && state.storySearchQuery.toLowerCase().trim() === q) {
                 renderStorySearchMatches(matched, q);
               }
             }
@@ -2343,11 +2456,12 @@ export function getAdminPage() {
           }
         });
 
+        const fallbackAdImg = 'img/' + (ad.category || 'all') + '_1.jpg';
         const image = document.createElement('img');
-        image.src = ad.img || 'img/' + (ad.category || 'all') + '_1.jpg';
+        image.src = ad.img || fallbackAdImg;
         image.alt = '';
         image.loading = 'lazy';
-        image.onerror = () => { image.src = 'img/' + (ad.category || 'all') + '_1.jpg'; };
+        attachSmoothImageLoader(image, null, fallbackAdImg);
         row.append(image);
 
         const details = document.createElement('div');
@@ -2815,11 +2929,12 @@ export function getAdminPage() {
       });
       row.append(checkbox);
 
+      const fallbackPickImg = 'img/' + (pick.category || 'all') + '_1.jpg';
       const image = document.createElement('img');
-      image.src = pick.image || ('img/' + (pick.category || 'all') + '_1.jpg');
+      image.src = pick.image || fallbackPickImg;
       image.alt = '';
       image.loading = 'lazy';
-      image.onerror = () => { image.src = 'img/' + (pick.category || 'all') + '_1.jpg'; };
+      attachSmoothImageLoader(image, null, fallbackPickImg);
       row.append(image);
 
       const details = document.createElement('div');
@@ -3097,7 +3212,6 @@ export function getAdminPage() {
     });
 
     async function refreshData() {
-      state.pages.pending = 1;
       messageEl.className = 'muted';
       messageEl.textContent = 'Refreshing database status…';
       try {
@@ -3115,6 +3229,7 @@ export function getAdminPage() {
           state.providerLogs = data.providerLogs.logs || [];
           state.providerLogsSummary = data.providerLogs.summary || state.providerLogsSummary;
         }
+        syncSearchResultsWithKnownLists();
         renderProviders(data.providers);
         renderProviderFilter();
         renderLogFilterOptions();
@@ -3136,6 +3251,9 @@ export function getAdminPage() {
         renderStories(state.pendingStories, { pending: true });
         renderStories(state.decidedStories, { decided: true });
         renderStories(state.bannedStories, { banned: true });
+        if (state.storySearchQuery.trim()) {
+          performStorySearch();
+        }
         refreshStoryAges();
         loadAds();
         messageEl.textContent = 'Database status refreshed.';
@@ -3150,9 +3268,16 @@ export function getAdminPage() {
       state.approving.add(storyId);
       renderStories(state.pendingStories, { pending: true });
       renderAiStagingSection();
+      if (state.storySearchQuery.trim()) performStorySearch(true);
       try {
         await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/approve', { method: 'POST' });
         state.selectedAiStoryIds.delete(Number(storyId));
+        applyStoryPatchAcrossAllLists(storyId, {
+          approved: true,
+          removed: false,
+          decisionAction: 'approve',
+          updatedAt: new Date().toISOString()
+        });
         await refreshData();
         messageEl.className = 'success';
         messageEl.textContent = 'Story approved and published.';
@@ -3162,6 +3287,7 @@ export function getAdminPage() {
       } finally {
         state.approving.delete(storyId);
         renderAiStagingSection();
+        if (state.storySearchQuery.trim()) performStorySearch(true);
       }
     }
 
@@ -3172,9 +3298,25 @@ export function getAdminPage() {
       renderStories(state.decidedStories, { decided: true });
       renderStories(state.bannedStories, { banned: true });
       renderAiStagingSection();
+      if (state.storySearchQuery.trim()) performStorySearch(true);
       try {
         await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/' + action, { method: 'POST' });
         state.selectedAiStoryIds.delete(Number(storyId));
+        if (action === 'disapprove') {
+          applyStoryPatchAcrossAllLists(storyId, {
+            approved: false,
+            removed: false,
+            decisionAction: 'disapprove',
+            updatedAt: new Date().toISOString()
+          });
+        } else if (action === 'ban') {
+          applyStoryPatchAcrossAllLists(storyId, {
+            approved: false,
+            removed: true,
+            decisionAction: 'ban',
+            updatedAt: new Date().toISOString()
+          });
+        }
         await refreshData();
         messageEl.className = 'success';
         messageEl.textContent = successMessage;
@@ -3187,6 +3329,7 @@ export function getAdminPage() {
         renderStories(state.decidedStories, { decided: true });
         renderStories(state.bannedStories, { banned: true });
         renderAiStagingSection();
+        if (state.storySearchQuery.trim()) performStorySearch(true);
       }
     }
 
@@ -3643,7 +3786,12 @@ export function getAdminPage() {
           if (cardEl) {
             if (field === 'image') {
               const imgEl = cardEl.querySelector('.news-card-image');
-              if (imgEl) imgEl.src = next || 'img/' + (currentDraft.category || 'all') + '_1.jpg';
+              const wrapEl = cardEl.querySelector('.news-card-image-wrap');
+              if (imgEl) {
+                imgEl.classList.remove('is-loaded');
+                if (wrapEl) wrapEl.classList.remove('is-loaded');
+                imgEl.src = next || 'img/' + (currentDraft.category || 'all') + '_1.jpg';
+              }
             } else if (field === 'link' || field === 'url') {
               cardEl.querySelectorAll('a').forEach((aEl) => {
                 aEl.href = next || '#';
@@ -3723,11 +3871,12 @@ export function getAdminPage() {
         world: 'world_1.jpg',
         uplifting: 'uplifting_1.jpg'
       };
+      const fallbackPreviewImg = 'img/' + (stockImages[draft.category] || stockImages.all);
       const image = document.createElement('img');
       image.className = 'news-card-image';
-      image.src = draft.image || 'img/' + (stockImages[draft.category] || stockImages.all);
+      image.src = draft.image || fallbackPreviewImg;
       image.alt = draft.title || '';
-      image.onerror = () => { image.src = 'img/' + (stockImages[draft.category] || stockImages.all); };
+      attachSmoothImageLoader(image, imageWrap, fallbackPreviewImg);
       imageWrap.append(image);
       if (state.generatingImage) {
         const loadingBadge = document.createElement('div');
@@ -3910,13 +4059,14 @@ export function getAdminPage() {
       const card = document.createElement('article');
       card.className = 'news-card news-card-ad';
 
+      const fallbackAdPreviewImg = 'img/' + (draft.category || 'all') + '_1.jpg';
       const imageWrap = document.createElement('div');
       imageWrap.className = 'news-card-image-wrap';
       const image = document.createElement('img');
       image.className = 'news-card-image';
-      image.src = draft.img || 'img/' + (draft.category || 'all') + '_1.jpg';
+      image.src = draft.img || fallbackAdPreviewImg;
       image.alt = draft.title || '';
-      image.onerror = () => { image.src = 'img/' + (draft.category || 'all') + '_1.jpg'; };
+      attachSmoothImageLoader(image, imageWrap, fallbackAdPreviewImg);
       imageWrap.append(image);
 
       const badge = document.createElement('span');
@@ -4120,6 +4270,19 @@ export function getAdminPage() {
           if (approve) {
             await request('/admin/api/stories/' + encodeURIComponent(existingId) + '/approve', { method: 'POST' });
           }
+          applyStoryPatchAcrossAllLists(existingId, {
+            title: draft.title,
+            link: draft.link,
+            image: draft.image,
+            description: draft.description,
+            content: draft.content,
+            aiSummary: draft.aiSummary,
+            pubDate: draft.pubDate,
+            source: draft.source,
+            category: draft.category,
+            updatedAt: new Date().toISOString(),
+            ...(approve ? { approved: true, removed: false, decisionAction: 'approve' } : {})
+          });
         }
         previewDialog.close();
         await refreshData();
@@ -4144,13 +4307,13 @@ export function getAdminPage() {
       const existingId = state.previewAdId;
       try {
         if (existingId) {
-          await request('/admin/api/ads/' + encodeURIComponent(existingId), {
+          const res = await request('/admin/api/ads/' + encodeURIComponent(existingId), {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(draft)
           });
           const idx = state.ads.findIndex(a => String(a.id) === String(existingId));
-          if (idx !== -1) state.ads[idx] = { ...draft };
+          if (idx !== -1) Object.assign(state.ads[idx], res.ad || draft);
         } else {
           const res = await request('/admin/api/ads', {
             method: 'POST',
