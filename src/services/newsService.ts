@@ -73,6 +73,8 @@ async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> 
       image: decodeHtmlEntities(item.image || item.imageUrl || item.image_url),
       description: decodeHtmlEntities(item.description),
       aiSummary: decodeHtmlEntities(item.aiSummary),
+      source: decodeHtmlEntities(item.source || item.source_name),
+      provider: item.provider,
       category: item.category || category
     }))
     .filter((item: NewsItem) => {

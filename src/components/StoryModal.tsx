@@ -2,8 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { NewsItem, NewsCategory, ReactionType, ReactionCounts } from '../types';
 import { resolveImageUrl } from '../services/newsService';
 import { getStoryId, hasUserReacted } from '../services/supabaseService';
-import { getStoryShareUrl, getTopicHref, copyUrlToClipboard } from '../services/urlService';
-import { getDomainFromUrl, trackStoryClick } from '../services/trackingService';
+import {
+  getStoryShareUrl,
+  getTopicHref,
+  getStoryProviderName,
+  shareStoryWithImage,
+  updateStoryOpenGraphTags
+} from '../services/urlService';
+import { trackStoryClick } from '../services/trackingService';
 import { t } from '../constants/translations';
 
 interface StoryModalProps {
@@ -36,6 +42,11 @@ export const StoryModal: React.FC<StoryModalProps> = ({
     if (!dialog) return;
 
     if (story) {
+      const effectiveCategory = story.category || category;
+      const imageUrl = resolveImageUrl(story, index, category);
+      const shareUrl = getStoryShareUrl(story, effectiveCategory);
+      updateStoryOpenGraphTags(story, imageUrl, shareUrl);
+
       document.documentElement.classList.add('story-modal-open');
       document.body.classList.add('story-modal-open');
       if (!dialog.open) {
@@ -43,6 +54,7 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       }
       dialog.scrollTop = 0;
     } else {
+      updateStoryOpenGraphTags(null);
       document.documentElement.classList.remove('story-modal-open');
       document.body.classList.remove('story-modal-open');
       if (dialog.open) {
@@ -54,7 +66,7 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       document.documentElement.classList.remove('story-modal-open');
       document.body.classList.remove('story-modal-open');
     };
-  }, [story]);
+  }, [story, index, category]);
 
   useEffect(() => {
     setCopied(false);
@@ -65,8 +77,7 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   const storyId = getStoryId(story.title, story.link);
   const imageUrl = resolveImageUrl(story, index, category);
   const effectiveCategory = story.category || category;
-  const shareUrl = getStoryShareUrl(story, effectiveCategory);
-  const sourceDomain = story.source || getDomainFromUrl(story.link);
+  const providerName = getStoryProviderName(story);
 
   const isVotedLove = hasUserReacted(storyId, 'love');
   const isVotedMind = hasUserReacted(storyId, 'mind');
@@ -90,23 +101,10 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   };
 
   const handleShareClick = async () => {
-    const ok = await copyUrlToClipboard(shareUrl);
+    const ok = await shareStoryWithImage(story, effectiveCategory, imageUrl);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
-    }
-    if (
-      typeof navigator !== 'undefined' &&
-      typeof navigator.share === 'function' &&
-      window.matchMedia?.('(pointer: coarse)').matches
-    ) {
-      try {
-        await navigator.share({
-          title: story.title,
-          text: story.aiSummary || story.description || story.title,
-          url: shareUrl
-        });
-      } catch {}
     }
   };
 
@@ -162,9 +160,11 @@ export const StoryModal: React.FC<StoryModalProps> = ({
         <div className="story-modal-content">
           <div className="news-card-meta story-modal-meta">
             <span>🕒 {pubDate}</span>
-            {sourceDomain && <span className="story-modal-source">🌐 {sourceDomain}</span>}
+            {providerName && (
+              <span className="story-provider-badge">🌐 {providerName}</span>
+            )}
             {story.approved === true && (
-              <span>{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
+              <span className="story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
             )}
           </div>
 
@@ -183,32 +183,19 @@ export const StoryModal: React.FC<StoryModalProps> = ({
             <p className="story-modal-desc">{story.description}</p>
           )}
 
-          <div className="story-modal-footer">
-            <div className="story-modal-primary-actions">
-              <a
-                href={story.link || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="news-read-more-btn story-modal-read-btn"
-                data-umami-event="Clicked-Story"
-                data-umami-event-url={story.link || ''}
-                data-umami-event-title={story.title}
-                onClick={() => trackStoryClick(story)}
-              >
-                {t('readMore') || 'Read Full Story →'}
-              </a>
-
-              <button
-                type="button"
-                className={`story-share-btn ${copied ? 'copied' : ''}`}
-                onClick={handleShareClick}
-                title="Copy direct link to this story on Littlables"
-                aria-label="Share story link"
-              >
-                <span>{copied ? '✓' : '🔗'}</span>
-                <span>{copied ? 'Copied!' : 'Share'}</span>
-              </button>
-            </div>
+          <div className="news-card-footer story-modal-footer">
+            <a
+              href={story.link || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="news-read-more-btn story-modal-read-btn"
+              data-umami-event="Clicked-Story"
+              data-umami-event-url={story.link || ''}
+              data-umami-event-title={story.title}
+              onClick={() => trackStoryClick(story)}
+            >
+              {t('readMore') || 'Read Full Story →'}
+            </a>
 
             <div className="news-card-reactions">
               <button
@@ -245,6 +232,17 @@ export const StoryModal: React.FC<StoryModalProps> = ({
               >
                 <span>🧸</span>
                 <span className="reaction-count">{reactions.cozy}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`reaction-pill story-share-btn ${copied ? 'copied' : ''}`}
+                onClick={handleShareClick}
+                title="Share story link & image"
+                aria-label="Share story"
+              >
+                <span>{copied ? '✓' : '🔗'}</span>
+                <span>{copied ? 'Copied' : 'Share'}</span>
               </button>
             </div>
           </div>

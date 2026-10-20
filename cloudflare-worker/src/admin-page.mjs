@@ -2234,12 +2234,12 @@ export function getAdminPage() {
         editor: 'datetime-local'
       });
       meta.append(date);
+      editableField(meta, 'source', 'source name', { display: value => value || getStoryDomain(draft.link) });
       if (draft.approved === true) {
         const approval = document.createElement('span');
         approval.textContent = "🧸 Littlables' Little Scoop";
         meta.append(approval);
       }
-      editableField(meta, 'source', 'source name', { display: value => value || getStoryDomain(draft.link) });
       content.append(meta);
 
       const title = document.createElement('h3');

@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { NewsItem, NewsCategory, ReactionType, ReactionCounts } from '../types';
 import { resolveImageUrl } from '../services/newsService';
 import { getStoryId, hasUserReacted } from '../services/supabaseService';
-import { getStoryHref, getStoryShareUrl, copyUrlToClipboard } from '../services/urlService';
+import {
+  getStoryHref,
+  getStoryProviderName,
+  shareStoryWithImage
+} from '../services/urlService';
 import { t } from '../constants/translations';
 import { trackStoryClick } from '../services/trackingService';
 
@@ -29,7 +33,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   const imageUrl = resolveImageUrl(item, index, category);
   const effectiveCategory = item.category || category;
   const storyHref = getStoryHref(item, effectiveCategory);
-  const shareUrl = getStoryShareUrl(item, effectiveCategory);
+  const providerName = getStoryProviderName(item);
 
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -82,23 +86,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({
 
   const handleShareClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    const ok = await copyUrlToClipboard(shareUrl);
+    const ok = await shareStoryWithImage(item, effectiveCategory, imageUrl);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }
-    if (
-      typeof navigator !== 'undefined' &&
-      typeof navigator.share === 'function' &&
-      window.matchMedia?.('(pointer: coarse)').matches
-    ) {
-      try {
-        await navigator.share({
-          title: item.title,
-          text: item.aiSummary || item.description || item.title,
-          url: shareUrl
-        });
-      } catch {}
     }
   };
 
@@ -132,8 +123,11 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       <div className="news-card-content">
         <div className="news-card-meta">
           <span>🕒 {pubDate}</span>
+          {providerName && (
+            <span className="story-provider-badge">🌐 {providerName}</span>
+          )}
           {item.approved === true && (
-            <span>{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
+            <span className="story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
           )}
         </div>
 
@@ -159,31 +153,18 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         )}
 
         <div className="news-card-footer">
-          <div className="news-card-footer-links">
-            <a
-              href={item.link || '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="news-read-more-btn"
-              data-umami-event="Clicked-Story"
-              data-umami-event-url={item.link || ''}
-              data-umami-event-title={item.title}
-              onClick={handleStoryLinkClick}
-            >
-              {t('readMore') || 'Read Full Story →'}
-            </a>
-
-            <button
-              type="button"
-              className={`story-share-btn ${copied ? 'copied' : ''}`}
-              onClick={handleShareClick}
-              title="Share link to this story"
-              aria-label="Share story link"
-            >
-              <span>{copied ? '✓' : '🔗'}</span>
-              <span>{copied ? 'Copied' : 'Share'}</span>
-            </button>
-          </div>
+          <a
+            href={item.link || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="news-read-more-btn"
+            data-umami-event="Clicked-Story"
+            data-umami-event-url={item.link || ''}
+            data-umami-event-title={item.title}
+            onClick={handleStoryLinkClick}
+          >
+            {t('readMore') || 'Read Full Story →'}
+          </a>
 
           <div className="news-card-reactions">
             <button
@@ -220,6 +201,17 @@ export const NewsCard: React.FC<NewsCardProps> = ({
             >
               <span>🧸</span>
               <span className="reaction-count">{reactions.cozy}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`reaction-pill story-share-btn ${copied ? 'copied' : ''}`}
+              onClick={handleShareClick}
+              title="Share story link & image"
+              aria-label="Share story"
+            >
+              <span>{copied ? '✓' : '🔗'}</span>
+              <span>{copied ? 'Copied' : 'Share'}</span>
             </button>
           </div>
         </div>
