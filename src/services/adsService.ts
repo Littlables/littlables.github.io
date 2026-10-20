@@ -1,4 +1,7 @@
-import { NewsCategory, AdItem } from '../types';
+import { NewsCategory, StandardNewsCategory, AdItem } from '../types';
+import { NEWS_CONFIG } from '../constants/config';
+import { isValidCategory, matchesKeywordQuery } from './urlService';
+import { searchSupabaseAdsByKeyword } from './supabaseService';
 
 interface RawProductAd {
   name?: string;
@@ -15,9 +18,22 @@ interface RawProductAd {
   currency?: string;
   cta?: string;
   category?: string;
+  network?: string;
 }
 
-const adCache: Partial<Record<NewsCategory, AdItem[]>> = {};
+const adCache: Record<string, AdItem[]> = {};
+
+const ALL_AD_JSON_FILES = [
+  'ads/all.json',
+  'ads/childcare.json',
+  'ads/animals.json',
+  'ads/arts.json',
+  'ads/tech.json',
+  'ads/world.json',
+  'ads/uplifting.json',
+  'ads/amazon.json',
+  'ads/tiktok.json'
+];
 
 function shuffleArray<T>(array: T[]): T[] {
   const result = [...array];
@@ -28,12 +44,19 @@ function shuffleArray<T>(array: T[]): T[] {
   return result;
 }
 
+function resolveFallbackAdCategory(rawCategory?: string, fallbackCategory?: NewsCategory): StandardNewsCategory {
+  if (rawCategory && isValidCategory(rawCategory)) return rawCategory;
+  if (fallbackCategory && isValidCategory(fallbackCategory)) return fallbackCategory;
+  return 'all';
+}
+
 function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex: number): AdItem {
-  const title = raw.name || raw.title || "Curated Discovery";
-  const desc = raw.description || raw.desc || "A handpicked resource tailored to your interests.";
-  const img = raw.thumbnailUrl || raw.img || `img/${category}_${(defaultIndex % 10) + 1}.jpg`;
-  const sponsor = raw.sellerName || raw.sponsor || "Featured Partner";
-  const url = raw.url || "#";
+  const title = raw.name || raw.title || 'Curated Discovery';
+  const desc = raw.description || raw.desc || 'A handpicked resource tailored to your interests.';
+  const imgCat = resolveFallbackAdCategory(raw.category, category);
+  const img = raw.thumbnailUrl || raw.img || `img/${imgCat}_${(defaultIndex % 10) + 1}.jpg`;
+  const sponsor = raw.sellerName || raw.sponsor || 'Featured Partner';
+  const url = raw.url || '#';
   const price = raw.priceUsd != null && raw.priceUsd > 0
     ? `$${raw.priceUsd}`
     : (raw.priceCents != null && raw.priceCents > 0
@@ -47,14 +70,118 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
     img,
     cta,
     sponsor,
-    url
+    url,
+    category: raw.category || imgCat
   };
 }
 
+async function fetchJsonAdsFromPath(basePath: string): Promise<RawProductAd[]> {
+  const candidates = [basePath, `/${basePath.replace(/^\/+/, '')}`, `./${basePath.replace(/^\.?\/+/, '')}`];
+  for (const path of candidates) {
+    try {
+      const response = await fetch(path);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return data;
+        }
+      }
+    } catch {
+      // Try next candidate
+    }
+  }
+  return [];
+}
+
+async function fetchWorkerAdsByKeyword(keyword: string): Promise<RawProductAd[]> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads';
+    url.searchParams.set('q', keyword);
+    const response = await fetch(url.href, { cache: 'no-cache' });
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (Array.isArray(data?.ads)) return data.ads;
+  } catch {
+    // Worker /ads endpoint optional fallback
+  }
+  return [];
+}
+
+function adMatchesKeyword(ad: AdItem, raw: RawProductAd | undefined, keyword: string): boolean {
+  const searchable = [
+    ad.title,
+    ad.desc,
+    ad.sponsor,
+    ad.cta,
+    ad.category,
+    ad.url,
+    raw?.network,
+    raw?.category
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return matchesKeywordQuery(searchable, keyword);
+}
+
+/**
+ * Searches all ad catalogs, the Cloudflare Worker ads endpoint, and Supabase ads table
+ * for ads matching the custom topic keyword.
+ */
+async function searchAdsByKeyword(keyword: string): Promise<AdItem[]> {
+  const trimmed = keyword.trim();
+  if (!trimmed) return [];
+
+  const cacheKey = `custom:${trimmed.toLowerCase()}`;
+  if (adCache[cacheKey]) {
+    return adCache[cacheKey];
+  }
+
+  const [workerAdsResult, supabaseAdsResult, ...jsonFileResults] = await Promise.allSettled([
+    fetchWorkerAdsByKeyword(trimmed),
+    searchSupabaseAdsByKeyword(trimmed),
+    ...ALL_AD_JSON_FILES.map(file => fetchJsonAdsFromPath(file))
+  ]);
+
+  const rawPool: RawProductAd[] = [];
+  if (workerAdsResult.status === 'fulfilled') {
+    rawPool.push(...workerAdsResult.value);
+  }
+  if (supabaseAdsResult.status === 'fulfilled') {
+    rawPool.push(...supabaseAdsResult.value);
+  }
+  for (const res of jsonFileResults) {
+    if (res.status === 'fulfilled') {
+      rawPool.push(...res.value);
+    }
+  }
+
+  const seenKeys = new Set<string>();
+  const matchedAds: AdItem[] = [];
+
+  rawPool.forEach((raw, idx) => {
+    const formatted = formatProductAd(raw, 'all', idx);
+    const dedupeKey = `${(formatted.url || '').toLowerCase()}|${formatted.title.toLowerCase()}`;
+    if (seenKeys.has(dedupeKey)) return;
+    if (adMatchesKeyword(formatted, raw, trimmed)) {
+      seenKeys.add(dedupeKey);
+      matchedAds.push(formatted);
+    }
+  });
+
+  adCache[cacheKey] = matchedAds;
+  return matchedAds;
+}
+
 export async function fetchAdsForCategory(category: NewsCategory): Promise<AdItem[]> {
-  if (adCache[category] && adCache[category]!.length > 0) {
+  if (!isValidCategory(category)) {
+    return searchAdsByKeyword(category);
+  }
+
+  if (adCache[category] && adCache[category].length > 0) {
     // Return a newly shuffled copy each time to ensure unbiased random presentation
-    return shuffleArray(adCache[category]!);
+    return shuffleArray(adCache[category]);
   }
 
   const lookupPaths = [
@@ -134,12 +261,12 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
   // Fallback ad if none could be loaded
   return [
     {
-      title: "Family Learning & Creative Discovery Set",
-      desc: "Interactive educational printables, cozy activities, and sensory tools designed for mindful curious minds.",
+      title: 'Family Learning & Creative Discovery Set',
+      desc: 'Interactive educational printables, cozy activities, and sensory tools designed for mindful curious minds.',
       img: `img/${category}_1.jpg`,
-      cta: "Explore Bundle →",
-      sponsor: "Littlables Showcase",
-      url: "#"
+      cta: 'Explore Bundle →',
+      sponsor: 'Littlables Showcase',
+      url: '#'
     }
   ];
 }

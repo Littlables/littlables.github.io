@@ -1912,6 +1912,26 @@ export const initialAds = [
 
 let adsCatalog = [...initialAds];
 
+function getTokenStemVariants(token) {
+  const lower = String(token || '').toLowerCase().trim();
+  if (!lower) return [];
+  const variants = new Set([lower]);
+  if (lower.endsWith('ies') && lower.length > 4) {
+    variants.add(`${lower.slice(0, -3)}y`);
+  } else if (lower.endsWith('y') && lower.length > 3 && !/[aeiou]y$/.test(lower)) {
+    variants.add(`${lower.slice(0, -1)}ies`);
+  }
+  if (lower.endsWith('es') && lower.length > 4) {
+    variants.add(lower.slice(0, -2));
+    variants.add(lower.slice(0, -1));
+  } else if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
+    variants.add(lower.slice(0, -1));
+  } else if (lower.length >= 3 && !lower.endsWith('s')) {
+    variants.add(`${lower}s`);
+  }
+  return Array.from(variants);
+}
+
 export function getAds({ category = 'all', query = '', network = 'all' } = {}) {
   let list = adsCatalog;
   if (category && category !== 'all') {
@@ -1921,16 +1941,38 @@ export function getAds({ category = 'all', query = '', network = 'all' } = {}) {
     list = list.filter(ad => ad.network.toLowerCase() === network.toLowerCase());
   }
   if (query && query.trim()) {
-    const q = query.toLowerCase().trim();
-    list = list.filter(ad =>
-      (ad.title && ad.title.toLowerCase().includes(q)) ||
-      (ad.desc && ad.desc.toLowerCase().includes(q)) ||
-      (ad.sponsor && ad.sponsor.toLowerCase().includes(q)) ||
-      (ad.cta && ad.cta.toLowerCase().includes(q)) ||
-      (ad.url && ad.url.toLowerCase().includes(q)) ||
-      (ad.category && ad.category.toLowerCase().includes(q)) ||
-      (ad.network && ad.network.toLowerCase().includes(q))
+    const normalizedQuery = query
+      .toLowerCase()
+      .replace(/[-_+]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const tokens = Array.from(
+      new Set(
+        normalizedQuery
+          .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+          .split(/\s+/)
+          .filter(Boolean)
+      )
     );
+    list = list.filter(ad => {
+      const searchable = [
+        ad.title,
+        ad.desc,
+        ad.sponsor,
+        ad.cta,
+        ad.url,
+        ad.category,
+        ad.network
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (searchable.includes(normalizedQuery)) return true;
+      if (tokens.length === 0) return false;
+      return tokens.every(token =>
+        getTokenStemVariants(token).some(variant => searchable.includes(variant))
+      );
+    });
   }
   return list;
 }

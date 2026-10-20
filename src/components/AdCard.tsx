@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { AdItem, NewsCategory } from '../types';
 import { t } from '../constants/translations';
 import { getAdNetwork, trackAdClick } from '../services/trackingService';
+import { isValidCategory } from '../services/urlService';
 
 interface AdCardProps {
   ad: AdItem;
@@ -48,6 +49,9 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   };
 
   const sponsoredText = t('sponsored') || 'Sponsored';
+  const fallbackImgCategory = ad.category && isValidCategory(ad.category)
+    ? ad.category
+    : (isValidCategory(category) ? category : 'all');
 
   return (
     <article
@@ -69,7 +73,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           className="news-card-image"
           loading="lazy"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = `img/${category}_1.jpg`;
+            (e.target as HTMLImageElement).src = `img/${fallbackImgCategory}_1.jpg`;
           }}
         />
         <span className="news-card-badge ad-badge">{sponsoredText}</span>

@@ -1,4 +1,6 @@
-export type NewsCategory = 'all' | 'childcare' | 'animals' | 'arts' | 'tech' | 'world' | 'uplifting';
+export type StandardNewsCategory = 'all' | 'childcare' | 'animals' | 'arts' | 'tech' | 'world' | 'uplifting';
+
+export type NewsCategory = StandardNewsCategory | (string & {});
 
 export type ThemeId = 'dark' | 'dark-purple' | 'light' | 'rainbow' | 'pastel-rainbow' | 'pink';
 
@@ -15,6 +17,7 @@ export interface NewsItem {
     link?: string;
   };
   description?: string;
+  content?: string;
   aiSummary?: string;
   pubDate?: string;
   fetchedAt?: string;
@@ -31,6 +34,7 @@ export interface AdItem {
   cta: string;
   sponsor: string;
   url?: string;
+  category?: string;
 }
 
 export interface ReactionCounts {

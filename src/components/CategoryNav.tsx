@@ -2,7 +2,7 @@ import React from 'react';
 import { NewsCategory } from '../types';
 import { CATEGORIES } from '../constants/config';
 import { t, TranslationStrings } from '../constants/translations';
-import { getTopicHref } from '../services/urlService';
+import { getTopicHref, isCustomTopic, formatCustomTopicLabel } from '../services/urlService';
 import { RIBBON_UMAMI_EVENTS, trackCategoryClick } from '../services/trackingService';
 
 interface CategoryNavProps {
@@ -14,11 +14,13 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
   currentCategory,
   onSelectCategory
 }) => {
+  const hasCustomTopic = isCustomTopic(currentCategory);
+
   return (
     <div className="news-category-container">
       <nav className="news-category-bar" id="news-category-bar" aria-label="News Categories">
         {CATEGORIES.map((cat) => {
-          const isActive = currentCategory === cat.id;
+          const isActive = !hasCustomTopic && currentCategory === cat.id;
           const label = t(cat.i18nKey as keyof TranslationStrings) || cat.id;
           const eventName = RIBBON_UMAMI_EVENTS[cat.id] || `Ribbon-${cat.id}`;
           const topicHref = getTopicHref(cat.id);
@@ -45,6 +47,25 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
             </a>
           );
         })}
+
+        {hasCustomTopic && (
+          <a
+            href={getTopicHref(currentCategory)}
+            className="cat-pill active custom-topic-pill"
+            data-category={currentCategory}
+            aria-current="page"
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                return;
+              }
+              e.preventDefault();
+              onSelectCategory(currentCategory);
+            }}
+          >
+            <span>🔍</span>
+            <span className="cat-text">{formatCustomTopicLabel(currentCategory)}</span>
+          </a>
+        )}
       </nav>
     </div>
   );

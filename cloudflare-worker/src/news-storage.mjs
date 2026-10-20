@@ -448,13 +448,94 @@ export async function finishNewsProviderSync(env, provider, {
   if (!response.ok) throw new Error(`Saving ${provider} update status failed (HTTP ${response.status})`);
 }
 
-export async function searchNewsStories(env, queryText, limit = 100) {
-  if (!queryText || !queryText.trim()) return [];
+export function buildKeywordOrFilter(queryText) {
+  const raw = String(queryText || '')
+    .trim()
+    .replace(/[-_+]+/g, ' ')
+    .replace(/[,()*%]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return '';
 
-  const clean = queryText.trim().replace(/[*%]/g, '');
+  const baseTerms = [raw, ...raw.split(/\s+/).filter(t => t.length >= 2)];
+  const expanded = [];
+  for (const term of baseTerms) {
+    const lower = term.toLowerCase();
+    expanded.push(lower);
+    if (lower.endsWith('ies') && lower.length > 4) {
+      expanded.push(`${lower.slice(0, -3)}y`);
+    } else if (lower.endsWith('y') && lower.length > 3 && !/[aeiou]y$/.test(lower)) {
+      expanded.push(`${lower.slice(0, -1)}ies`);
+    }
+    if (lower.endsWith('es') && lower.length > 4) {
+      expanded.push(lower.slice(0, -2));
+      expanded.push(lower.slice(0, -1));
+    } else if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
+      expanded.push(lower.slice(0, -1));
+    } else if (lower.length >= 3 && !lower.endsWith('s')) {
+      expanded.push(`${lower}s`);
+    }
+  }
+
+  const uniqueTerms = Array.from(new Set(expanded.filter(Boolean))).slice(0, 6);
+  const clauses = [];
+  for (const term of uniqueTerms) {
+    clauses.push(
+      `title.ilike.*${term}*`,
+      `description.ilike.*${term}*`,
+      `content.ilike.*${term}*`,
+      `ai_summary.ilike.*${term}*`,
+      `source_name.ilike.*${term}*`,
+      `category.ilike.*${term}*`
+    );
+  }
+  return `(${clauses.join(',')})`;
+}
+
+export async function getStoredKeywordNewsFeed(env, keyword) {
+  const orFilter = buildKeywordOrFilter(keyword);
+  if (!orFilter) {
+    return { provider: 'supabase', topic: keyword, items: [] };
+  }
+
+  const makeQuery = approved => new URLSearchParams({
+    select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+    approved: `eq.${approved}`,
+    removed: 'eq.false',
+    or: orFilter,
+    order: 'published_at.desc.nullslast,fetched_at.desc',
+    limit: '50'
+  });
+
+  const [approvedResponse, unapprovedResponse] = await Promise.all([
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), {
+      headers: supabaseHeaders(env)
+    }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), {
+      headers: supabaseHeaders(env)
+    })
+  ]);
+  const [approvedRows, unapprovedRows] = await Promise.all([
+    readRows(approvedResponse, 'Approved keyword news feed lookup'),
+    readRows(unapprovedResponse, 'Unapproved keyword news feed lookup')
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  return { provider: 'supabase', topic: keyword, items };
+}
+
+export async function searchNewsStories(env, queryText, limit = 100) {
+  const orFilter = buildKeywordOrFilter(queryText);
+  if (!orFilter) return [];
+
   const params = new URLSearchParams({
     select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at',
-    or: `(title.ilike.*${encodeURIComponent(clean)}*,description.ilike.*${encodeURIComponent(clean)}*,source_name.ilike.*${encodeURIComponent(clean)}*,category.ilike.*${encodeURIComponent(clean)}*)`,
+    or: orFilter,
     order: 'published_at.desc.nullslast,fetched_at.desc',
     limit: String(limit)
   });
@@ -476,3 +557,4 @@ export async function searchNewsStories(env, queryText, limit = 100) {
     return [];
   }
 }
+

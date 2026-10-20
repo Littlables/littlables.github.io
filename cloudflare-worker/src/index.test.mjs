@@ -1028,3 +1028,55 @@ test('admin AI image endpoint creates a fun Littlables-themed prompt from story 
   assert.equal(aiCalls.length, 2);
 });
 
+test('public feed and ads endpoints search stories and ads when custom topic keywords are used', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, options) => {
+    const requested = new URL(String(input));
+    requests.push(requested);
+    assert.equal(options.headers.apikey, 'service-secret');
+    if (requested.searchParams.get('approved') === 'eq.true') {
+      return Response.json([{
+        provider: 'gnews',
+        category: 'animals',
+        title: 'Playful Puppy Learns New Tricks',
+        article_url: 'https://publisher.example/puppy-tricks',
+        approved: true,
+        published_at: '2026-10-19T12:00:00Z'
+      }]);
+    }
+    return Response.json([]);
+  };
+
+  try {
+    const feedRes = await worker.fetch(
+      new Request('https://worker.example/feed?category=puppy'),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret',
+        SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) }
+      }
+    );
+    assert.equal(feedRes.status, 200);
+    const feedData = await feedRes.json();
+    assert.equal(feedData.topic, 'puppy');
+    assert.equal(feedData.items.length, 1);
+    assert.equal(feedData.items[0].title, 'Playful Puppy Learns New Tricks');
+    assert.ok(Array.isArray(feedData.ads));
+    assert.ok(feedData.ads.length > 0);
+    assert.ok(feedData.ads.some(ad => /puppy/i.test(ad.title + ' ' + ad.desc)));
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every(req => req.searchParams.get('or')?.includes('title.ilike.*puppy*')));
+
+    const adsRes = await worker.fetch(new Request('https://worker.example/ads?q=puppy'), {});
+    assert.equal(adsRes.status, 200);
+    const adsData = await adsRes.json();
+    assert.ok(Array.isArray(adsData.ads));
+    assert.ok(adsData.ads.length > 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+

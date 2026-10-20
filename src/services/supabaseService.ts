@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CONFIG } from '../constants/config';
-import { ReactionType, ReactionCounts } from '../types';
+import { ReactionType, ReactionCounts, NewsItem, AdItem } from '../types';
+import { getKeywordTokens, getTokenVariants } from './urlService';
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -31,6 +32,111 @@ export function hasUserReacted(storyId: string, type: ReactionType): boolean {
     return localStorage.getItem(`voted_${storyId}_${type}`) === 'true';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Searches the Supabase `news_stories` table directly when public read access is available.
+ */
+export async function searchSupabaseStoriesByKeyword(keyword: string): Promise<NewsItem[]> {
+  if (!supabaseClient || !keyword.trim()) return [];
+  const terms = Array.from(
+    new Set(getKeywordTokens(keyword).flatMap(t => getTokenVariants(t)))
+  )
+    .map(t => t.replace(/[,()*%]/g, '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (terms.length === 0) return [];
+
+  const orClauses = terms
+    .flatMap(term => [
+      `title.ilike.*${term}*`,
+      `description.ilike.*${term}*`,
+      `content.ilike.*${term}*`,
+      `ai_summary.ilike.*${term}*`,
+      `source_name.ilike.*${term}*`,
+      `category.ilike.*${term}*`
+    ])
+    .join(',');
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('news_stories')
+      .select('provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at')
+      .eq('removed', false)
+      .or(orClauses)
+      .order('published_at', { ascending: false })
+      .limit(50);
+
+    if (error || !Array.isArray(data)) return [];
+
+    return data
+      .filter((row: any) => row && typeof row.article_url === 'string' && typeof row.title === 'string')
+      .map((row: any) => ({
+        title: row.title,
+        link: row.article_url,
+        image: row.image_url || '',
+        description: row.description || '',
+        content: row.content || '',
+        aiSummary: row.ai_summary || '',
+        pubDate: row.published_at || '',
+        fetchedAt: row.fetched_at || '',
+        source: row.source_name || '',
+        provider: row.provider || '',
+        category: row.category || 'all',
+        approved: Boolean(row.approved)
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Searches a Supabase `ads` table if present.
+ */
+export async function searchSupabaseAdsByKeyword(keyword: string): Promise<AdItem[]> {
+  if (!supabaseClient || !keyword.trim()) return [];
+  const terms = Array.from(
+    new Set(getKeywordTokens(keyword).flatMap(t => getTokenVariants(t)))
+  )
+    .map(t => t.replace(/[,()*%]/g, '').trim())
+    .filter(Boolean)
+    .slice(0, 5);
+
+  if (terms.length === 0) return [];
+
+  const orClauses = terms
+    .flatMap(term => [
+      `title.ilike.*${term}*`,
+      `desc.ilike.*${term}*`,
+      `sponsor.ilike.*${term}*`,
+      `category.ilike.*${term}*`
+    ])
+    .join(',');
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('ads')
+      .select('title,desc,img,cta,sponsor,url,category')
+      .or(orClauses)
+      .limit(50);
+
+    if (error || !Array.isArray(data)) return [];
+
+    return data
+      .filter((row: any) => row && typeof row.title === 'string')
+      .map((row: any) => ({
+        title: row.title,
+        desc: row.desc || '',
+        img: row.img || 'img/all_1.jpg',
+        cta: row.cta || 'Explore →',
+        sponsor: row.sponsor || 'Featured Partner',
+        url: row.url || '#',
+        category: row.category || 'all'
+      }));
+  } catch {
+    return [];
   }
 }
 

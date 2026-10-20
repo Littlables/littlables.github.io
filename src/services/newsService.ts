@@ -1,5 +1,17 @@
-import { NewsCategory, NewsItem } from '../types';
+import { NewsCategory, StandardNewsCategory, NewsItem } from '../types';
 import { NEWS_CONFIG, CATEGORY_STOCK_IMAGES, FALLBACK_STORIES } from '../constants/config';
+import { isValidCategory, matchesKeywordQuery } from './urlService';
+import { searchSupabaseStoriesByKeyword } from './supabaseService';
+
+const STANDARD_CATEGORIES: StandardNewsCategory[] = [
+  'all',
+  'childcare',
+  'animals',
+  'arts',
+  'tech',
+  'world',
+  'uplifting'
+];
 
 export function decodeHtmlEntities(value: string | undefined): string {
   if (!value) return '';
@@ -46,9 +58,35 @@ export function resolveImageUrl(item: NewsItem, index: number, category: NewsCat
     }
   }
 
-  const effectiveCategory = item.category || category;
+  const effectiveCategory = item.category && isValidCategory(item.category)
+    ? item.category
+    : (isValidCategory(category) ? category : 'all');
   const pool = CATEGORY_STOCK_IMAGES[effectiveCategory] || CATEGORY_STOCK_IMAGES.all;
   return pool[index % pool.length];
+}
+
+function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsItem {
+  return {
+    ...item,
+    title: decodeHtmlEntities(item.title),
+    link: decodeHtmlEntities(item.link || item.article_url),
+    image: decodeHtmlEntities(item.image || item.imageUrl || item.image_url),
+    description: decodeHtmlEntities(item.description),
+    content: decodeHtmlEntities(item.content),
+    aiSummary: decodeHtmlEntities(item.aiSummary || item.ai_summary),
+    source: decodeHtmlEntities(item.source || item.source_name),
+    provider: item.provider,
+    category: item.category || defaultCategory
+  };
+}
+
+function isValidStoryItem(item: NewsItem): boolean {
+  if (!item || typeof item.title !== 'string' || typeof item.link !== 'string') return false;
+  try {
+    return ['http:', 'https:'].includes(new URL(item.link).protocol);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> {
@@ -65,43 +103,117 @@ async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> 
   if (!Array.isArray(data.items)) return [];
 
   return data.items
-    .filter((item: any) => item && typeof item.link === 'string')
-    .map((item: any) => ({
-      ...item,
-      title: decodeHtmlEntities(item.title),
-      link: decodeHtmlEntities(item.link || item.article_url),
-      image: decodeHtmlEntities(item.image || item.imageUrl || item.image_url),
-      description: decodeHtmlEntities(item.description),
-      aiSummary: decodeHtmlEntities(item.aiSummary),
-      source: decodeHtmlEntities(item.source || item.source_name),
-      provider: item.provider,
-      category: item.category || category
-    }))
-    .filter((item: NewsItem) => {
-      if (!item || typeof item.title !== 'string' || typeof item.link !== 'string') return false;
-      try {
-        return ['http:', 'https:'].includes(new URL(item.link).protocol);
-      } catch {
-        return false;
+    .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
+    .map((item: any) => normalizeFetchedItem(item, category))
+    .filter(isValidStoryItem);
+}
+
+function storyMatchesKeyword(item: NewsItem, keyword: string): boolean {
+  const searchable = [
+    item.title,
+    item.description,
+    item.aiSummary,
+    item.content,
+    item.source,
+    item.provider,
+    item.category
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return matchesKeywordQuery(searchable, keyword);
+}
+
+const byPublicationDate = (first: NewsItem, second: NewsItem) => {
+  const firstDate = Date.parse(first.pubDate || first.fetchedAt || '');
+  const secondDate = Date.parse(second.pubDate || second.fetchedAt || '');
+  const firstTimestamp = Number.isFinite(firstDate) ? firstDate : Number.NEGATIVE_INFINITY;
+  const secondTimestamp = Number.isFinite(secondDate) ? secondDate : Number.NEGATIVE_INFINITY;
+  if (firstTimestamp === secondTimestamp) return 0;
+  return firstTimestamp > secondTimestamp ? -1 : 1;
+};
+
+/**
+ * Searches the story table across the Worker endpoint, Supabase table, and all category feeds
+ * for a custom topic keyword.
+ */
+async function searchStoriesByKeyword(keyword: string): Promise<NewsItem[]> {
+  const trimmedKeyword = keyword.trim();
+  if (!trimmedKeyword) return [];
+
+  const [workerKeywordResult, supabaseDirectResult, ...categoryFeedResults] = await Promise.allSettled([
+    fetchSingleCategory(trimmedKeyword),
+    searchSupabaseStoriesByKeyword(trimmedKeyword),
+    ...STANDARD_CATEGORIES.map(cat => fetchSingleCategory(cat))
+  ]);
+
+  const candidatePool: NewsItem[] = [];
+
+  if (workerKeywordResult.status === 'fulfilled') {
+    candidatePool.push(...workerKeywordResult.value);
+  }
+
+  if (supabaseDirectResult.status === 'fulfilled') {
+    candidatePool.push(
+      ...supabaseDirectResult.value
+        .map(item => normalizeFetchedItem(item, item.category || 'all'))
+        .filter(isValidStoryItem)
+    );
+  }
+
+  for (const res of categoryFeedResults) {
+    if (res.status === 'fulfilled') {
+      candidatePool.push(...res.value.filter(item => storyMatchesKeyword(item, trimmedKeyword)));
+    }
+  }
+
+  // Also check fallback stories in case they match the keyword
+  for (const cat of STANDARD_CATEGORIES) {
+    const fallbacks = FALLBACK_STORIES[cat] || [];
+    for (const fb of fallbacks) {
+      if (storyMatchesKeyword(fb, trimmedKeyword)) {
+        candidatePool.push({ ...fb, category: fb.category || cat });
       }
-    });
+    }
+  }
+
+  const seenUrls = new Set<string>();
+  const approvedMatches: NewsItem[] = [];
+  const unapprovedMatches: NewsItem[] = [];
+
+  for (const item of candidatePool) {
+    if (!item.link || seenUrls.has(item.link)) continue;
+    if (!storyMatchesKeyword(item, trimmedKeyword)) continue;
+    seenUrls.add(item.link);
+    if (item.approved === true) {
+      approvedMatches.push(item);
+    } else {
+      unapprovedMatches.push(item);
+    }
+  }
+
+  approvedMatches.sort((a, b) => {
+    const aHasImg = a.image && a.image.trim().length > 0 ? 1 : 0;
+    const bHasImg = b.image && b.image.trim().length > 0 ? 1 : 0;
+    if (aHasImg !== bHasImg) return bHasImg - aHasImg;
+    return byPublicationDate(a, b);
+  });
+
+  unapprovedMatches.sort(byPublicationDate);
+
+  return [...approvedMatches, ...unapprovedMatches];
 }
 
 export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]> {
-  try {
-    const byPublicationDate = (first: NewsItem, second: NewsItem) => {
-      const firstDate = Date.parse(first.pubDate || first.fetchedAt || '');
-      const secondDate = Date.parse(second.pubDate || second.fetchedAt || '');
-      const firstTimestamp = Number.isFinite(firstDate) ? firstDate : Number.NEGATIVE_INFINITY;
-      const secondTimestamp = Number.isFinite(secondDate) ? secondDate : Number.NEGATIVE_INFINITY;
-      if (firstTimestamp === secondTimestamp) return 0;
-      return firstTimestamp > secondTimestamp ? -1 : 1;
-    };
+  if (!isValidCategory(category)) {
+    return searchStoriesByKeyword(category);
+  }
 
+  try {
     if (category === 'all') {
       // For the homepage, fetch "all" and in parallel fetch approved/custom stories
       // from other categories so custom images and curated stories show on the homepage!
-      const otherCategories: NewsCategory[] = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
+      const otherCategories: StandardNewsCategory[] = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
       const [allFeedResult, ...otherCategoryResults] = await Promise.allSettled([
         fetchSingleCategory('all'),
         ...otherCategories.map(cat => fetchSingleCategory(cat))

@@ -20,6 +20,7 @@ import {
   disapproveNewsStory,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
+  getStoredKeywordNewsFeed,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories,
@@ -61,10 +62,26 @@ async function serveNewsFeed(request, env) {
     });
     if (!limit.success) return jsonResponse({ error: 'News feed request rate limit exceeded' }, 429);
 
-    const category = url.searchParams.get('category') || 'all';
-    if (!NEWS_CATEGORY_SET.has(category)) return jsonResponse({ error: 'Unknown news category' }, 400);
-    const feed = await getStoredNewsFeed(env, category);
-    return jsonResponse(feed);
+    const rawCategory = (
+      url.searchParams.get('category') ||
+      url.searchParams.get('topic') ||
+      url.searchParams.get('q') ||
+      'all'
+    ).trim();
+    const normalizedCategory = rawCategory.toLowerCase();
+
+    if (NEWS_CATEGORY_SET.has(normalizedCategory)) {
+      const feed = await getStoredNewsFeed(env, normalizedCategory);
+      return jsonResponse(feed);
+    }
+
+    const feed = await getStoredKeywordNewsFeed(env, rawCategory);
+    const ads = getAds({ query: rawCategory });
+    return jsonResponse({
+      ...feed,
+      topic: rawCategory,
+      ads
+    });
   } catch (err) {
     console.error('News feed request failed:', err);
     const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 502;
@@ -1034,6 +1051,15 @@ export default {
     }
     if (request.method === 'GET' && pathname === '/feed') {
       return serveNewsFeed(request, env);
+    }
+    if (request.method === 'GET' && pathname === '/ads') {
+      const url = new URL(request.url);
+      const category = (url.searchParams.get('category') || 'all').trim();
+      const query = (url.searchParams.get('q') || url.searchParams.get('topic') || '').trim();
+      const isStandardCategory = NEWS_CATEGORY_SET.has(category.toLowerCase());
+      const effectiveCategory = isStandardCategory ? category.toLowerCase() : 'all';
+      const effectiveQuery = query || (!isStandardCategory ? category : '');
+      return jsonResponse({ ads: getAds({ category: effectiveCategory, query: effectiveQuery }) });
     }
     return jsonResponse({ error: 'Route not found' }, 404);
   }

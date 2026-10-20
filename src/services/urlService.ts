@@ -1,13 +1,116 @@
-import { NewsCategory, NewsItem } from '../types';
+import { NewsCategory, StandardNewsCategory, NewsItem } from '../types';
 import { CATEGORIES } from '../constants/config';
 import { getStoryId } from './supabaseService';
 import { getDomainFromUrl } from './trackingService';
 
-const VALID_CATEGORIES = new Set<NewsCategory>(CATEGORIES.map(c => c.id));
+const VALID_CATEGORIES = new Set<StandardNewsCategory>(
+  CATEGORIES.map(c => c.id as StandardNewsCategory)
+);
 
-export function isValidCategory(value: string | null | undefined): value is NewsCategory {
+const RESERVED_PATH_SEGMENTS = new Set([
+  'index.html',
+  'admin',
+  'story',
+  'feed',
+  'ads',
+  'img',
+  'assets',
+  'public',
+  'api',
+  'topic'
+]);
+
+export function isValidCategory(value: string | null | undefined): value is StandardNewsCategory {
   if (!value) return false;
-  return VALID_CATEGORIES.has(value.toLowerCase() as NewsCategory);
+  return VALID_CATEGORIES.has(value.trim().toLowerCase() as StandardNewsCategory);
+}
+
+export function isCustomTopic(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return Boolean(trimmed) && !isValidCategory(trimmed);
+}
+
+/**
+ * Formats a custom topic keyword into a clean human-readable title.
+ */
+export function formatCustomTopicLabel(topic: string): string {
+  const cleaned = String(topic || '')
+    .trim()
+    .replace(/[-_+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return 'Custom Topic';
+  return cleaned
+    .split(' ')
+    .map(word => (word.length > 0 ? word[0].toUpperCase() + word.slice(1) : ''))
+    .join(' ');
+}
+
+/**
+ * Builds stem variants for a single lowercase search token (e.g. puppy <-> puppies, otter <-> otters).
+ */
+export function getTokenVariants(token: string): string[] {
+  const lower = token.toLowerCase().trim();
+  if (!lower) return [];
+  const variants = new Set<string>([lower]);
+
+  if (lower.endsWith('ies') && lower.length > 4) {
+    variants.add(`${lower.slice(0, -3)}y`);
+  } else if (lower.endsWith('y') && lower.length > 3 && !/[aeiou]y$/.test(lower)) {
+    variants.add(`${lower.slice(0, -1)}ies`);
+  }
+
+  if (lower.endsWith('es') && lower.length > 4) {
+    variants.add(lower.slice(0, -2));
+    variants.add(lower.slice(0, -1));
+  } else if (lower.endsWith('s') && !lower.endsWith('ss') && lower.length > 3) {
+    variants.add(lower.slice(0, -1));
+  } else if (lower.length >= 3 && !lower.endsWith('s')) {
+    variants.add(`${lower}s`);
+  }
+
+  return Array.from(variants);
+}
+
+/**
+ * Extracts normalized search tokens from a topic keyword string.
+ */
+export function getKeywordTokens(keyword: string): string[] {
+  const normalized = String(keyword || '')
+    .toLowerCase()
+    .replace(/[-_+]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .trim();
+  if (!normalized) return [];
+  return Array.from(new Set(normalized.split(/\s+/).filter(Boolean)));
+}
+
+/**
+ * Checks whether a block of text matches all tokens (or their singular/plural variants)
+ * in the supplied keyword query.
+ */
+export function matchesKeywordQuery(searchableText: string, keyword: string): boolean {
+  if (!searchableText || !keyword) return false;
+  const haystack = searchableText.toLowerCase();
+  const normalizedKeyword = keyword
+    .toLowerCase()
+    .replace(/[-_+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedKeyword) return false;
+
+  if (haystack.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const tokens = getKeywordTokens(normalizedKeyword);
+  if (tokens.length === 0) return false;
+
+  return tokens.every(token => {
+    const variants = getTokenVariants(token);
+    return variants.some(variant => haystack.includes(variant));
+  });
 }
 
 /**
@@ -63,16 +166,26 @@ export function matchesStoryParam(item: NewsItem, storyParam: string | null | un
 }
 
 /**
+ * Normalizes a topic identifier for URL query strings.
+ */
+function normalizeTopicParamValue(category: NewsCategory): string {
+  const trimmed = String(category || 'all').trim();
+  if (!trimmed) return 'all';
+  return isValidCategory(trimmed) ? trimmed.toLowerCase() : trimmed;
+}
+
+/**
  * Builds the relative href for a topic so links work on both root and subpaths.
  */
 export function getTopicHref(category: NewsCategory): string {
+  const topicValue = normalizeTopicParamValue(category);
   if (typeof window === 'undefined') {
-    return `?topic=${encodeURIComponent(category)}`;
+    return `?topic=${encodeURIComponent(topicValue)}`;
   }
   const url = new URL(window.location.href);
   url.search = '';
   url.hash = '';
-  url.searchParams.set('topic', category);
+  url.searchParams.set('topic', topicValue);
   return `${url.pathname}${url.search}`;
 }
 
@@ -80,13 +193,14 @@ export function getTopicHref(category: NewsCategory): string {
  * Builds the full shareable URL for a topic.
  */
 export function getTopicShareUrl(category: NewsCategory): string {
+  const topicValue = normalizeTopicParamValue(category);
   if (typeof window === 'undefined') {
-    return `https://littlables.github.io/?topic=${encodeURIComponent(category)}`;
+    return `https://littlables.github.io/?topic=${encodeURIComponent(topicValue)}`;
   }
   const url = new URL(window.location.href);
   url.search = '';
   url.hash = '';
-  url.searchParams.set('topic', category);
+  url.searchParams.set('topic', topicValue);
   return url.toString();
 }
 
@@ -94,9 +208,11 @@ export function getTopicShareUrl(category: NewsCategory): string {
  * Builds the relative href for an individual story page.
  */
 export function getStoryHref(item: NewsItem, currentCategory: NewsCategory = 'all'): string {
-  const effectiveCategory = item.category && isValidCategory(item.category)
-    ? item.category
-    : currentCategory;
+  const effectiveCategory = isCustomTopic(currentCategory)
+    ? normalizeTopicParamValue(currentCategory)
+    : (item.category && isValidCategory(item.category)
+      ? item.category
+      : normalizeTopicParamValue(currentCategory));
   const slug = getStorySlug(item);
 
   if (typeof window === 'undefined') {
@@ -114,9 +230,11 @@ export function getStoryHref(item: NewsItem, currentCategory: NewsCategory = 'al
  * Builds the full shareable URL for an individual story page.
  */
 export function getStoryShareUrl(item: NewsItem, currentCategory: NewsCategory = 'all'): string {
-  const effectiveCategory = item.category && isValidCategory(item.category)
-    ? item.category
-    : currentCategory;
+  const effectiveCategory = isCustomTopic(currentCategory)
+    ? normalizeTopicParamValue(currentCategory)
+    : (item.category && isValidCategory(item.category)
+      ? item.category
+      : normalizeTopicParamValue(currentCategory));
   const slug = getStorySlug(item);
 
   if (typeof window === 'undefined') {
@@ -244,38 +362,61 @@ async function fetchImageAsShareFile(imageUrl: string, item: NewsItem): Promise<
 
 /**
  * Parses the initial or current topic from the browser URL (query, hash, or path).
+ * Supports both the 7 standard categories and any custom keyword topic.
  */
 export function parseTopicFromUrl(): NewsCategory | null {
   if (typeof window === 'undefined') return null;
   try {
     const url = new URL(window.location.href);
-    const topicParam = url.searchParams.get('topic') || url.searchParams.get('category');
-    if (isValidCategory(topicParam)) {
-      return topicParam.toLowerCase() as NewsCategory;
+    const topicParam =
+      url.searchParams.get('topic') ||
+      url.searchParams.get('category') ||
+      url.searchParams.get('q') ||
+      url.searchParams.get('search');
+
+    if (topicParam && topicParam.trim()) {
+      const cleaned = topicParam.trim();
+      return isValidCategory(cleaned) ? cleaned.toLowerCase() : cleaned;
     }
 
-    // Check hash e.g. #childcare or #/topic/childcare
+    // Check hash e.g. #childcare, #puppy, or #/topic/puppy
     const rawHash = url.hash.replace(/^#\/?/, '');
-    if (rawHash) {
+    if (rawHash && !rawHash.startsWith('story/')) {
       const hashParts = rawHash.split('/').filter(Boolean);
-      if (hashParts[0] === 'topic' && isValidCategory(hashParts[1])) {
-        return hashParts[1].toLowerCase() as NewsCategory;
-      }
-      if (isValidCategory(hashParts[0])) {
-        return hashParts[0].toLowerCase() as NewsCategory;
+      if (hashParts[0] === 'topic' && hashParts[1]) {
+        const candidate = decodeURIComponent(hashParts.slice(1).join(' ')).trim();
+        if (candidate) {
+          return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
+        }
+      } else if (hashParts.length === 1) {
+        const candidate = decodeURIComponent(hashParts[0]).trim();
+        if (candidate) {
+          return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
+        }
       }
     }
 
-    // Check pathname e.g. /topic/childcare or /childcare
+    // Check pathname e.g. /topic/childcare, /topic/puppy, or /childcare
     const pathParts = url.pathname.split('/').filter(Boolean);
     if (pathParts.length > 0) {
       const lastPart = pathParts[pathParts.length - 1];
       const prevPart = pathParts.length > 1 ? pathParts[pathParts.length - 2] : '';
-      if (prevPart === 'topic' && isValidCategory(lastPart)) {
-        return lastPart.toLowerCase() as NewsCategory;
+      if (prevPart === 'topic' && lastPart) {
+        const candidate = decodeURIComponent(lastPart).trim();
+        if (candidate) {
+          return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
+        }
       }
-      if (isValidCategory(lastPart)) {
-        return lastPart.toLowerCase() as NewsCategory;
+      if (
+        lastPart &&
+        !lastPart.includes('.') &&
+        !RESERVED_PATH_SEGMENTS.has(lastPart.toLowerCase()) &&
+        prevPart !== 'story'
+      ) {
+        const candidate = decodeURIComponent(lastPart).trim();
+        if (candidate) {
+          return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
+        }
       }
     }
   } catch {}
@@ -384,7 +525,7 @@ export async function shareStoryWithImage(
   category: NewsCategory,
   resolvedImageUrl: string
 ): Promise<boolean> {
-  const effectiveCategory = item.category || category;
+  const effectiveCategory = isCustomTopic(category) ? category : (item.category || category);
   const shareUrl = getStoryShareUrl(item, effectiveCategory);
 
   updateStoryOpenGraphTags(item, resolvedImageUrl, shareUrl);

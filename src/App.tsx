@@ -22,7 +22,10 @@ import {
   parseStoryFromUrl,
   getTopicHref,
   getStoryHref,
-  matchesStoryParam
+  matchesStoryParam,
+  isCustomTopic,
+  isValidCategory,
+  formatCustomTopicLabel
 } from './services/urlService';
 import { t, getDetectedLocale } from './constants/translations';
 
@@ -61,10 +64,12 @@ export const App: React.FC = () => {
     const baseTitle = t('pageTitle') || 'Littlables — A Little Scoop of the World';
     if (selectedStory?.item?.title) {
       document.title = `${selectedStory.item.title} — Littlables`;
+    } else if (isCustomTopic(category)) {
+      document.title = `${formatCustomTopicLabel(category)} — Littlables`;
     } else {
       document.title = baseTitle;
     }
-  }, [selectedStory]);
+  }, [selectedStory, category]);
 
   // Ensure initial URL reflects the active topic if not already in the address bar
   useEffect(() => {
@@ -81,9 +86,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
-      const urlTopic = parseTopicFromUrl();
+      const urlTopic = parseTopicFromUrl() || 'all';
       const urlStory = parseStoryFromUrl();
-      if (urlTopic && urlTopic !== category) {
+      if (urlTopic !== category) {
         setCategoryState(urlTopic);
       }
       setActiveStoryParam(urlStory);
@@ -100,7 +105,7 @@ export const App: React.FC = () => {
     setError(null);
 
     try {
-      // Parallel fetch news and category-based ads
+      // Parallel fetch news and category/keyword-based ads
       const [fetchedStories, categoryAds] = await Promise.all([
         fetchNewsFeed(cat),
         fetchAdsForCategory(cat)
@@ -110,9 +115,13 @@ export const App: React.FC = () => {
       setAds(categoryAds);
 
       // Fetch reactions for stories
-      const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
-      const reactionData = await fetchReactionsForStories(storyIds);
-      setReactions(reactionData);
+      if (fetchedStories.length > 0) {
+        const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
+        const reactionData = await fetchReactionsForStories(storyIds);
+        setReactions(reactionData);
+      } else {
+        setReactions({});
+      }
     } catch (err: any) {
       console.error('Error loading stories:', err);
       setError(err?.message || 'Unable to load stories.');
@@ -131,12 +140,13 @@ export const App: React.FC = () => {
       setSelectedStory(null);
       return;
     }
-    if (stories.length === 0) return;
 
-    const matchIndex = stories.findIndex(s => matchesStoryParam(s, activeStoryParam));
-    if (matchIndex !== -1) {
-      setSelectedStory({ item: stories[matchIndex], index: matchIndex });
-      return;
+    if (stories.length > 0) {
+      const matchIndex = stories.findIndex(s => matchesStoryParam(s, activeStoryParam));
+      if (matchIndex !== -1) {
+        setSelectedStory({ item: stories[matchIndex], index: matchIndex });
+        return;
+      }
     }
 
     // If not found in the active category feed, check the combined 'all' feed as fallback
@@ -179,9 +189,11 @@ export const App: React.FC = () => {
     setCategoryState(newCat);
     setSelectedStory(null);
     setActiveStoryParam(null);
-    try {
-      localStorage.setItem(SAVED_CATEGORY_KEY, newCat);
-    } catch {}
+    if (isValidCategory(newCat)) {
+      try {
+        localStorage.setItem(SAVED_CATEGORY_KEY, newCat);
+      } catch {}
+    }
     if (typeof window !== 'undefined') {
       const nextHref = getTopicHref(newCat);
       window.history.pushState({ topic: newCat, story: null }, '', nextHref);
@@ -236,11 +248,17 @@ export const App: React.FC = () => {
   };
 
   const getCategoryBadge = (storyCategory?: NewsCategory) => {
+    if (isCustomTopic(category)) {
+      return `🔍 ${formatCustomTopicLabel(category)}`;
+    }
     const targetCat = storyCategory || category;
     const active = CATEGORIES.find(c => c.id === targetCat);
-    const icon = active?.icon || '⚡';
-    if (targetCat === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
-    return `${icon} ${t((active?.i18nKey || 'catAll') as any)}`;
+    if (active) {
+      const icon = active.icon || '⚡';
+      if (targetCat === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
+      return `${icon} ${t((active.i18nKey || 'catAll') as any)}`;
+    }
+    return `🔍 ${formatCustomTopicLabel(targetCat)}`;
   };
 
   const selectedStoryId = selectedStory
@@ -249,6 +267,14 @@ export const App: React.FC = () => {
   const selectedStoryReactions = selectedStoryId
     ? (reactions[selectedStoryId] || { love: 0, mind: 0, cozy: 0 })
     : { love: 0, mind: 0, cozy: 0 };
+
+  const customTopicActive = isCustomTopic(category);
+  const interleavedAdCount = customTopicActive
+    ? Math.min(ads.length, Math.floor(stories.length / 3))
+    : 0;
+  const remainingCustomAds = customTopicActive
+    ? ads.slice(interleavedAdCount)
+    : [];
 
   return (
     <>
@@ -266,11 +292,11 @@ export const App: React.FC = () => {
         />
 
         <main id="news-grid-container" className="news-grid">
-          {isLoading && stories.length === 0 ? (
+          {isLoading && stories.length === 0 && ads.length === 0 ? (
             <div className="news-loading-skeleton" id="news-loading-text">
               {t('loading') || 'Fetching the freshest stories...'}
             </div>
-          ) : error && stories.length === 0 ? (
+          ) : error && stories.length === 0 && ads.length === 0 ? (
             <div className="news-feed-error" role="alert">
               <p>{t('error') || 'Unable to load live wire right now.'}</p>
               <button
@@ -281,35 +307,61 @@ export const App: React.FC = () => {
                 🔄 Try Again
               </button>
             </div>
+          ) : customTopicActive && stories.length === 0 && ads.length === 0 ? (
+            <div className="news-feed-error" role="status">
+              <p>
+                No stories or partner discoveries found for{' '}
+                <strong>"{formatCustomTopicLabel(category)}"</strong>.
+              </p>
+              <button
+                className="refresh-news-button"
+                onClick={() => handleSelectCategory('all')}
+                style={{ marginTop: '0.75rem' }}
+              >
+                ⚡ View Top Currents
+              </button>
+            </div>
           ) : (
-            stories.map((story, index) => {
-              const storyId = getStoryId(story.title, story.link);
-              const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
-              const storyBadge = getCategoryBadge(story.category);
+            <>
+              {stories.map((story, index) => {
+                const storyId = getStoryId(story.title, story.link);
+                const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
+                const storyBadge = getCategoryBadge(story.category);
 
-              // Insert ads continuously every 3 stories (after story 3, 6, 9, 12, etc.) until stories end
-              const shouldInsertAd = (index + 1) % 3 === 0;
-              const adIndex = Math.floor(index / 3);
-              const currentAd = ads && ads.length > 0 ? ads[adIndex % ads.length] : null;
+                const shouldInsertAd = (index + 1) % 3 === 0;
+                const adIndex = Math.floor(index / 3);
+                const currentAd = customTopicActive
+                  ? (adIndex < ads.length ? ads[adIndex] : null)
+                  : (ads && ads.length > 0 ? ads[adIndex % ads.length] : null);
 
-              return (
-                <React.Fragment key={`${story.link}-${index}`}>
-                  <NewsCard
-                    item={story}
-                    index={index}
+                return (
+                  <React.Fragment key={`${story.link}-${index}`}>
+                    <NewsCard
+                      item={story}
+                      index={index}
+                      category={category}
+                      categoryBadge={storyBadge}
+                      reactions={cardReactions}
+                      onReact={handleReaction}
+                      onOpenStory={handleOpenStory}
+                    />
+
+                    {shouldInsertAd && currentAd && (
+                      <AdCard ad={currentAd} category={category} />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+
+              {customTopicActive &&
+                remainingCustomAds.map((ad, idx) => (
+                  <AdCard
+                    key={`custom-ad-${ad.url || ''}-${ad.title}-${idx}`}
+                    ad={ad}
                     category={category}
-                    categoryBadge={storyBadge}
-                    reactions={cardReactions}
-                    onReact={handleReaction}
-                    onOpenStory={handleOpenStory}
                   />
-
-                  {shouldInsertAd && currentAd && (
-                    <AdCard ad={currentAd} category={category} />
-                  )}
-                </React.Fragment>
-              );
-            })
+                ))}
+            </>
           )}
         </main>
       </div>
