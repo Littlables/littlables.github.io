@@ -258,3 +258,43 @@ test('provider catalog reports configured credentials for all integrations', () 
   assert.equal(providers.find(provider => provider.id === 'reddit').configured, true);
   assert.equal(providers.find(provider => provider.id === 'reddit').update_pause_ms, 6000);
 });
+
+test('GNews rate limit error extracts Retry-After, quota headers, error detail, and redacts API keys in fetch logs', async () => {
+  const loggedEntries = [];
+  await assert.rejects(
+    getNewsFeed('newsdata', 'tech', 'en-US', {
+      credentials: { NEWSDATA_API_KEY: 'super-secret-newsdata-key' },
+      retryDelays: [0, 0],
+      onFetchLog: entry => { loggedEntries.push(entry); },
+      fetcher: async () => new Response(
+        JSON.stringify({ status: 'error', results: { message: 'Daily API request quota exceeded for this plan.' } }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': '1800',
+            'X-RateLimit-Remaining': '0'
+          }
+        }
+      )
+    }),
+    error => {
+      assert.equal(error.status, 429);
+      assert.equal(error.isRateLimit, true);
+      assert.equal(error.retryAfterSeconds, 1800);
+      assert.equal(error.rateLimitRemaining, '0');
+      assert.match(error.message, /quota or rate limit reached/);
+      assert.match(error.message, /retry_after=1800s/);
+      assert.match(error.message, /Daily API request quota exceeded/);
+      return true;
+    }
+  );
+  assert.equal(loggedEntries.length, 1);
+  assert.equal(loggedEntries[0].status, 'rate_limited');
+  assert.equal(loggedEntries[0].httpStatus, 429);
+  assert.equal(loggedEntries[0].retryAfterSeconds, 1800);
+  assert.equal(loggedEntries[0].rateLimitRemaining, '0');
+  assert.doesNotMatch(loggedEntries[0].requestUrl, /super-secret-newsdata-key/);
+  assert.match(loggedEntries[0].requestUrl, /apikey=%5BREDACTED%5D/);
+});
+

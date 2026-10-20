@@ -677,11 +677,143 @@ export function getAdminPage() {
     .status { font-weight: 700; text-transform: capitalize; }
     .status-succeeded { color: #86efac; }
     .status-partial { color: #fcd34d; }
+    .status-rate_limited { color: #fbbf24; }
+    .status-skipped_cooldown { color: #fbbf24; }
     .status-failed { color: #fca5a5; }
     .status-running { color: #7dd3fc; }
     .status-never { color: #cbd5e1; }
     .error { color: #fca5a5 !important; }
     .success { color: #86efac !important; }
+    .tabular-nums { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    /* Auto-Sync Control Bar & Provider Cooldown Banner */
+    .auto-sync-bar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .75rem;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: .75rem .9rem;
+      margin-bottom: .25rem;
+    }
+    .auto-sync-info {
+      display: flex;
+      flex-direction: column;
+      gap: .2rem;
+    }
+    .auto-sync-title {
+      font-size: .88rem;
+      font-weight: 700;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+    .auto-sync-meta {
+      font-size: .76rem;
+      color: #94a3b8;
+    }
+    .auto-sync-actions {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      flex-wrap: wrap;
+    }
+    .cooldown-callout {
+      margin-top: .45rem;
+      padding: .5rem .65rem;
+      background: rgba(217, 119, 6, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 8px;
+      color: #fde68a;
+      font-size: .76rem;
+      line-height: 1.4;
+    }
+
+    /* Provider Fetch & Rate-Limit Log Viewer */
+    .log-summary-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: .6rem;
+      margin-bottom: .75rem;
+    }
+    .log-stat-box {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: .55rem .7rem;
+    }
+    .log-stat-label {
+      font-size: .72rem;
+      color: #94a3b8;
+      margin: 0 0 .15rem;
+    }
+    .log-stat-value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #f8fafc;
+      margin: 0;
+    }
+    .log-list {
+      display: grid;
+      gap: .45rem;
+    }
+    .log-row {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: .55rem .75rem;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .log-row:hover {
+      border-color: #6366f1;
+      background: #162033;
+    }
+    .log-row-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .65rem;
+      flex-wrap: wrap;
+      font-size: .8rem;
+    }
+    .log-row-left {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .log-row-right {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+      font-size: .75rem;
+      color: #cbd5e1;
+    }
+    .log-error-line {
+      margin: .3rem 0 0;
+      font-size: .76rem;
+      color: #fca5a5;
+      overflow-wrap: anywhere;
+    }
+    .log-drawer {
+      margin-top: .5rem;
+      padding-top: .5rem;
+      border-top: 1px solid #334155;
+      font-size: .75rem;
+      color: #cbd5e1;
+      display: grid;
+      gap: .25rem;
+      overflow-wrap: anywhere;
+    }
 
     @media (max-width: 640px) {
       body { padding: .85rem .65rem 2.5rem; }
@@ -864,6 +996,44 @@ export function getAdminPage() {
       <div id="providers" class="providers" aria-live="polite" hidden style="margin-top: .85rem;"></div>
     </section>
 
+    <!-- 6B. PROVIDER FETCH & RATE-LIMIT LOGS SECTION -->
+    <section aria-labelledby="logs-title" class="admin-card-section" data-section-id="logs">
+      <div class="section-header">
+        <h2 id="logs-title">
+          <button id="logs-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="logs-body" data-section-toggle="logs">
+            <span id="logs-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>Provider Fetch &amp; Rate-Limit Logs <span id="logs-count"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button id="refresh-logs-btn" type="button" class="secondary small-btn">Refresh logs</button>
+          <button id="clear-logs-btn" type="button" class="secondary small-btn">Clear logs</button>
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="logs-body" class="section-body" hidden>
+        <div id="logs-summary" class="log-summary-strip"></div>
+        <div class="filter-bar">
+          <nav id="logs-status-tabs" class="category-tabs" aria-label="Filter fetch logs by status" style="margin: 0;"></nav>
+          <label class="provider-toolbar" for="logs-provider-filter">
+            Provider
+            <select id="logs-provider-filter" class="provider-filter">
+              <option value="all">All providers</option>
+            </select>
+          </label>
+          <label class="provider-toolbar" for="logs-category-filter">
+            Topic
+            <select id="logs-category-filter" class="provider-filter">
+              <option value="all">All topics</option>
+            </select>
+          </label>
+        </div>
+        <div id="provider-logs-list" class="log-list" aria-live="polite"></div>
+        <div id="logs-pagination" class="pagination-bar"></div>
+      </div>
+    </section>
+
     <!-- 7. HISTORY SECTION -->
     <section aria-labelledby="stories-title" class="admin-card-section" data-section-id="decisions">
       <div class="section-header">
@@ -943,20 +1113,24 @@ export function getAdminPage() {
           search: PAGE_SIZE_OPTIONS.includes(Number(saved.search)) ? Number(saved.search) : 10,
           ads: PAGE_SIZE_OPTIONS.includes(Number(saved.ads)) ? Number(saved.ads) : 10,
           decided: PAGE_SIZE_OPTIONS.includes(Number(saved.decided)) ? Number(saved.decided) : 10,
-          banned: PAGE_SIZE_OPTIONS.includes(Number(saved.banned)) ? Number(saved.banned) : 10
+          banned: PAGE_SIZE_OPTIONS.includes(Number(saved.banned)) ? Number(saved.banned) : 10,
+          logs: PAGE_SIZE_OPTIONS.includes(Number(saved.logs)) ? Number(saved.logs) : 20
         };
       } catch {
-        return { pending: 10, search: 10, ads: 10, decided: 10, banned: 10 };
+        return { pending: 10, search: 10, ads: 10, decided: 10, banned: 10, logs: 20 };
       }
     }
 
     const state = {
       busy: new Set(),
+      syncingAll: false,
+      togglingAutoSync: false,
       approving: new Set(),
       banning: new Set(),
       unapproving: new Set(),
       undoing: new Set(),
       ignored: new Set(),
+      expandedLogs: new Set(),
       previewTimer: null,
       previewType: 'story',
       previewDraft: null,
@@ -973,10 +1147,31 @@ export function getAdminPage() {
       activeHistoryProvider: 'all',
       activeAdCategory: 'all',
       activeAdNetwork: 'all',
+      activeLogStatus: 'all',
+      activeLogProvider: 'all',
+      activeLogCategory: 'all',
       adSearchQuery: '',
       storySearchQuery: '',
       storySearchTimer: null,
       providers: [],
+      autoSync: {
+        enabled: true,
+        intervalMs: 3600000,
+        lastRunAt: null,
+        nextRunAt: null,
+        lastTrigger: null,
+        lastStatus: 'never',
+        lastSummary: null,
+        isStale: false
+      },
+      providerLogs: [],
+      providerLogsSummary: {
+        totalRequests: 0,
+        rateLimitedCount: 0,
+        failedCount: 0,
+        failoverCount: 0,
+        averageLatencyMs: 0
+      },
       pendingStories: [],
       decidedStories: [],
       bannedStories: [],
@@ -987,7 +1182,8 @@ export function getAdminPage() {
         search: 1,
         ads: 1,
         decided: 1,
-        banned: 1
+        banned: 1,
+        logs: 1
       },
       pageSizes: loadSavedPageSizes()
     };
@@ -1031,6 +1227,7 @@ export function getAdminPage() {
       ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
       custom: { toggle: 'custom-toggle', arrow: 'custom-arrow', body: 'custom-body', defaultOpen: true },
       providers: { toggle: 'providers-toggle', arrow: 'providers-arrow', body: 'providers', defaultOpen: false },
+      logs: { toggle: 'logs-toggle', arrow: 'logs-arrow', body: 'logs-body', defaultOpen: false },
       decisions: { toggle: 'decisions-toggle', arrow: 'decisions-arrow', body: 'decisions-body', defaultOpen: false },
       banned: { toggle: 'banned-toggle', arrow: 'banned-arrow', body: 'banned-body', defaultOpen: false }
     };
@@ -1131,7 +1328,7 @@ export function getAdminPage() {
         localStorage.removeItem(STORAGE_ORDER_KEY);
         localStorage.removeItem(STORAGE_COLLAPSED_KEY);
       } catch {}
-      ['summary', 'pending', 'search', 'ads', 'custom', 'providers', 'decisions', 'banned'].forEach((id) => {
+      ['summary', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned'].forEach((id) => {
         const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
         if (sec) adminSectionsEl.append(sec);
         setSectionExpanded(id, sectionTargets[id].defaultOpen, false);
@@ -1259,6 +1456,17 @@ export function getAdminPage() {
       return minutes + 'm' + seconds + 's ago';
     }
 
+    function formatCountdown(targetIso) {
+      const targetMs = Date.parse(targetIso || '');
+      if (!Number.isFinite(targetMs)) return 'Ready now';
+      const remainingSec = Math.max(0, Math.floor((targetMs - Date.now()) / 1000));
+      if (remainingSec <= 0) return 'Due now';
+      const hrs = Math.floor(remainingSec / 3600);
+      const mins = String(Math.floor((remainingSec % 3600) / 60)).padStart(2, '0');
+      const secs = String(remainingSec % 60).padStart(2, '0');
+      return (hrs > 0 ? hrs + 'h ' : '') + mins + 'm ' + secs + 's';
+    }
+
     function refreshStoryAges() {
       document.querySelectorAll('[data-updated-at]').forEach((element) => {
         const timestamp = Date.parse(element.dataset.updatedAt);
@@ -1268,6 +1476,9 @@ export function getAdminPage() {
         }
         element.textContent = element.dataset.updatedPrefix + formatDateTime(new Date(timestamp)) +
           '; ' + formatElapsed(timestamp);
+      });
+      document.querySelectorAll('[data-countdown-to]').forEach((element) => {
+        element.textContent = (element.dataset.countdownPrefix || '') + formatCountdown(element.dataset.countdownTo);
       });
     }
 
@@ -1280,6 +1491,65 @@ export function getAdminPage() {
 
     function renderProviders(providers) {
       providersEl.replaceChildren();
+
+      const autoBar = document.createElement('div');
+      autoBar.className = 'auto-sync-bar';
+      const autoInfo = document.createElement('div');
+      autoInfo.className = 'auto-sync-info';
+      const autoTitle = document.createElement('div');
+      autoTitle.className = 'auto-sync-title';
+      autoTitle.textContent = 'Hourly Auto-Querying: ';
+      const autoBadge = document.createElement('span');
+      autoBadge.className = 'status ' + (state.autoSync?.enabled ? 'status-succeeded' : 'status-partial');
+      autoBadge.textContent = state.autoSync?.enabled ? 'Active · Every 1 hour' : 'Paused';
+      autoTitle.append(autoBadge);
+
+      const autoMeta = document.createElement('div');
+      autoMeta.className = 'auto-sync-meta tabular-nums';
+      const lastRunStr = state.autoSync?.lastRunAt
+        ? formatDateTime(new Date(state.autoSync.lastRunAt)) + ' (' + (state.autoSync.lastTrigger || 'auto') + ')'
+        : 'Never';
+      autoMeta.textContent = 'Cron: 0 * * * * · Last cycle: ' + lastRunStr + ' · ';
+      if (state.autoSync?.enabled) {
+        const nextSpan = document.createElement('span');
+        nextSpan.dataset.countdownPrefix = 'Next cycle in ';
+        nextSpan.dataset.countdownTo = state.autoSync.nextRunAt || '';
+        nextSpan.textContent = 'Next cycle in ' + formatCountdown(state.autoSync.nextRunAt);
+        autoMeta.append(nextSpan);
+      } else {
+        autoMeta.append('Auto-sync paused');
+      }
+      if (state.autoSync?.lastSummary) {
+        const sumLine = document.createElement('div');
+        sumLine.className = 'auto-sync-meta';
+        sumLine.textContent = state.autoSync.lastSummary;
+        autoInfo.append(autoTitle, autoMeta, sumLine);
+      } else {
+        autoInfo.append(autoTitle, autoMeta);
+      }
+
+      const autoActions = document.createElement('div');
+      autoActions.className = 'auto-sync-actions';
+      const toggleAutoBtn = document.createElement('button');
+      toggleAutoBtn.id = 'toggle-auto-sync';
+      toggleAutoBtn.type = 'button';
+      toggleAutoBtn.className = 'secondary small-btn';
+      toggleAutoBtn.disabled = state.togglingAutoSync;
+      toggleAutoBtn.textContent = state.autoSync?.enabled ? 'Pause hourly sync' : 'Enable hourly sync';
+      toggleAutoBtn.addEventListener('click', toggleHourlyAutoSync);
+
+      const syncAllBtn = document.createElement('button');
+      syncAllBtn.id = 'sync-all-providers';
+      syncAllBtn.type = 'button';
+      syncAllBtn.className = 'small-btn';
+      syncAllBtn.disabled = state.syncingAll;
+      syncAllBtn.textContent = state.syncingAll ? 'Syncing all…' : 'Sync all providers now';
+      syncAllBtn.addEventListener('click', syncAllProvidersNow);
+
+      autoActions.append(toggleAutoBtn, syncAllBtn);
+      autoBar.append(autoInfo, autoActions);
+      providersEl.append(autoBar);
+
       providers.forEach((provider) => {
         const card = document.createElement('article');
         card.className = 'provider';
@@ -1329,6 +1599,34 @@ export function getAdminPage() {
         const totalSaved = document.createElement('p');
         totalSaved.textContent = 'Total stories saved: ' + text(provider.total_stories_saved);
         card.append(head, description, coverage, setup, status, updated, saved, totalSaved);
+
+        if (provider.cooldown_until && Date.parse(provider.cooldown_until) > Date.now()) {
+          const cooldownBox = document.createElement('div');
+          cooldownBox.className = 'cooldown-callout tabular-nums';
+          const timerLine = document.createElement('div');
+          timerLine.dataset.countdownPrefix = 'Rate-limit cooldown active · Resets in ';
+          timerLine.dataset.countdownTo = provider.cooldown_until;
+          timerLine.textContent = 'Rate-limit cooldown active · Resets in ' + formatCountdown(provider.cooldown_until);
+          cooldownBox.append(timerLine);
+          if (provider.failover_provider) {
+            const foLine = document.createElement('div');
+            foLine.textContent = 'Failover active: remaining topics routed to ' + provider.failover_provider +
+              (Array.isArray(provider.failover_categories) && provider.failover_categories.length
+                ? ' (' + provider.failover_categories.join(', ') + ')'
+                : '');
+            cooldownBox.append(foLine);
+          }
+          const forceBtn = document.createElement('button');
+          forceBtn.type = 'button';
+          forceBtn.className = 'secondary small-btn';
+          forceBtn.style.marginTop = '.35rem';
+          forceBtn.textContent = 'Force retry now';
+          forceBtn.disabled = state.busy.has(provider.id);
+          forceBtn.addEventListener('click', () => updateProvider(provider.id, true));
+          cooldownBox.append(forceBtn);
+          card.append(cooldownBox);
+        }
+
         if (provider.last_error) {
           const error = document.createElement('p');
           error.className = 'error';
@@ -1894,8 +2192,15 @@ export function getAdminPage() {
         state.pendingStories = data.pendingStories || [];
         state.decidedStories = data.recentStories || [];
         state.bannedStories = data.bannedStories || [];
+        if (data.autoSync) state.autoSync = data.autoSync;
+        if (data.providerLogs) {
+          state.providerLogs = data.providerLogs.logs || [];
+          state.providerLogsSummary = data.providerLogs.summary || state.providerLogsSummary;
+        }
         renderProviders(data.providers);
         renderProviderFilter();
+        renderLogFilterOptions();
+        renderProviderLogs();
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
@@ -1972,18 +2277,25 @@ export function getAdminPage() {
       return postStoryDecision(storyId, 'undo', state.undoing, 'Previous story decision undone.');
     }
 
-    async function updateProvider(providerId) {
+    async function updateProvider(providerId, force = false) {
       if (state.busy.has(providerId)) return;
       state.busy.add(providerId);
       renderProviders(state.providers);
       messageEl.className = 'muted';
-      messageEl.textContent = 'Updating ' + providerId + '…';
+      messageEl.textContent = 'Updating ' + providerId + (force ? ' (forced)…' : '…');
       try {
-        const result = await request('/admin/api/providers/' + encodeURIComponent(providerId) + '/update', { method: 'POST' });
+        const suffix = force ? '?force=1' : '';
+        const result = await request('/admin/api/providers/' + encodeURIComponent(providerId) + '/update' + suffix, { method: 'POST' });
         messageEl.className = result.status === 'succeeded' ? 'success' : 'error';
-        messageEl.textContent = result.status === 'succeeded'
-          ? providerId + ': saved ' + result.storiesSaved + ' stories.'
-          : providerId + ' update finished with errors: ' + (result.errors || []).join('; ');
+        if (result.status === 'succeeded') {
+          messageEl.textContent = providerId + ': saved ' + result.storiesSaved + ' stories.';
+        } else if (result.rateLimited) {
+          messageEl.textContent = providerId + ' hit rate limit (saved ' + result.storiesSaved +
+            (result.failoverProvider ? ', failed over remaining topics to ' + result.failoverProvider + ' +' + (result.failoverStoriesSaved || 0) : '') +
+            '): ' + (result.errors || []).join('; ');
+        } else {
+          messageEl.textContent = providerId + ' update finished with errors: ' + (result.errors || []).join('; ');
+        }
       } catch (error) {
         messageEl.className = 'error';
         messageEl.textContent = providerId + ' update failed: ' + error.message;
@@ -1993,7 +2305,299 @@ export function getAdminPage() {
       }
     }
 
+    async function toggleHourlyAutoSync() {
+      if (state.togglingAutoSync) return;
+      state.togglingAutoSync = true;
+      renderProviders(state.providers);
+      try {
+        const nextEnabled = !(state.autoSync?.enabled);
+        const res = await request('/admin/api/auto-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: nextEnabled })
+        });
+        if (res.autoSync) state.autoSync = res.autoSync;
+        renderProviders(state.providers);
+        messageEl.className = 'success';
+        messageEl.textContent = state.autoSync.enabled
+          ? 'Hourly automatic provider querying enabled.'
+          : 'Hourly automatic provider querying paused.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not update auto-sync setting: ' + error.message;
+      } finally {
+        state.togglingAutoSync = false;
+        renderProviders(state.providers);
+      }
+    }
+
+    async function syncAllProvidersNow() {
+      if (state.syncingAll) return;
+      state.syncingAll = true;
+      renderProviders(state.providers);
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Running full sync across all configured providers…';
+      try {
+        const res = await request('/admin/api/providers/sync-all', { method: 'POST' });
+        if (res.autoSync) state.autoSync = res.autoSync;
+        await refreshData();
+        messageEl.className = res.status === 'succeeded' ? 'success' : 'muted';
+        messageEl.textContent = (res.autoSync?.lastSummary || ('Synced providers: ' + (res.totalStoriesSaved || 0) + ' stories saved.'));
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Sync all providers failed: ' + error.message;
+      } finally {
+        state.syncingAll = false;
+        renderProviders(state.providers);
+      }
+    }
+
+    function renderLogFilterOptions() {
+      const logProviderSelect = document.getElementById('logs-provider-filter');
+      const logCategorySelect = document.getElementById('logs-category-filter');
+      const logStatusNav = document.getElementById('logs-status-tabs');
+      if (logProviderSelect) {
+        const currentVal = state.activeLogProvider;
+        logProviderSelect.replaceChildren();
+        const allOpt = document.createElement('option');
+        allOpt.value = 'all';
+        allOpt.textContent = 'All providers';
+        logProviderSelect.append(allOpt);
+        state.providers.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          logProviderSelect.append(opt);
+        });
+        logProviderSelect.value = currentVal;
+      }
+      if (logCategorySelect && logCategorySelect.options.length <= 1) {
+        categories.forEach((cat) => {
+          const opt = document.createElement('option');
+          opt.value = cat.id;
+          opt.textContent = cat.label;
+          logCategorySelect.append(opt);
+        });
+        logCategorySelect.value = state.activeLogCategory;
+      }
+      if (logStatusNav) {
+        logStatusNav.replaceChildren();
+        const statusTabs = [
+          { id: 'all', label: 'All' },
+          { id: 'rate_limited', label: 'Rate Limited (429)' },
+          { id: 'failed', label: 'Errors' },
+          { id: 'failover', label: 'Failovers' },
+          { id: 'succeeded', label: 'Succeeded' }
+        ];
+        statusTabs.forEach((tab) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'category-tab';
+          btn.setAttribute('aria-pressed', String(state.activeLogStatus === tab.id));
+          btn.textContent = tab.label;
+          btn.addEventListener('click', () => {
+            state.activeLogStatus = tab.id;
+            state.pages.logs = 1;
+            renderLogFilterOptions();
+            renderProviderLogs();
+          });
+          logStatusNav.append(btn);
+        });
+      }
+    }
+
+    function renderProviderLogs() {
+      const summaryEl = document.getElementById('logs-summary');
+      const listEl = document.getElementById('provider-logs-list');
+      const countEl = document.getElementById('logs-count');
+      if (!listEl || !summaryEl) return;
+
+      const summary = state.providerLogsSummary || {
+        totalRequests: state.providerLogs.length,
+        rateLimitedCount: 0,
+        failedCount: 0,
+        failoverCount: 0,
+        averageLatencyMs: 0
+      };
+      if (countEl) {
+        countEl.textContent = summary.totalRequests ? '(' + summary.totalRequests + ')' : '';
+      }
+
+      summaryEl.replaceChildren();
+      [
+        { label: 'Total Fetches Logged', value: String(summary.totalRequests || 0) },
+        { label: 'Rate-Limit Events (429)', value: String(summary.rateLimitedCount || 0) },
+        { label: 'Topic Failovers', value: String(summary.failoverCount || 0) },
+        { label: 'Avg Fetch Latency', value: (summary.averageLatencyMs || 0) + ' ms' }
+      ].forEach((stat) => {
+        const box = document.createElement('div');
+        box.className = 'log-stat-box';
+        const l = document.createElement('p');
+        l.className = 'log-stat-label';
+        l.textContent = stat.label;
+        const v = document.createElement('p');
+        v.className = 'log-stat-value tabular-nums';
+        v.textContent = stat.value;
+        box.append(l, v);
+        summaryEl.append(box);
+      });
+
+      const filtered = state.providerLogs.filter((log) => {
+        if (state.activeLogProvider !== 'all' && log.provider !== state.activeLogProvider) return false;
+        if (state.activeLogCategory !== 'all' && log.category !== state.activeLogCategory) return false;
+        if (state.activeLogStatus !== 'all') {
+          if (state.activeLogStatus === 'failover') {
+            if (!log.failoverProvider && log.triggerSource !== 'failover') return false;
+          } else if (log.status !== state.activeLogStatus) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      listEl.replaceChildren();
+      const pager = renderPaginationBar('logs-pagination', 'logs', filtered.length, renderProviderLogs);
+
+      if (!filtered.length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted';
+        empty.textContent = state.providerLogs.length === 0
+          ? 'No provider fetch logs recorded in this session yet. Click "Update" on a provider or "Sync all providers now" to capture detailed fetch telemetry.'
+          : 'No fetch logs match the selected filters.';
+        listEl.append(empty);
+        return;
+      }
+
+      pager.slice(filtered).forEach((log) => {
+        const row = document.createElement('article');
+        row.className = 'log-row';
+        const main = document.createElement('div');
+        main.className = 'log-row-main';
+
+        const left = document.createElement('div');
+        left.className = 'log-row-left';
+
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'status status-' + String(log.status || 'never').toLowerCase();
+        statusSpan.textContent = log.status === 'rate_limited'
+          ? 'RATE LIMITED'
+          : log.status === 'skipped_cooldown'
+            ? 'COOLDOWN SKIP'
+            : String(log.status || '').toUpperCase();
+
+        const provSpan = document.createElement('span');
+        provSpan.className = 'meta-provider';
+        provSpan.textContent = log.providerLabel || log.provider;
+
+        const catSpan = document.createElement('span');
+        catSpan.className = 'meta-category';
+        catSpan.textContent = '· ' + (log.category || 'all');
+
+        const trigSpan = document.createElement('span');
+        trigSpan.className = 'muted';
+        trigSpan.textContent = '· trigger: ' + (log.triggerSource || 'manual');
+
+        left.append(statusSpan, provSpan, catSpan, trigSpan);
+
+        const right = document.createElement('div');
+        right.className = 'log-row-right tabular-nums';
+        const httpText = log.httpStatus ? 'HTTP ' + log.httpStatus : '—';
+        const latencyText = (log.durationMs ?? 0) + 'ms';
+        const retriesText = 'tries: ' + (log.attemptCount ?? 1);
+        const storiesText = 'fetched: ' + (log.itemsFetched ?? 0) + ' · saved: ' + (log.storiesSaved ?? 0);
+        const timeText = log.createdAt ? formatDateTime(new Date(log.createdAt)) : '';
+        right.textContent = [httpText, latencyText, retriesText, storiesText, timeText].filter(Boolean).join(' · ');
+
+        main.append(left, right);
+        row.append(main);
+
+        if (log.errorMessage) {
+          const errP = document.createElement('p');
+          errP.className = 'log-error-line';
+          errP.textContent = log.errorMessage;
+          row.append(errP);
+        }
+
+        if (state.expandedLogs.has(log.id)) {
+          const drawer = document.createElement('div');
+          drawer.className = 'log-drawer tabular-nums';
+          const lines = [
+            'Endpoint URL: ' + (log.requestUrl || '—'),
+            'HTTP Status: ' + (log.httpStatus ?? '—') + ' · Latency: ' + (log.durationMs ?? 0) + ' ms · Attempts: ' + (log.attemptCount ?? 1),
+            'Items Fetched: ' + (log.itemsFetched ?? 0) + ' · Stories Saved: ' + (log.storiesSaved ?? 0) + ' · Duplicates Skipped: ' + (log.duplicatesSkipped ?? 0),
+            'Rate-Limit Headers: Retry-After=' + (log.retryAfterSeconds != null ? log.retryAfterSeconds + 's' : 'none') +
+              ' · Remaining=' + (log.rateLimitRemaining ?? 'none') +
+              ' · Reset=' + (log.rateLimitReset || 'none')
+          ];
+          if (log.failoverProvider) {
+            lines.push('Failover Partner: ' + log.failoverProvider);
+          }
+          lines.forEach((lineText) => {
+            const div = document.createElement('div');
+            div.textContent = lineText;
+            drawer.append(div);
+          });
+          row.append(drawer);
+        }
+
+        row.addEventListener('click', () => {
+          if (state.expandedLogs.has(log.id)) state.expandedLogs.delete(log.id);
+          else state.expandedLogs.add(log.id);
+          renderProviderLogs();
+        });
+
+        listEl.append(row);
+      });
+    }
+
+    async function refreshLogsOnly() {
+      try {
+        const data = await request('/admin/api/logs?limit=200');
+        state.providerLogs = data.logs || [];
+        state.providerLogsSummary = data.summary || state.providerLogsSummary;
+        if (data.autoSync) state.autoSync = data.autoSync;
+        renderProviderLogs();
+        renderProviders(state.providers);
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not refresh logs: ' + error.message;
+      }
+    }
+
+    async function clearAllLogs() {
+      try {
+        const data = await request('/admin/api/logs/clear', { method: 'POST' });
+        state.providerLogs = data.logs || [];
+        state.providerLogsSummary = data.summary || {
+          totalRequests: 0,
+          rateLimitedCount: 0,
+          failedCount: 0,
+          failoverCount: 0,
+          averageLatencyMs: 0
+        };
+        state.expandedLogs.clear();
+        renderProviderLogs();
+        messageEl.className = 'success';
+        messageEl.textContent = 'Provider fetch logs cleared.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Could not clear logs: ' + error.message;
+      }
+    }
+
     document.getElementById('refresh').addEventListener('click', refreshData);
+    document.getElementById('refresh-logs-btn').addEventListener('click', refreshLogsOnly);
+    document.getElementById('clear-logs-btn').addEventListener('click', clearAllLogs);
+    document.getElementById('logs-provider-filter').addEventListener('change', (e) => {
+      state.activeLogProvider = e.target.value;
+      state.pages.logs = 1;
+      renderProviderLogs();
+    });
+    document.getElementById('logs-category-filter').addEventListener('change', (e) => {
+      state.activeLogCategory = e.target.value;
+      state.pages.logs = 1;
+      renderProviderLogs();
+    });
 
     function editButton(label, className = '') {
       const button = document.createElement('button');
@@ -2760,12 +3364,32 @@ export function getAdminPage() {
     });
 
 
+    async function checkStaleHourlySync() {
+      if (!state.autoSync?.enabled || state.syncingAll) return;
+      const nextMs = Date.parse(state.autoSync?.nextRunAt || '');
+      if (Number.isFinite(nextMs) && Date.now() < nextMs) return;
+      try {
+        const res = await request('/admin/api/auto-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check_stale' })
+        });
+        if (res.triggered) {
+          await refreshData();
+        } else if (res.autoSync) {
+          state.autoSync = res.autoSync;
+          renderProviders(state.providers);
+        }
+      } catch {}
+    }
+
     restoreSectionLayout();
     refreshData();
     setInterval(refreshStoryAges, 1000);
     setInterval(() => {
       if (state.providers.some((provider) => provider.status === 'running')) refreshData();
     }, 15000);
+    setInterval(checkStaleHourlySync, 60000);
   </script>
 </body>
 </html>`;

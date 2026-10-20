@@ -24,7 +24,16 @@ import {
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories,
-  searchNewsStories
+  searchNewsStories,
+  getProviderCooldownState,
+  setProviderCooldownState,
+  clearProviderCooldownState,
+  getAutoSyncState,
+  setAutoSyncState,
+  recordNewsProviderFetchLog,
+  getNewsProviderFetchLogs,
+  clearNewsProviderFetchLogs,
+  DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 
@@ -89,44 +98,337 @@ async function serveNewsFeed(request, env) {
   }
 }
 
-async function updateNewsProvider(provider, updatedBy, env) {
+function computeCooldownWindow(err) {
+  const now = Date.now();
+  let cooldownSeconds = null;
+  if (Number.isFinite(err?.retryAfterSeconds) && err.retryAfterSeconds > 0) {
+    cooldownSeconds = Math.ceil(err.retryAfterSeconds);
+  } else if (err?.rateLimitReset) {
+    const resetMs = Date.parse(err.rateLimitReset);
+    if (Number.isFinite(resetMs) && resetMs > now) {
+      cooldownSeconds = Math.ceil((resetMs - now) / 1000);
+    }
+  }
+  if (!Number.isFinite(cooldownSeconds) || cooldownSeconds <= 0) {
+    cooldownSeconds = DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS;
+  }
+  const boundedSeconds = Math.min(Math.max(cooldownSeconds, 30), 24 * 3600);
+  const cooldownUntil = new Date(now + boundedSeconds * 1000).toISOString();
+  return {
+    cooldownSeconds: boundedSeconds,
+    cooldownUntil,
+    rateLimitResetAt: err?.rateLimitReset || cooldownUntil
+  };
+}
+
+function selectFallbackProvider(failedProviderId, env, excluded = new Set()) {
+  if (env?.DISABLE_PROVIDER_FAILOVER === 'true') return null;
+  const allProviders = getNewsProviders(env);
+  const candidates = allProviders.filter((p) => {
+    if (p.id === failedProviderId || excluded.has(p.id)) return false;
+    if (!p.configured) return false;
+    if (getProviderCooldownState(p.id)) return false;
+    return true;
+  });
+  if (!candidates.length) return null;
+  // Prefer configured API providers first if credentials exist, then keyless RSS/Atom providers (bing, reddit)
+  const withKey = candidates.find(c => Boolean(c.credential_name && env?.[c.credential_name]));
+  return withKey || candidates[0];
+}
+
+async function runFailoverCategories(failedProviderId, remainingCategories, env, excludedProviders = new Set()) {
+  if (!remainingCategories.length) {
+    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
+  }
+  const fallback = selectFallbackProvider(failedProviderId, env, excludedProviders);
+  if (!fallback) {
+    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
+  }
+  const fallbackConfig = getNewsProviderConfig(fallback.id);
+  if (!fallbackConfig) {
+    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
+  }
+
+  let failoverStoriesSaved = 0;
+  const coveredCategories = [];
+
+  for (const [idx, category] of remainingCategories.entries()) {
+    if (!Object.hasOwn(fallbackConfig.categories, category)) continue;
+    if (idx > 0 && fallbackConfig.updatePauseMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, Math.min(fallbackConfig.updatePauseMs, 500)));
+    }
+    let lastTelemetry = null;
+    try {
+      const feed = await getNewsFeed(fallback.id, category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+        onFetchTelemetry: (t) => { lastTelemetry = t; }
+      });
+      const stories = feed.items.slice(0, 10);
+      const upsertResult = await upsertNewsStories(env, fallback.id, category, stories);
+      const savedCount = upsertResult?.savedCount ?? stories.length;
+      failoverStoriesSaved += savedCount;
+      coveredCategories.push(category);
+
+      await recordNewsProviderFetchLog(env, {
+        provider: fallback.id,
+        providerLabel: fallbackConfig.label,
+        category,
+        triggerSource: 'failover',
+        status: 'succeeded',
+        httpStatus: lastTelemetry?.httpStatus ?? 200,
+        durationMs: lastTelemetry?.durationMs ?? 0,
+        attemptCount: lastTelemetry?.attemptCount ?? 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: savedCount,
+        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+        retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
+        rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
+        rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
+        requestUrl: lastTelemetry?.requestUrl || fallbackConfig.endpoint || '',
+        failoverProvider: failedProviderId,
+        errorMessage: null
+      });
+    } catch (fallbackErr) {
+      const isFallbackRateLimit = Boolean(fallbackErr?.isRateLimit || fallbackErr?.status === 429);
+      await recordNewsProviderFetchLog(env, {
+        provider: fallback.id,
+        providerLabel: fallbackConfig.label,
+        category,
+        triggerSource: 'failover',
+        status: isFallbackRateLimit ? 'rate_limited' : 'failed',
+        httpStatus: fallbackErr?.status ?? lastTelemetry?.httpStatus ?? null,
+        durationMs: fallbackErr?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+        attemptCount: fallbackErr?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+        itemsFetched: 0,
+        storiesSaved: 0,
+        retryAfterSeconds: fallbackErr?.retryAfterSeconds ?? null,
+        rateLimitRemaining: fallbackErr?.rateLimitRemaining ?? null,
+        rateLimitReset: fallbackErr?.rateLimitReset ?? null,
+        requestUrl: fallbackErr?.requestUrl || lastTelemetry?.requestUrl || fallbackConfig.endpoint || '',
+        failoverProvider: failedProviderId,
+        errorMessage: `Failover from ${failedProviderId} failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`
+      });
+      if (isFallbackRateLimit) break;
+    }
+  }
+
+  return {
+    failoverProvider: coveredCategories.length > 0 ? fallback.id : null,
+    failoverStoriesSaved,
+    failoverCategories: coveredCategories
+  };
+}
+
+async function executeProviderSync(provider, updatedBy, env, {
+  triggerSource = 'manual',
+  force = false,
+  allowFailover = true,
+  excludedFailoverProviders = new Set()
+} = {}) {
   const config = getNewsProviderConfig(provider);
-  if (!config) return jsonResponse({ error: 'Unknown news provider' }, 404);
+  if (!config) return { httpStatus: 404, body: { error: 'Unknown news provider' } };
   if (config.credential && !env[config.credential]) {
-    return jsonResponse({
-      error: `${config.label} is not configured. Set the ${config.credential} Worker secret.`
-    }, 503);
+    return {
+      httpStatus: 503,
+      body: {
+        error: `${config.label} is not configured. Set the ${config.credential} Worker secret.`
+      }
+    };
+  }
+
+  const activeCooldown = !force ? getProviderCooldownState(provider) : null;
+  if (activeCooldown) {
+    const remainingSec = Math.max(1, Math.ceil((Date.parse(activeCooldown.cooldownUntil) - Date.now()) / 1000));
+    const cooldownMsg = `${config.label} is in rate-limit cooldown for ${remainingSec}s (until ${activeCooldown.cooldownUntil})`;
+    await recordNewsProviderFetchLog(env, {
+      provider,
+      providerLabel: config.label,
+      category: 'all',
+      triggerSource,
+      status: 'skipped_cooldown',
+      httpStatus: 429,
+      durationMs: 0,
+      attemptCount: 0,
+      itemsFetched: 0,
+      storiesSaved: 0,
+      retryAfterSeconds: remainingSec,
+      rateLimitRemaining: activeCooldown.rateLimitRemaining,
+      rateLimitReset: activeCooldown.rateLimitResetAt,
+      requestUrl: config.endpoint || '',
+      failoverProvider: activeCooldown.failoverProvider,
+      errorMessage: cooldownMsg
+    });
+    return {
+      httpStatus: 200,
+      body: {
+        provider,
+        status: 'rate_limited',
+        storiesSaved: 0,
+        cooldownUntil: activeCooldown.cooldownUntil,
+        failoverProvider: activeCooldown.failoverProvider || null,
+        errors: [cooldownMsg]
+      }
+    };
   }
 
   const claimed = await claimNewsProviderSync(env, provider, updatedBy);
   if (!claimed) {
-    return jsonResponse({ error: `${provider} is already being updated` }, 409);
+    return { httpStatus: 409, body: { error: `${provider} is already being updated` } };
   }
 
   let storiesSaved = 0;
+  let failoverStoriesSaved = 0;
+  let failoverProvider = null;
+  let failoverCategories = [];
+  let cooldownUntil = null;
+  let hitRateLimit = false;
   const errors = [];
+  const categories = Object.keys(config.categories);
+
   try {
-    for (const [index, category] of Object.keys(config.categories).entries()) {
+    for (const [index, category] of categories.entries()) {
       if (index > 0) await new Promise(resolve => setTimeout(resolve, config.updatePauseMs));
+      let lastTelemetry = null;
       try {
         const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
           credentials: env,
-          cache: false
+          cache: false,
+          onFetchTelemetry: (t) => { lastTelemetry = t; }
         });
         const stories = feed.items.slice(0, 10);
-        await upsertNewsStories(env, provider, category, stories);
-        storiesSaved += stories.length;
+        const upsertResult = await upsertNewsStories(env, provider, category, stories);
+        const savedCount = upsertResult?.savedCount ?? stories.length;
+        storiesSaved += savedCount;
+
+        await recordNewsProviderFetchLog(env, {
+          provider,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'succeeded',
+          httpStatus: lastTelemetry?.httpStatus ?? 200,
+          durationMs: lastTelemetry?.durationMs ?? 0,
+          attemptCount: lastTelemetry?.attemptCount ?? 1,
+          itemsFetched: feed.items.length,
+          storiesSaved: savedCount,
+          duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+          retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
+          rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
+          rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
+          requestUrl: lastTelemetry?.requestUrl || config.endpoint || '',
+          errorMessage: null
+        });
       } catch (err) {
-        const message = `${category}: ${err instanceof Error ? err.message : 'Unknown provider error'}`;
+        const isRateLimit = Boolean(err?.isRateLimit || err?.status === 429);
+        const rawErrMsg = err instanceof Error ? err.message : 'Unknown provider error';
+        const message = `${category}: ${rawErrMsg}`;
         console.error(`News provider update failed for ${provider}/${category}:`, err);
         errors.push(message);
+
+        if (isRateLimit) {
+          hitRateLimit = true;
+          const windowInfo = computeCooldownWindow(err);
+          cooldownUntil = windowInfo.cooldownUntil;
+          const remainingCategories = categories.slice(index);
+
+          if (allowFailover && remainingCategories.length > 0) {
+            excludedFailoverProviders.add(provider);
+            const failoverResult = await runFailoverCategories(
+              provider,
+              remainingCategories,
+              env,
+              excludedFailoverProviders
+            );
+            failoverProvider = failoverResult.failoverProvider;
+            failoverStoriesSaved = failoverResult.failoverStoriesSaved;
+            failoverCategories = failoverResult.failoverCategories;
+          }
+
+          setProviderCooldownState(provider, {
+            cooldownUntil,
+            rateLimitResetAt: windowInfo.rateLimitResetAt,
+            retryAfterSeconds: windowInfo.cooldownSeconds,
+            rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
+            lastError: message,
+            failoverProvider,
+            failoverCategories
+          });
+
+          await recordNewsProviderFetchLog(env, {
+            provider,
+            providerLabel: config.label,
+            category,
+            triggerSource,
+            status: 'rate_limited',
+            httpStatus: err?.status ?? lastTelemetry?.httpStatus ?? 429,
+            durationMs: err?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+            attemptCount: err?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+            itemsFetched: 0,
+            storiesSaved: 0,
+            retryAfterSeconds: windowInfo.cooldownSeconds,
+            rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
+            rateLimitReset: windowInfo.rateLimitResetAt,
+            requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
+            failoverProvider,
+            errorMessage: `${message}${failoverProvider ? ` · Failed over [${failoverCategories.join(', ')}] to ${failoverProvider} (+${failoverStoriesSaved} stories)` : ''}`
+          });
+
+          if (failoverProvider) {
+            errors.push(`failover: routed remaining topics (${failoverCategories.join(', ')}) to ${failoverProvider} (+${failoverStoriesSaved} stories saved)`);
+          }
+          // Stop querying remaining categories on the rate-limited provider immediately
+          break;
+        } else {
+          await recordNewsProviderFetchLog(env, {
+            provider,
+            providerLabel: config.label,
+            category,
+            triggerSource,
+            status: 'failed',
+            httpStatus: err?.status ?? lastTelemetry?.httpStatus ?? null,
+            durationMs: err?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+            attemptCount: err?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+            itemsFetched: 0,
+            storiesSaved: 0,
+            retryAfterSeconds: err?.retryAfterSeconds ?? null,
+            rateLimitRemaining: err?.rateLimitRemaining ?? null,
+            rateLimitReset: err?.rateLimitReset ?? null,
+            requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
+            errorMessage: message
+          });
+        }
       }
     }
 
-    const status = errors.length === 0 ? 'succeeded' : storiesSaved > 0 ? 'partial' : 'failed';
+    if (!hitRateLimit && errors.length === 0) {
+      clearProviderCooldownState(provider);
+    }
+
+    const status = errors.length === 0
+      ? 'succeeded'
+      : (storiesSaved > 0 || failoverStoriesSaved > 0)
+        ? 'partial'
+        : 'failed';
     const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
     await finishNewsProviderSync(env, provider, { status, storiesSaved, error: errorMessage });
-    return jsonResponse({ provider, status, storiesSaved, errors });
+
+    return {
+      httpStatus: 200,
+      body: {
+        provider,
+        status,
+        storiesSaved,
+        errors,
+        ...(hitRateLimit ? {
+          rateLimited: true,
+          cooldownUntil,
+          failoverProvider,
+          failoverCategories,
+          failoverStoriesSaved
+        } : {})
+      }
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown provider update error';
     try {
@@ -136,6 +438,89 @@ async function updateNewsProvider(provider, updatedBy, env) {
     }
     throw err;
   }
+}
+
+async function updateNewsProvider(provider, updatedBy, env, options = {}) {
+  const result = await executeProviderSync(provider, updatedBy, env, options);
+  return jsonResponse(result.body, result.httpStatus);
+}
+
+async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourly-scheduler', { force = false } = {}) {
+  const currentAuto = getAutoSyncState();
+  if (!force && !currentAuto.enabled) {
+    return {
+      skipped: true,
+      reason: 'Auto-sync is currently paused by administrator',
+      autoSync: currentAuto
+    };
+  }
+
+  const providers = getNewsProviders(env).filter(p => p.configured);
+  const results = [];
+  let totalStoriesSaved = 0;
+  let rateLimitedCount = 0;
+  const excludedFailovers = new Set();
+
+  for (const provider of providers) {
+    try {
+      const outcome = await executeProviderSync(provider.id, updatedBy, env, {
+        triggerSource,
+        force: false,
+        allowFailover: true,
+        excludedFailoverProviders: excludedFailovers
+      });
+      if (outcome.httpStatus === 200) {
+        totalStoriesSaved += (outcome.body.storiesSaved || 0) + (outcome.body.failoverStoriesSaved || 0);
+        if (outcome.body.rateLimited || outcome.body.status === 'rate_limited') {
+          rateLimitedCount++;
+        }
+      }
+      results.push({
+        provider: provider.id,
+        httpStatus: outcome.httpStatus,
+        ...outcome.body
+      });
+    } catch (err) {
+      console.error(`Auto-sync failed for provider ${provider.id}:`, err);
+      results.push({
+        provider: provider.id,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  const allSucceeded = results.length > 0 && results.every(r => r.status === 'succeeded');
+  const anySaved = totalStoriesSaved > 0;
+  const overallStatus = allSucceeded ? 'succeeded' : anySaved ? 'partial' : 'failed';
+  const summaryText = `Synced ${results.length} providers (${totalStoriesSaved} stories saved${rateLimitedCount ? `, ${rateLimitedCount} rate-limited` : ''})`;
+
+  const updatedAutoSync = setAutoSyncState({
+    lastRunAt: new Date().toISOString(),
+    lastTrigger: triggerSource,
+    lastStatus: overallStatus,
+    lastSummary: summaryText,
+    updatedBy
+  });
+
+  console.info(JSON.stringify({
+    event: 'HOURLY_AUTO_SYNC_COMPLETE',
+    triggerSource,
+    overallStatus,
+    totalStoriesSaved,
+    rateLimitedCount,
+    providersCount: results.length
+  }));
+
+  return {
+    skipped: false,
+    triggerSource,
+    status: overallStatus,
+    totalStoriesSaved,
+    rateLimitedCount,
+    results,
+    autoSync: updatedAutoSync
+  };
 }
 
 function authConfigurationIsValid(env) {
@@ -465,11 +850,80 @@ async function serveAdmin(request, env) {
       }
       const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin:${identity.login}` });
       if (!limit.success) return jsonResponse({ error: 'Admin update rate limit exceeded' }, 429);
-      return await updateNewsProvider(updateMatch[1], identity.login, env);
+      const force = url.searchParams.get('force') === '1' || url.searchParams.get('force') === 'true';
+      return await updateNewsProvider(updateMatch[1], identity.login, env, {
+        force,
+        triggerSource: 'admin_manual'
+      });
     } catch (err) {
       console.error('News admin provider update failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update news provider' }, 502);
     }
+  }
+
+  if (url.pathname === '/admin/api/providers/sync-all' && request.method === 'POST') {
+    try {
+      if (!isSameOrigin(request)) {
+        return jsonResponse({ error: 'Provider sync must be requested from the admin origin' }, 403);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Admin update rate limit exceeded' }, 429);
+      const summary = await runHourlyAutoSync(env, 'admin_sync_all', identity.login, { force: true });
+      return jsonResponse({
+        ...summary,
+        autoSync: getAutoSyncState()
+      });
+    } catch (err) {
+      console.error('Admin sync-all failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not sync all providers' }, 502);
+    }
+  }
+
+  if (url.pathname === '/admin/api/auto-sync' && request.method === 'GET') {
+    return jsonResponse({ autoSync: getAutoSyncState() });
+  }
+
+  if (url.pathname === '/admin/api/auto-sync' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Auto-sync changes must be requested from the admin origin' }, 403);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      if (typeof payload.enabled === 'boolean') {
+        const autoSync = setAutoSyncState({
+          enabled: payload.enabled,
+          updatedBy: identity.login
+        });
+        return jsonResponse({ autoSync });
+      }
+      if (payload.action === 'check_stale' || payload.action === 'run_if_stale') {
+        const current = getAutoSyncState();
+        if (current.enabled && current.isStale) {
+          const summary = await runHourlyAutoSync(env, 'stale_check', `stale-check:${identity.login}`);
+          return jsonResponse({ triggered: true, summary, autoSync: getAutoSyncState() });
+        }
+        return jsonResponse({ triggered: false, autoSync: current });
+      }
+      return jsonResponse({ autoSync: getAutoSyncState() });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update auto-sync settings' }, 500);
+    }
+  }
+
+  if (url.pathname === '/admin/api/logs' && request.method === 'GET') {
+    const provider = url.searchParams.get('provider') || 'all';
+    const status = url.searchParams.get('status') || 'all';
+    const category = url.searchParams.get('category') || 'all';
+    const limit = Number(url.searchParams.get('limit') || 100);
+    return jsonResponse(getNewsProviderFetchLogs({ provider, status, category, limit }));
+  }
+
+  if (url.pathname === '/admin/api/logs/clear' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Log clearing must be requested from the admin origin' }, 403);
+    }
+    clearNewsProviderFetchLogs();
+    return jsonResponse({ cleared: true, ...getNewsProviderFetchLogs() });
   }
 
   if (url.pathname === '/admin/api/stories/search' && request.method === 'GET') {
@@ -1038,11 +1492,12 @@ async function serveAiStoryImage(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
-    const pathname = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const pathname = url.pathname;
     if (pathname === '/admin' || pathname.startsWith('/admin/')) {
       return serveAdmin(request, env);
     }
@@ -1050,10 +1505,19 @@ export default {
       return serveAiStoryImage(request, env);
     }
     if (request.method === 'GET' && pathname === '/feed') {
+      if (
+        (url.searchParams.get('auto_sync') === '1' || env?.AUTO_SYNC_ON_FEED === 'true') &&
+        ctx &&
+        typeof ctx.waitUntil === 'function'
+      ) {
+        const autoState = getAutoSyncState();
+        if (autoState.enabled && autoState.isStale) {
+          ctx.waitUntil(runHourlyAutoSync(env, 'stale_check', 'feed-stale-check'));
+        }
+      }
       return serveNewsFeed(request, env);
     }
     if (request.method === 'GET' && pathname === '/ads') {
-      const url = new URL(request.url);
       const category = (url.searchParams.get('category') || 'all').trim();
       const query = (url.searchParams.get('q') || url.searchParams.get('topic') || '').trim();
       const isStandardCategory = NEWS_CATEGORY_SET.has(category.toLowerCase());
@@ -1062,5 +1526,19 @@ export default {
       return jsonResponse({ ads: getAds({ category: effectiveCategory, query: effectiveQuery }) });
     }
     return jsonResponse({ error: 'Route not found' }, 404);
+  },
+
+  async scheduled(event, env, ctx) {
+    if (env?.AUTO_SYNC_ENABLED === 'false') {
+      console.info('Hourly provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
+      return;
+    }
+    const task = runHourlyAutoSync(env, 'cron', `cron:${event?.cron || '0 * * * *'}`);
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(task);
+    } else {
+      await task;
+    }
   }
 };
+

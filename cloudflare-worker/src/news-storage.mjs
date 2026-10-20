@@ -74,6 +74,194 @@ export async function getStoredNewsFeed(env, category) {
   return { provider: 'supabase', items };
 }
 
+const MAX_PROVIDER_FETCH_LOGS = 300;
+export const HOURLY_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+export const DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS = 3600;
+
+const providerFetchLogsMemory = [];
+const providerCooldownMemory = new Map();
+const autoSyncStateMemory = {
+  enabled: true,
+  intervalMs: HOURLY_SYNC_INTERVAL_MS,
+  lastRunAt: null,
+  lastTrigger: null,
+  lastStatus: 'never',
+  lastSummary: null,
+  updatedBy: 'system',
+  updatedAt: null
+};
+let nextLogId = 1;
+
+export function getProviderCooldownState(providerId) {
+  const entry = providerCooldownMemory.get(providerId);
+  if (!entry) return null;
+  if (entry.cooldownUntil) {
+    const expiresAt = Date.parse(entry.cooldownUntil);
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      providerCooldownMemory.delete(providerId);
+      return null;
+    }
+  }
+  return entry;
+}
+
+export function setProviderCooldownState(providerId, {
+  cooldownUntil,
+  rateLimitResetAt = null,
+  retryAfterSeconds = null,
+  rateLimitRemaining = null,
+  lastError = null,
+  failoverProvider = null,
+  failoverCategories = []
+} = {}) {
+  const entry = {
+    provider: providerId,
+    cooldownUntil: cooldownUntil || new Date(Date.now() + DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS * 1000).toISOString(),
+    rateLimitResetAt: rateLimitResetAt || cooldownUntil || null,
+    retryAfterSeconds: retryAfterSeconds ?? null,
+    rateLimitRemaining: rateLimitRemaining ?? null,
+    lastError: lastError || null,
+    failoverProvider: failoverProvider || null,
+    failoverCategories: Array.isArray(failoverCategories) ? failoverCategories : [],
+    recordedAt: new Date().toISOString()
+  };
+  providerCooldownMemory.set(providerId, entry);
+  return entry;
+}
+
+export function clearProviderCooldownState(providerId) {
+  providerCooldownMemory.delete(providerId);
+}
+
+export function getAutoSyncState() {
+  const lastRunMs = autoSyncStateMemory.lastRunAt ? Date.parse(autoSyncStateMemory.lastRunAt) : NaN;
+  const nextRunMs = Number.isFinite(lastRunMs)
+    ? lastRunMs + autoSyncStateMemory.intervalMs
+    : Date.now() + autoSyncStateMemory.intervalMs;
+  const isStale = autoSyncStateMemory.enabled && (
+    !Number.isFinite(lastRunMs) || (Date.now() - lastRunMs) >= autoSyncStateMemory.intervalMs
+  );
+  return {
+    ...autoSyncStateMemory,
+    nextRunAt: autoSyncStateMemory.enabled ? new Date(nextRunMs).toISOString() : null,
+    isStale
+  };
+}
+
+export function setAutoSyncState(updates = {}) {
+  if (typeof updates.enabled === 'boolean') autoSyncStateMemory.enabled = updates.enabled;
+  if (updates.lastRunAt !== undefined) autoSyncStateMemory.lastRunAt = updates.lastRunAt;
+  if (updates.lastTrigger !== undefined) autoSyncStateMemory.lastTrigger = updates.lastTrigger;
+  if (updates.lastStatus !== undefined) autoSyncStateMemory.lastStatus = updates.lastStatus;
+  if (updates.lastSummary !== undefined) autoSyncStateMemory.lastSummary = updates.lastSummary;
+  if (updates.updatedBy !== undefined) autoSyncStateMemory.updatedBy = updates.updatedBy;
+  autoSyncStateMemory.updatedAt = new Date().toISOString();
+  return getAutoSyncState();
+}
+
+export async function recordNewsProviderFetchLog(env, entry) {
+  const normalized = {
+    id: nextLogId++,
+    provider: entry.provider || 'unknown',
+    providerLabel: entry.providerLabel || entry.provider || 'Unknown',
+    category: entry.category || 'all',
+    triggerSource: entry.triggerSource || 'manual',
+    status: entry.status || 'succeeded',
+    httpStatus: entry.httpStatus ?? null,
+    durationMs: Number.isFinite(entry.durationMs) ? Math.max(0, Math.round(entry.durationMs)) : 0,
+    attemptCount: Number.isFinite(entry.attemptCount) ? Math.max(1, Math.round(entry.attemptCount)) : 1,
+    itemsFetched: Number.isFinite(entry.itemsFetched) ? Math.max(0, Math.round(entry.itemsFetched)) : 0,
+    storiesSaved: Number.isFinite(entry.storiesSaved) ? Math.max(0, Math.round(entry.storiesSaved)) : 0,
+    duplicatesSkipped: Number.isFinite(entry.duplicatesSkipped) ? Math.max(0, Math.round(entry.duplicatesSkipped)) : 0,
+    retryAfterSeconds: entry.retryAfterSeconds ?? null,
+    rateLimitRemaining: entry.rateLimitRemaining ?? null,
+    rateLimitReset: entry.rateLimitReset ?? null,
+    requestUrl: entry.requestUrl || '',
+    errorMessage: entry.errorMessage || null,
+    failoverProvider: entry.failoverProvider || null,
+    createdAt: entry.createdAt || new Date().toISOString()
+  };
+
+  providerFetchLogsMemory.unshift(normalized);
+  if (providerFetchLogsMemory.length > MAX_PROVIDER_FETCH_LOGS) {
+    providerFetchLogsMemory.length = MAX_PROVIDER_FETCH_LOGS;
+  }
+
+  if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY && env?.ENABLE_SUPABASE_PROVIDER_LOGS === 'true') {
+    try {
+      await fetch(supabaseUrl(env, 'news_provider_logs'), {
+        method: 'POST',
+        headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+        body: JSON.stringify([{
+          provider: normalized.provider,
+          category: normalized.category,
+          trigger_source: normalized.triggerSource,
+          status: normalized.status,
+          http_status: normalized.httpStatus,
+          duration_ms: normalized.durationMs,
+          attempt_count: normalized.attemptCount,
+          items_fetched: normalized.itemsFetched,
+          stories_saved: normalized.storiesSaved,
+          retry_after_seconds: normalized.retryAfterSeconds,
+          rate_limit_remaining: normalized.rateLimitRemaining,
+          rate_limit_reset: normalized.rateLimitReset,
+          request_url: normalized.requestUrl,
+          error_message: normalized.errorMessage,
+          failover_provider: normalized.failoverProvider,
+          created_at: normalized.createdAt
+        }])
+      });
+    } catch (err) {
+      console.warn('Could not persist provider fetch log to Supabase:', err);
+    }
+  }
+
+  return normalized;
+}
+
+export function getNewsProviderFetchLogs({
+  provider = 'all',
+  status = 'all',
+  category = 'all',
+  limit = 100
+} = {}) {
+  const filtered = providerFetchLogsMemory.filter((log) => {
+    if (provider && provider !== 'all' && log.provider !== provider) return false;
+    if (category && category !== 'all' && log.category !== category) return false;
+    if (status && status !== 'all') {
+      if (status === 'failover') {
+        if (!log.failoverProvider && log.triggerSource !== 'failover') return false;
+      } else if (log.status !== status) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const totalRequests = providerFetchLogsMemory.length;
+  const rateLimitedCount = providerFetchLogsMemory.filter(l => l.status === 'rate_limited').length;
+  const failedCount = providerFetchLogsMemory.filter(l => l.status === 'failed').length;
+  const failoverCount = providerFetchLogsMemory.filter(l => Boolean(l.failoverProvider) || l.triggerSource === 'failover').length;
+  const totalDuration = providerFetchLogsMemory.reduce((acc, l) => acc + (l.durationMs || 0), 0);
+  const averageLatencyMs = totalRequests > 0 ? Math.round(totalDuration / totalRequests) : 0;
+
+  return {
+    logs: filtered.slice(0, Math.max(1, Math.min(300, Number(limit) || 100))),
+    totalMatching: filtered.length,
+    summary: {
+      totalRequests,
+      rateLimitedCount,
+      failedCount,
+      failoverCount,
+      averageLatencyMs
+    }
+  };
+}
+
+export function clearNewsProviderFetchLogs() {
+  providerFetchLogsMemory.length = 0;
+}
+
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
@@ -132,6 +320,18 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
   const bannedRows = await readRows(bannedResponse, 'Banned story lookup');
   const syncRows = await readRows(syncResponse, 'Provider status lookup');
   const syncByProvider = new Map(syncRows.map(row => [row.provider, row]));
+
+  // Derive latest hourly run timestamp if not set in memory yet
+  if (!autoSyncStateMemory.lastRunAt && syncRows.length) {
+    const latestAttempt = syncRows
+      .map(r => Date.parse(r.last_attempt_at || r.last_success_at || ''))
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a)[0];
+    if (Number.isFinite(latestAttempt)) {
+      autoSyncStateMemory.lastRunAt = new Date(latestAttempt).toISOString();
+    }
+  }
+
   const providerTotals = new Map(providers.map((provider, index) => {
     const response = providerCountResponses[index];
     if (!response.ok) throw new Error(`Story count lookup for ${provider.id} failed (HTTP ${response.status})`);
@@ -175,10 +375,8 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
       updatedAt: row.fetched_at || '',
       decisionAction: row.decision_action || ''
     })),
-    providers: providers.map(provider => ({
-      ...provider,
-      total_stories_saved: providerTotals.get(provider.id) || 0,
-      ...(syncByProvider.get(provider.id) || {
+    providers: providers.map(provider => {
+      const syncRow = syncByProvider.get(provider.id) || {
         status: 'never',
         started_at: null,
         last_attempt_at: null,
@@ -186,8 +384,24 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
         stories_saved: 0,
         last_error: null,
         updated_by: null
-      })
-    }))
+      };
+      const cooldown = getProviderCooldownState(provider.id);
+      return {
+        ...provider,
+        total_stories_saved: providerTotals.get(provider.id) || 0,
+        ...syncRow,
+        ...(cooldown ? {
+          cooldown_until: cooldown.cooldownUntil,
+          rate_limit_reset_at: cooldown.rateLimitResetAt,
+          retry_after_seconds: cooldown.retryAfterSeconds,
+          rate_limit_remaining: cooldown.rateLimitRemaining,
+          failover_provider: cooldown.failoverProvider,
+          failover_categories: cooldown.failoverCategories
+        } : {})
+      };
+    }),
+    autoSync: getAutoSyncState(),
+    providerLogs: getNewsProviderFetchLogs({ limit: 100 })
   };
 }
 
@@ -401,8 +615,20 @@ export async function claimNewsProviderSync(env, provider, updatedBy) {
 }
 
 export async function upsertNewsStories(env, provider, category, stories) {
-  if (!stories.length) return;
-  const rows = stories.map(story => ({
+  if (!stories.length) return { savedCount: 0, duplicatesSkipped: 0 };
+  const seenUrls = new Set();
+  const uniqueStories = [];
+  let duplicatesSkipped = 0;
+  for (const story of stories) {
+    if (!story?.link || seenUrls.has(story.link)) {
+      duplicatesSkipped++;
+      continue;
+    }
+    seenUrls.add(story.link);
+    uniqueStories.push(story);
+  }
+  if (!uniqueStories.length) return { savedCount: 0, duplicatesSkipped };
+  const rows = uniqueStories.map(story => ({
     provider,
     category,
     title: story.title,
@@ -425,6 +651,7 @@ export async function upsertNewsStories(env, provider, category, stories) {
     body: JSON.stringify(rows)
   });
   if (!response.ok) throw new Error(`Saving ${provider}/${category} stories failed (HTTP ${response.status})`);
+  return { savedCount: rows.length, duplicatesSkipped };
 }
 
 export async function finishNewsProviderSync(env, provider, {

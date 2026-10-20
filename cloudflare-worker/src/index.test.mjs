@@ -1079,4 +1079,195 @@ test('public feed and ads endpoints search stories and ads when custom topic key
   }
 });
 
+test('rate-limited provider stops immediately, applies cooldown, fails over remaining categories to fallback provider, and logs detailed diagnostics', async () => {
+  const originalFetch = globalThis.fetch;
+  const gnewsCalls = [];
+  const newsdataCalls = [];
+  const savedBatches = [];
+  const date = new Date().toISOString();
+
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'gnews.io') {
+      const catOrQ = url.searchParams.get('q') || url.searchParams.get('category');
+      gnewsCalls.push(catOrQ);
+      if (gnewsCalls.length === 1) {
+        return Response.json({
+          articles: [{
+            title: 'GNews First Category Story',
+            description: 'Story before rate limit.',
+            content: 'Content.',
+            url: 'https://publisher.example/gnews-1',
+            image: 'https://images.example/1.jpg',
+            publishedAt: date,
+            source: { name: 'Example' }
+          }]
+        });
+      }
+      return new Response(
+        JSON.stringify({ errors: ['You have reached your request quota for the hour.'] }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': '900',
+            'X-RateLimit-Remaining': '0'
+          }
+        }
+      );
+    }
+    if (url.hostname === 'newsdata.io') {
+      const q = url.searchParams.get('q') || 'all';
+      newsdataCalls.push(q);
+      return Response.json({
+        results: [{
+          title: `Fallback Story for ${q}`,
+          link: `https://publisher.example/fallback-${newsdataCalls.length}`,
+          image_url: 'https://images.example/fb.jpg',
+          description: 'Fallback description',
+          content: 'Fallback content',
+          pubDate: date,
+          source_name: 'Fallback Source'
+        }]
+      });
+    }
+    if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+    if (url.pathname.endsWith('/news_stories')) {
+      savedBatches.push(...JSON.parse(options.body));
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname.endsWith('/news_provider_sync')) return new Response(null, { status: 204 });
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const envWithFallback = {
+      ...authEnv,
+      GNEWS_API_KEY: 'gnews-secret',
+      NEWSDATA_API_KEY: 'newsdata-secret',
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) }
+    };
+
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/providers/gnews/update?force=1', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie }
+      }),
+      envWithFallback
+    );
+
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.provider, 'gnews');
+    assert.equal(result.rateLimited, true);
+    assert.ok(result.cooldownUntil);
+    assert.equal(result.failoverProvider, 'newsdata');
+    assert.equal(gnewsCalls.length, 2, 'GNews must stop immediately after hitting 429 on category #2');
+    assert.equal(newsdataCalls.length, 6, 'Remaining 6 categories must fail over to NewsData.io');
+    assert.equal(savedBatches.length, 7, '1 primary story + 6 failover stories saved');
+
+    // Subsequent non-forced call should respect cooldown without hitting GNews again
+    const cooldownRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/providers/gnews/update', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie }
+      }),
+      envWithFallback
+    );
+    const cooldownData = await cooldownRes.json();
+    assert.equal(cooldownData.status, 'rate_limited');
+    assert.equal(gnewsCalls.length, 2, 'GNews must not be queried while in active cooldown');
+
+    // Check detailed logs via /admin/api/logs
+    const logsRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/logs?status=rate_limited', {
+        headers: { Cookie: cookie }
+      }),
+      envWithFallback
+    );
+    assert.equal(logsRes.status, 200);
+    const logsData = await logsRes.json();
+    assert.ok(logsData.logs.length >= 1);
+    assert.equal(logsData.logs[0].provider, 'gnews');
+    assert.equal(logsData.logs[0].httpStatus, 429);
+    assert.equal(logsData.logs[0].retryAfterSeconds, 900);
+    assert.equal(logsData.logs[0].failoverProvider, 'newsdata');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('hourly scheduled cron trigger and admin auto-sync toggle control automatic provider querying', async () => {
+  const originalFetch = globalThis.fetch;
+  let bingFetches = 0;
+  const rss = `<rss><channel><item><title>Hourly Story</title><link>https://publisher.example/hourly</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'www.bing.com') {
+      bingFetches++;
+      return new Response(rss);
+    }
+    if (url.hostname === 'www.reddit.com') {
+      return new Response(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Reddit Post</title><published>${new Date().toISOString()}</published><link href="https://www.reddit.com/r/Parenting/comments/1/post/" /><content type="html">Content</content></entry></feed>`);
+    }
+    if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+    if (url.pathname.endsWith('/news_stories')) return new Response(null, { status: 204 });
+    if (url.pathname.endsWith('/news_provider_sync')) return new Response(null, { status: 204 });
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const cronEnv = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) }
+    };
+
+    // Pause auto-sync via admin API
+    const pauseRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: cookie,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: false })
+      }),
+      cronEnv
+    );
+    assert.equal(pauseRes.status, 200);
+    const pauseData = await pauseRes.json();
+    assert.equal(pauseData.autoSync.enabled, false);
+
+    // Scheduled cron should respect paused state
+    await worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
+    assert.equal(bingFetches, 0, 'Cron must not query providers when auto-sync is paused');
+
+    // Re-enable auto-sync
+    const enableRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: cookie,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: true })
+      }),
+      cronEnv
+    );
+    assert.equal((await enableRes.json()).autoSync.enabled, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 
