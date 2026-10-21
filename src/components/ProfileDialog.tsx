@@ -304,8 +304,6 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
       <div className="dialog profile-dialog-expanded" onClick={(e) => e.stopPropagation()}>
         <button className="dialog-close" onClick={onClose} aria-label="Close">×</button>
 
-        <h2 className="dialog-title">Your Space</h2>
-
         <div className="profile-tabs">
           {tabs.map((tabItem) => (
             <button
