@@ -14,12 +14,32 @@ interface ProfileDialogProps {
 type Tab = 'profile' | 'avatar' | 'pills' | 'theme';
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
-  { key: 'twitter', label: 'X / Twitter', placeholder: 'https://x.com/username' },
-  { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/username' },
-  { key: 'tiktok', label: 'TikTok', placeholder: 'https://tiktok.com/@username' },
-  { key: 'youtube', label: 'YouTube', placeholder: 'https://youtube.com/@channel' },
-  { key: 'website', label: 'Website', placeholder: 'https://example.com' },
+  { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
+  { key: 'instagram', label: 'Instagram', placeholder: '@username' },
+  { key: 'tiktok', label: 'TikTok', placeholder: '@username' },
+  { key: 'youtube', label: 'YouTube', placeholder: '@handle' },
+  { key: 'website', label: 'Website', placeholder: 'yoursite.com' },
 ];
+
+// Build a full profile URL from a bare username per platform
+const SOCIAL_URL_BUILDERS: Record<string, (username: string) => string> = {
+  twitter: (u) => `https://x.com/${u}`,
+  instagram: (u) => `https://instagram.com/${u}`,
+  tiktok: (u) => `https://tiktok.com/@${u}`,
+  youtube: (u) => `https://youtube.com/@${u}`,
+  website: (u) => `https://${u}`,
+};
+
+/** Accepts either a full link or just a username and returns a full URL. */
+function normalizeSocialLink(key: string, value: string): string {
+  const v = (value || '').trim().replace(/^\/+/, '');
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v)) return v; // full link pasted — use as-is
+  if (key === 'website' || v.includes('.')) return `https://${v}`; // bare domain
+  const username = v.replace(/^@+/, ''); // bare username
+  const build = SOCIAL_URL_BUILDERS[key];
+  return build ? build(username) : v;
+}
 
 export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   const { user, profile, updateProfile, uploadAvatar, checkUsernameAvailable, signOut } = useAuth();
@@ -136,11 +156,14 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
         if (usernameStatus === 'taken') throw new Error('That username is taken');
         if (usernameStatus === 'invalid') throw new Error('Username must be 3-30 chars: letters, numbers, underscores');
       }
+      const normalizedSocials = Object.fromEntries(
+        Object.entries(socials).map(([k, v]) => [k, normalizeSocialLink(k, v || '')])
+      ) as SocialLinks;
       await updateProfile({
         display_name: displayName.trim() || null,
         username: username.trim() || null,
         bio: bio.trim() || null,
-        social_links: socials,
+        social_links: normalizedSocials,
       });
       setSaved(true);
     } catch (err) {
@@ -403,11 +426,12 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
               />
 
               <label>Social links</label>
+              <div className="profile-hint">Just your username is fine — or paste the full link. Both work.</div>
               {SOCIAL_FIELDS.map(({ key, label, placeholder }) => (
                 <div key={key} className="social-field">
                   <span className="social-label">{label}</span>
                   <input
-                    type="url"
+                    type="text"
                     value={socials[key] || ''}
                     onChange={(e) => setSocials((prev) => ({ ...prev, [key]: e.target.value }))}
                     placeholder={placeholder}
