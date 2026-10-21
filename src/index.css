@@ -1633,6 +1633,11 @@ body.story-modal-open {
   margin: 0 0 0.5rem;
 }
 
+.profile-hint-compact {
+  font-size: 0.75rem;
+  margin: 0.15rem 0 0.35rem;
+}
+
 .profile-username {
   color: #4f46e5;
   font-size: 0.85rem;

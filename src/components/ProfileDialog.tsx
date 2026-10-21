@@ -426,7 +426,7 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
               />
 
               <label>Social links</label>
-              <div className="profile-hint">Just your username is fine — or paste the full link. Both work.</div>
+              <div className="profile-hint profile-hint-compact">Just your username is fine — or paste the full link. Both work.</div>
               {SOCIAL_FIELDS.map(({ key, label, placeholder }) => (
                 <div key={key} className="social-field">
                   <span className="social-label">{label}</span>
