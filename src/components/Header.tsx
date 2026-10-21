@@ -1,10 +1,13 @@
 import React from 'react';
 import { t } from '../constants/translations';
+import { useAuth } from '../contexts/AuthContext';
 
 interface HeaderProps {
   onHomeClick: () => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
+  onOpenSignIn: () => void;
+  onOpenProfile: () => void;
   isLoading: boolean;
 }
 
@@ -12,8 +15,12 @@ export const Header: React.FC<HeaderProps> = ({
   onHomeClick,
   onRefresh,
   onOpenSettings,
+  onOpenSignIn,
+  onOpenProfile,
   isLoading
 }) => {
+  const { user, profile } = useAuth();
+
   const handleBrandClick = () => {
     if (isLoading) return;
     try {
@@ -98,6 +105,32 @@ export const Header: React.FC<HeaderProps> = ({
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
+
+        {user ? (
+          <button
+            type="button"
+            className="header-auth-button header-avatar-button"
+            title="Your profile"
+            aria-label="Open your profile"
+            onClick={onOpenProfile}
+          >
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="" className="header-avatar" />
+            ) : (
+              <span className="header-avatar-fallback">
+                {(profile?.display_name || user.email || '?')[0].toUpperCase()}
+              </span>
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="header-auth-button header-signin-button"
+            onClick={onOpenSignIn}
+          >
+            Sign in
+          </button>
+        )}
       </div>
     </header>
   );
