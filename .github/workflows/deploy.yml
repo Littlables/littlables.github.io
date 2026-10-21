@@ -1,0 +1,196 @@
+name: Deploy to GitHub Pages & Cloudflare Worker
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      deploy_worker:
+        description: "Force deploy Cloudflare Worker even if no worker files changed"
+        required: false
+        default: false
+        type: boolean
+      run_migrations:
+        description: "Force run Supabase migrations even if no supabase files changed"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-and-worker"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Deploy Frontend to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.4.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: './package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build project
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4.0.0
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3.0.1
+        with:
+          path: './dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4.0.5
+
+  migrate-supabase:
+    name: Run Supabase migrations (on changes)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Check for Supabase migration changes
+        id: check_changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_MIGRATE: ${{ inputs.run_migrations }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$FORCE_MIGRATE" = "true" ]; then
+            echo "Manual workflow dispatch with run_migrations=true; running migrations."
+            echo "should_migrate=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          else
+            CHANGED_FILES=$(git ls-files)
+          fi
+
+          echo "Changed files in push:"
+          echo "$CHANGED_FILES"
+
+          if echo "$CHANGED_FILES" | grep -Eq '^supabase/.*\.sql$'; then
+            echo "Changes detected in supabase/ — running migrations."
+            echo "should_migrate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changes in supabase/ — skipping migrations."
+            echo "should_migrate=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install PostgreSQL client
+        if: steps.check_changes.outputs.should_migrate == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Apply Supabase migrations
+        if: steps.check_changes.outputs.should_migrate == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set. Add your Postgres connection string as a repository secret."
+            exit 1
+          fi
+          for f in supabase/*.sql; do
+            echo "Applying $f..."
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+          echo "Supabase migrations applied."
+
+  deploy-worker:
+    name: Deploy Cloudflare Worker (on changes)
+    needs: migrate-supabase
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Check for Cloudflare Worker changes
+        id: check_changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_DEPLOY: ${{ inputs.deploy_worker }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$FORCE_DEPLOY" = "true" ]; then
+            echo "Manual workflow dispatch with deploy_worker=true; deploying worker."
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          else
+            CHANGED_FILES=$(git ls-files)
+          fi
+
+          echo "Changed files in push:"
+          echo "$CHANGED_FILES"
+
+          if echo "$CHANGED_FILES" | grep -Eq '^(cloudflare-worker/|\.github/workflows/deploy\.yml)'; then
+            echo "Changes detected in cloudflare-worker/ — worker deployment enabled."
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changes in cloudflare-worker/ — skipping Cloudflare Worker deployment."
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: steps.check_changes.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 20
+
+      - name: Run Cloudflare Worker unit tests
+        if: steps.check_changes.outputs.should_deploy == 'true'
+        run: node --test cloudflare-worker/src/index.test.mjs
+
+      - name: Prepare Wrangler configuration
+        if: steps.check_changes.outputs.should_deploy == 'true'
+        env:
+          WRANGLER_TOML_SECRET: ${{ secrets.WRANGLER_TOML }}
+        run: |
+          if [ -n "$WRANGLER_TOML_SECRET" ]; then
+            printf '%s\n' "$WRANGLER_TOML_SECRET" > cloudflare-worker/wrangler.toml
+          elif [ ! -f cloudflare-worker/wrangler.toml ]; then
+            cp cloudflare-worker/wrangler.example.toml cloudflare-worker/wrangler.toml
+          fi
+
+      - name: Deploy Cloudflare Worker
+        if: steps.check_changes.outputs.should_deploy == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare-worker
+          command: deploy --keep-vars
