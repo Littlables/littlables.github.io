@@ -10,6 +10,9 @@ import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { SettingsDialog } from './components/SettingsDialog';
+import { SignInDialog } from './components/SignInDialog';
+import { ProfileDialog } from './components/ProfileDialog';
+import { useAuth } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
 import {
@@ -32,6 +35,19 @@ import { t, getDetectedLocale } from './constants/translations';
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
+  const { profile } = useAuth();
+
+  // Apply custom background color from profile (overrides theme)
+  useEffect(() => {
+    const bg = profile?.background_color;
+    if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
+      document.documentElement.style.setProperty('--news-bg-override', bg);
+      document.body.style.background = bg;
+    } else {
+      document.documentElement.style.removeProperty('--news-bg-override');
+      document.body.style.background = '';
+    }
+  }, [profile?.background_color]);
 
   const [category, setCategoryState] = useState<NewsCategory>(() => {
     const urlTopic = parseTopicFromUrl();
@@ -55,7 +71,7 @@ export const App: React.FC = () => {
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
-  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | null>(null);
+  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
 
   // Set document title and lang from current locale and active story/topic
   useEffect(() => {
@@ -310,6 +326,8 @@ export const App: React.FC = () => {
           onHomeClick={handleHomeRefresh}
           onRefresh={() => loadFeed(category)}
           onOpenSettings={() => setActiveDialog('settings')}
+          onOpenSignIn={() => setActiveDialog('signin')}
+          onOpenProfile={() => setActiveDialog('profile')}
           isLoading={isLoading}
         />
 
@@ -439,6 +457,16 @@ export const App: React.FC = () => {
         onClose={() => setActiveDialog(null)}
         theme={theme}
         onThemeChange={setTheme}
+      />
+
+      <SignInDialog
+        isOpen={activeDialog === 'signin'}
+        onClose={() => setActiveDialog(null)}
+      />
+
+      <ProfileDialog
+        isOpen={activeDialog === 'profile'}
+        onClose={() => setActiveDialog(null)}
       />
     </>
   );
