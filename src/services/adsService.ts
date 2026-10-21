@@ -23,6 +23,20 @@ interface RawProductAd {
 
 const adCache: Record<string, AdItem[]> = {};
 
+/** Categories whose catalogs are sampled to build the frontpage ad pool. */
+const FRONT_PAGE_AD_CATEGORIES: NewsCategory[] = [
+  'childcare',
+  'animals',
+  'arts',
+  'tech',
+  'world',
+  'uplifting'
+];
+/** How many ads to sample from each category catalog for the frontpage. */
+const FRONT_PAGE_ADS_PER_CATEGORY = 5;
+/** How many TikTok affiliate ads to include on the frontpage for variety. */
+const FRONT_PAGE_TIKTOK_ADS = 5;
+
 const ALL_AD_JSON_FILES = [
   'ads/all.json',
   'ads/childcare.json',
@@ -91,6 +105,42 @@ async function fetchJsonAdsFromPath(basePath: string): Promise<RawProductAd[]> {
     }
   }
   return [];
+}
+
+/** Try each candidate path in order, returning the first non-empty ad list. */
+async function fetchFirstAvailableJson(paths: string[]): Promise<RawProductAd[]> {
+  for (const path of paths) {
+    const ads = await fetchJsonAdsFromPath(path);
+    if (ads.length > 0) return ads;
+  }
+  return [];
+}
+
+/**
+ * Build a balanced frontpage ad pool by sampling from every category catalog
+ * instead of relying on ads/all.json, which had become ~80% pet products.
+ * Result: 5 per category x 6 categories (Gumroad) + Amazon general ads +
+ * a few TikTok affiliate ads, all shuffled together.
+ */
+async function fetchFrontPageAds(): Promise<AdItem[]> {
+  const perCategory = await Promise.all(
+    FRONT_PAGE_AD_CATEGORIES.map((cat) => fetchFirstAvailableJson([`ads/${cat}.json`]))
+  );
+
+  const sampled: RawProductAd[] = [];
+  for (const ads of perCategory) {
+    sampled.push(...shuffleArray(ads).slice(0, FRONT_PAGE_ADS_PER_CATEGORY));
+  }
+
+  // Amazon general-interest ads (category 'all')
+  const amazonAds = await fetchFirstAvailableJson(['ads/amazon.json']);
+  sampled.push(...amazonAds.filter((ad) => ad.category === 'all'));
+
+  // A few TikTok affiliate ads for extra variety
+  const tiktokAds = await fetchFirstAvailableJson(['ads/tiktok.json']);
+  sampled.push(...shuffleArray(tiktokAds).slice(0, FRONT_PAGE_TIKTOK_ADS));
+
+  return sampled.map((item, idx) => formatProductAd(item, 'all', idx));
 }
 
 async function fetchWorkerAdsByKeyword(keyword: string): Promise<RawProductAd[]> {
@@ -182,6 +232,18 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
   if (adCache[category] && adCache[category].length > 0) {
     // Return a newly shuffled copy each time to ensure unbiased random presentation
     return shuffleArray(adCache[category]);
+  }
+
+  // The frontpage gets a balanced mix sampled from every category catalog
+  // instead of the pet-heavy ads/all.json.
+  if (category === 'all') {
+    const frontPageAds = await fetchFrontPageAds();
+    if (frontPageAds.length > 0) {
+      const mixed = shuffleArray(frontPageAds);
+      adCache[category] = mixed;
+      return mixed;
+    }
+    // Fall through to the legacy all.json path if sampling produced nothing.
   }
 
   const lookupPaths = [
