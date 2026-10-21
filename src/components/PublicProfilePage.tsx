@@ -85,26 +85,24 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
   // Apply the space owner's theme + background color, restore on unmount
   useEffect(() => {
     if (!profile) return;
-    const prevTheme = document.documentElement.getAttribute('data-theme');
-    const prevBgVar = document.documentElement.style.getPropertyValue('--news-bg-override');
-    const prevBodyBg = document.body.style.background;
+    const root = document.documentElement;
+    const prevTheme = root.getAttribute('data-theme');
+    const prevBgVar = root.style.getPropertyValue('--news-bg');
 
     if (profile.theme && VALID_THEMES.includes(profile.theme)) {
-      document.documentElement.setAttribute('data-theme', profile.theme);
+      root.setAttribute('data-theme', profile.theme);
     }
     if (profile.background_color && /^#[0-9a-fA-F]{6}$/.test(profile.background_color)) {
-      document.documentElement.style.setProperty('--news-bg-override', profile.background_color);
-      document.body.style.background = profile.background_color;
+      root.style.setProperty('--news-bg', profile.background_color);
     }
 
     return () => {
-      if (prevTheme) document.documentElement.setAttribute('data-theme', prevTheme);
+      if (prevTheme) root.setAttribute('data-theme', prevTheme);
       if (prevBgVar) {
-        document.documentElement.style.setProperty('--news-bg-override', prevBgVar);
+        root.style.setProperty('--news-bg', prevBgVar);
       } else {
-        document.documentElement.style.removeProperty('--news-bg-override');
+        root.style.removeProperty('--news-bg');
       }
-      document.body.style.background = prevBodyBg;
     };
   }, [profile?.theme, profile?.background_color]);
 

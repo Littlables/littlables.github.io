@@ -82,9 +82,12 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
     const valid = (c: string) => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
     const live = valid(bgColor) ? bgColor : null;
     const saved = valid(profile?.background_color || '') ? profile?.background_color || null : null;
-    document.body.style.background = live || saved || '';
+    const root = document.documentElement;
+    if (live || saved) root.style.setProperty('--news-bg', (live || saved) as string);
+    else root.style.removeProperty('--news-bg');
     return () => {
-      document.body.style.background = saved || '';
+      if (saved) root.style.setProperty('--news-bg', saved);
+      else root.style.removeProperty('--news-bg');
     };
   }, [isOpen, tab, bgColor, profile?.background_color]);
 

@@ -45,15 +45,15 @@ export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { profile } = useAuth();
 
-  // Apply custom background color from profile (overrides theme)
+  // Apply custom background color from profile (overrides theme).
+  // Setting --news-bg on :root flows into body, header, and footer,
+  // which all use var(--news-bg).
   useEffect(() => {
     const bg = profile?.background_color;
     if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
-      document.documentElement.style.setProperty('--news-bg-override', bg);
-      document.body.style.background = bg;
+      document.documentElement.style.setProperty('--news-bg', bg);
     } else {
-      document.documentElement.style.removeProperty('--news-bg-override');
-      document.body.style.background = '';
+      document.documentElement.style.removeProperty('--news-bg');
     }
   }, [profile?.background_color]);
 
