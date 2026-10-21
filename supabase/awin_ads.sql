@@ -54,3 +54,11 @@ create table if not exists public.awin_sync_runs (
   steps jsonb,
   error text
 );
+
+-- The worker uses the service_role key; ensure it has full access.
+-- (Supabase does not always apply default privileges to tables created
+-- via psql/migrations, causing 42501 permission denied errors.)
+grant all on public.awin_programs to service_role;
+grant all on public.awin_products to service_role;
+grant all on public.awin_sync_runs to service_role;
+grant usage, select on all sequences in schema public to service_role;
