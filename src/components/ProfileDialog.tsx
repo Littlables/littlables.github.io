@@ -304,8 +304,8 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
       const char = CHARACTER_AVATARS.find((c) => c.id === profile.avatar_character);
       if (char) {
         return (
-          <div className={cls} style={{ background: char.bg, fontSize: size === 'lg' ? '2rem' : '1.2rem' }}>
-            {char.emoji}
+          <div className={cls} style={{ background: char.bg, fontSize: size === 'lg' ? '2.4rem' : '1.4rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span className="avatar-emoji-glyph">{char.emoji}</span>
           </div>
         );
       }
@@ -444,7 +444,9 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
                   onClick={() => handleCharacterSelect(char.id)}
                   title={char.name}
                 >
-                  <span className="character-emoji" style={{ background: char.bg }}>{char.emoji}</span>
+                  <span className="character-emoji" style={{ background: char.bg }}>
+                    <span className="avatar-emoji-glyph">{char.emoji}</span>
+                  </span>
                   <span className="character-name">{char.name}</span>
                 </button>
               ))}

@@ -128,11 +128,11 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
       return (
         <span
           className="space-avatar-character"
-          style={{ width: size, height: size, background: character.bg, fontSize: size * 0.55 }}
+          style={{ width: size, height: size, background: character.bg, fontSize: size * 0.66 }}
           role="img"
           aria-label={character.name}
         >
-          {character.emoji}
+          <span className="avatar-emoji-glyph">{character.emoji}</span>
         </span>
       );
     }

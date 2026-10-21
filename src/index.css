@@ -1734,7 +1734,14 @@ body.story-modal-open {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.6rem;
+  font-size: 2rem;
+}
+
+/* Inner glyph wrapper: tight line box + slight downward nudge, since
+   emoji glyphs (esp. animal faces) sit high in their em box */
+.avatar-emoji-glyph {
+  line-height: 1;
+  transform: translateY(0.07em);
 }
 
 .character-name {
@@ -1934,8 +1941,7 @@ body.story-modal-open {
   justify-content: center;
   border-radius: 50%;
   border: 3px solid var(--accent, #4f46e5);
-}
-.space-avatar-initial {
+}.space-avatar-initial {
   background: linear-gradient(135deg, #4f46e5, #ec4899);
   color: #fff;
   font-weight: 700;
