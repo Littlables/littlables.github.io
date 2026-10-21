@@ -204,6 +204,31 @@ export function getAdminPage() {
     .provider-setup.missing { color: #fcd34d; }
 
     /* Filters & Inputs */
+    .awin-panel {
+      border: 1px solid var(--border, #e2e8f0);
+      border-radius: .6rem;
+      padding: .7rem .9rem;
+      margin-bottom: .8rem;
+      background: var(--panel-bg, #f8fafc);
+    }
+    .awin-panel-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .8rem;
+      flex-wrap: wrap;
+    }
+    .awin-log {
+      margin-top: .6rem;
+      font-size: .8rem;
+      line-height: 1.5;
+      max-height: 12rem;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .awin-log .ok { color: #15803d; }
+    .awin-log .warn { color: #b45309; }
+    .awin-log .err { color: #dc2626; }
     .filter-bar {
       display: flex;
       align-items: center;
@@ -1153,6 +1178,16 @@ export function getAdminPage() {
         </div>
       </div>
       <div id="ads-section" class="section-body">
+        <div id="awin-panel" class="awin-panel">
+          <div class="awin-panel-row">
+            <div>
+              <strong>Awin affiliate sync</strong>
+              <span id="awin-status-line" class="muted"></span>
+            </div>
+            <button id="awin-sync-btn" type="button" class="small-btn">⟳ Update Awin data</button>
+          </div>
+          <div id="awin-sync-log" class="awin-log" hidden></div>
+        </div>
         <div class="filter-bar">
           <input id="ad-search-input" class="custom-input" type="search" placeholder="Search ads by title, sponsor, network, CTA..." aria-label="Search ads" style="flex: 1; min-width: 200px;">
           <label class="provider-toolbar" for="ads-network-filter">
@@ -1162,6 +1197,7 @@ export function getAdminPage() {
               <option value="Amazon">Amazon</option>
               <option value="TikTok">TikTok</option>
               <option value="Gumroad">Gumroad</option>
+              <option value="Awin">Awin</option>
               <option value="Partner">Partner</option>
             </select>
           </label>
@@ -2413,6 +2449,67 @@ export function getAdminPage() {
       }
     }
 
+    async function loadAwinStatus() {
+      const statusEl = document.getElementById('awin-status-line');
+      const btn = document.getElementById('awin-sync-btn');
+      if (!statusEl || !btn) return;
+      try {
+        const data = await request('/admin/api/awin/status');
+        if (!data.configured) {
+          statusEl.textContent = ' - not configured (set the AWIN_API_TOKEN worker secret)';
+          btn.disabled = true;
+          return;
+        }
+        const last = data.runs && data.runs[0];
+        const when = last && last.finished_at
+          ? new Date(last.finished_at).toLocaleString()
+          : 'never';
+        statusEl.textContent = ' - ' + (data.programCount || 0) + ' programs | last sync: ' + when;
+      } catch (err) {
+        statusEl.textContent = ' - status unavailable';
+      }
+    }
+
+    async function runAwinSync() {
+      const btn = document.getElementById('awin-sync-btn');
+      const logEl = document.getElementById('awin-sync-log');
+      if (!btn || !logEl) return;
+      btn.disabled = true;
+      btn.textContent = '⟳ Syncing…';
+      logEl.hidden = false;
+      logEl.innerHTML = '';
+      const line = (text, cls) => {
+        const div = document.createElement('div');
+        if (cls) div.className = cls;
+        div.textContent = text;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+      try {
+        line('Starting Awin sync…');
+        const result = await request('/admin/api/awin/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ includeProducts: true }),
+        });
+        for (const s of result.steps || []) {
+          line('- ' + s.name + ': ' + (s.detail || s.status), s.status === 'ok' ? 'ok' : 'warn');
+        }
+        if (result.ok) {
+          line('Done - ' + (result.programs || 0) + ' programs, ' + (result.products || 0) + ' products.', 'ok');
+        } else {
+          line('Sync failed: ' + (result.error || 'unknown error'), 'err');
+        }
+        await loadAwinStatus();
+        await loadAds();
+      } catch (err) {
+        line('Sync failed: ' + err.message, 'err');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⟳ Update Awin data';
+      }
+    }
+
     function filterAndRenderAds() {
       const q = state.adSearchQuery.toLowerCase().trim();
       const cat = state.activeAdCategory;
@@ -2532,6 +2629,9 @@ export function getAdminPage() {
     document.getElementById('create-ad-btn').addEventListener('click', () => {
       openAdPreview(null);
     });
+
+    document.getElementById('awin-sync-btn').addEventListener('click', runAwinSync);
+    loadAwinStatus();
 
     /* ============================================================================
      * AI DAILY STORY CURATION & STAGING QUEUE (5 Stories/Category · 3x/Day)
