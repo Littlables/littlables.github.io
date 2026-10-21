@@ -103,8 +103,11 @@ export async function fetchCommissionGroups(env, publisherId, advertiserId) {
 export async function fetchProductFeed(env, publisherId, advertiserId, locale = 'en_US') {
   const path = `/publishers/${publisherId}/awinfeeds/download/${advertiserId}-retail-${locale}.jsonl`;
   const url = AWIN_API_BASE + path;
-  const res = await fetch(url, { headers: awinHeaders(env) });
-  if (res.status === 404) return []; // no feed for this program/locale
+  // No JSON Accept header here — this is a file download, not an API call.
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${env.AWIN_API_TOKEN}` },
+  });
+  if (res.status === 404 || res.status === 406) return []; // no feed for this program/locale
   if (!res.ok) {
     throw new Error(`Awin feed ${advertiserId} failed (HTTP ${res.status})`);
   }
