@@ -42,7 +42,7 @@ function normalizeSocialLink(key: string, value: string): string {
 }
 
 export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
-  const { user, profile, updateProfile, uploadAvatar, checkUsernameAvailable, signOut } = useAuth();
+  const { user, profile, updateProfile, uploadAvatarFile, checkUsernameAvailable, signOut } = useAuth();
   const { theme: localTheme, setTheme: setLocalTheme } = useTheme();
 
   const [tab, setTab] = useState<Tab>('profile');
@@ -60,10 +60,31 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [newPillLabel, setNewPillLabel] = useState('');
   const [newPillKeywords, setNewPillKeywords] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Pending avatar selection: previewed live, only persisted via Save Avatar.
+  // Closing without saving discards it (like the background color).
+  interface PendingAvatar {
+    type: 'initial' | 'character' | 'upload';
+    characterId: string | null;
+    url: string | null; // blob preview URL, Google pic URL, or null
+    file: File | null; // set when a new photo was chosen but not yet uploaded
+  }
+  const [pendingAvatar, setPendingAvatar] = useState<PendingAvatar | null>(null);
+
+  const setPending = (next: PendingAvatar | null) => {
+    setPendingAvatar((prev) => {
+      if (prev?.url?.startsWith('blob:')) URL.revokeObjectURL(prev.url);
+      return next;
+    });
+  };
+
+  // Effective avatar = pending selection if any, otherwise the saved profile
+  const effAvatarUrl = pendingAvatar ? pendingAvatar.url : profile?.avatar_url;
+  const effAvatarType = pendingAvatar ? pendingAvatar.type : profile?.avatar_type;
+  const effAvatarCharacter = pendingAvatar ? pendingAvatar.characterId : profile?.avatar_character;
   const usernameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load profile data when the dialog opens — not on every profile update,
@@ -72,6 +93,11 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   useEffect(() => {
     if (!isOpen) {
       loadedForOpen.current = false;
+      // Discard any unsaved avatar preview (reverts like the background color)
+      setPendingAvatar((prev) => {
+        if (prev?.url?.startsWith('blob:')) URL.revokeObjectURL(prev.url);
+        return null;
+      });
       return;
     }
     if (profile && !loadedForOpen.current) {
@@ -173,50 +199,63 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
     }
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
     if (!file) return;
     setError('');
-    setUploading(true);
-    try {
-      await uploadAvatar(file);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file');
+      return;
     }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image must be under 2MB');
+      return;
+    }
+    // Preview only — the actual upload happens on Save
+    setPending({ type: 'upload', characterId: null, url: URL.createObjectURL(file), file });
   };
 
-  const handleCharacterSelect = async (characterId: string) => {
+  const handleCharacterSelect = (characterId: string) => {
     setError('');
-    try {
-      await updateProfile({ avatar_type: 'character', avatar_character: characterId, avatar_url: null });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to set avatar');
-    }
+    setPending({ type: 'character', characterId, url: null, file: null });
   };
 
-  const handleInitialAvatar = async () => {
+  const handleInitialAvatar = () => {
     setError('');
-    try {
-      await updateProfile({ avatar_type: 'initial', avatar_character: null, avatar_url: null });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to set avatar');
-    }
+    setPending({ type: 'initial', characterId: null, url: null, file: null });
   };
 
   const googlePicUrl = user?.user_metadata?.picture || user?.user_metadata?.avatar_url || null;
 
-  const handleGoogleAvatar = async () => {
+  const handleGoogleAvatar = () => {
     if (!googlePicUrl) return;
     setError('');
+    setPending({ type: 'upload', characterId: null, url: googlePicUrl, file: null });
+  };
+
+  const handleSaveAvatar = async () => {
+    if (!pendingAvatar) return;
+    setError('');
+    setSaved(false);
+    setSaving(true);
     try {
-      await updateProfile({ avatar_type: 'upload', avatar_character: null, avatar_url: googlePicUrl });
+      let url = pendingAvatar.url;
+      if (pendingAvatar.file) {
+        url = await uploadAvatarFile(pendingAvatar.file);
+      }
+      await updateProfile({
+        avatar_type: pendingAvatar.type,
+        avatar_character: pendingAvatar.characterId,
+        avatar_url: url,
+      });
+      if (pendingAvatar.url?.startsWith('blob:')) URL.revokeObjectURL(pendingAvatar.url);
+      setPendingAvatar(null);
+      setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to set avatar');
+      setError(err instanceof Error ? err.message : 'Failed to save avatar');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -332,11 +371,11 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
 
   const renderAvatar = (size: 'lg' | 'sm' = 'lg') => {
     const cls = size === 'lg' ? 'profile-avatar' : 'profile-avatar-sm';
-    if (profile?.avatar_url) {
-      return <img src={profile.avatar_url} alt="Profile" className={cls} />;
+    if (effAvatarUrl) {
+      return <img src={effAvatarUrl} alt="Profile" className={cls} />;
     }
-    if (profile?.avatar_type === 'character' && profile.avatar_character) {
-      const char = CHARACTER_AVATARS.find((c) => c.id === profile.avatar_character);
+    if (effAvatarType === 'character' && effAvatarCharacter) {
+      const char = CHARACTER_AVATARS.find((c) => c.id === effAvatarCharacter);
       if (char) {
         return (
           <div className={cls} style={{ background: char.bg, fontSize: size === 'lg' ? '2.4rem' : '1.4rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -466,8 +505,8 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
             <div className="profile-avatar-row">
               {renderAvatar('lg')}
               <div>
-                <button type="button" className="sign-in-button secondary-button" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                  {uploading ? 'Uploading…' : 'Upload photo'}
+                <button type="button" className="sign-in-button secondary-button" onClick={() => fileRef.current?.click()}>
+                  Upload photo
                 </button>
                 <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
               </div>
@@ -479,7 +518,7 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
                 <button
                   key={char.id}
                   type="button"
-                  className={`character-option ${profile?.avatar_type === 'character' && profile.avatar_character === char.id ? 'selected' : ''}`}
+                  className={`character-option ${effAvatarType === 'character' && effAvatarCharacter === char.id ? 'selected' : ''}`}
                   onClick={() => handleCharacterSelect(char.id)}
                   title={char.name}
                 >
@@ -501,6 +540,16 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
                 Use initial letter instead
               </button>
             </div>
+
+            <button
+              type="button"
+              className="sign-in-button primary-button"
+              onClick={handleSaveAvatar}
+              disabled={saving || !pendingAvatar}
+              style={{ marginTop: '1rem' }}
+            >
+              {saving ? 'Saving…' : 'Save Avatar'}
+            </button>
           </div>
         )}
 

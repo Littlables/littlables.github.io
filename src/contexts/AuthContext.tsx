@@ -44,6 +44,7 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
   uploadAvatar: (file: File) => Promise<string>;
+  uploadAvatarFile: (file: File) => Promise<string>;
   checkUsernameAvailable: (username: string) => Promise<boolean>;
 }
 
@@ -188,7 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data) setProfile(data as Profile);
   };
 
-  const uploadAvatar = async (file: File): Promise<string> => {
+  // Uploads the file to storage and returns the public URL (does NOT save to profile)
+  const uploadAvatarFile = async (file: File): Promise<string> => {
     const client = getSupabaseClient();
     if (!client || !session?.user) throw new Error('Not signed in');
 
@@ -206,8 +208,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data } = client.storage.from('avatars').getPublicUrl(path);
     // Cache-bust with timestamp
-    const url = `${data.publicUrl}?t=${Date.now()}`;
+    return `${data.publicUrl}?t=${Date.now()}`;
+  };
 
+  const uploadAvatar = async (file: File): Promise<string> => {
+    const url = await uploadAvatarFile(file);
     await updateProfile({ avatar_url: url, avatar_type: 'upload' });
     return url;
   };
@@ -241,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         updateProfile,
         uploadAvatar,
+        uploadAvatarFile,
         checkUsernameAvailable,
       }}
     >
