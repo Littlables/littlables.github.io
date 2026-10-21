@@ -31,7 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
         className="news-widget-title"
         id="widget-main-title"
         title="Refresh Stories"
-        aria-label={`${t('headerTitle') || 'Littlables Feed'} — Refresh Stories`}
+        aria-label={`${t('headerTitle') || 'Littlables'} — Refresh Stories`}
         onClick={handleBrandClick}
       >
         <img
@@ -44,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
             (e.target as HTMLElement).style.display = 'none';
           }}
         />
-        <span id="widget-title-text">{t('headerTitle') || 'Littlables Feed'}</span>
+        <span id="widget-title-text">{t('headerTitle') || 'Littlables'}</span>
       </button>
 
       <div className="news-header-controls">
