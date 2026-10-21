@@ -220,8 +220,12 @@ export async function syncAwin(env, options = {}) {
     headers: { ...supabaseHeaders(env), Prefer: 'return=representation' },
     body: JSON.stringify({ status: 'running', steps: [] }),
   });
-  const [run] = await runRes.json().catch(() => [{}]);
-  const runId = run?.id;
+  if (!runRes.ok) {
+    const body = await runRes.text().catch(() => '');
+    throw new Error(`Could not record sync run (HTTP ${runRes.status}): ${body.slice(0, 200)}`);
+  }
+  const runRows = await runRes.json().catch(() => []);
+  const runId = Array.isArray(runRows) ? runRows[0]?.id : null;
 
   const finish = async (status, error) => {
     if (runId) {
@@ -264,7 +268,8 @@ export async function syncAwin(env, options = {}) {
     );
     const manual = new Map();
     if (existingRes.ok) {
-      for (const r of await existingRes.json()) {
+      const existingRows = await existingRes.json().catch(() => []);
+      for (const r of Array.isArray(existingRows) ? existingRows : []) {
         if (r.category) manual.set(Number(r.advertiser_id), r.category);
       }
     }
@@ -330,7 +335,8 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
 
   const ads = [];
   if (prodRes.ok) {
-    for (const p of await prodRes.json()) {
+    const prodRows = await prodRes.json().catch(() => []);
+    for (const p of Array.isArray(prodRows) ? prodRows : []) {
       ads.push({
         id: `awin-product-${p.id}`,
         title: p.title,
@@ -346,7 +352,8 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
     }
   }
   if (progRes.ok) {
-    for (const p of await progRes.json()) {
+    const progRows = await progRes.json().catch(() => []);
+    for (const p of Array.isArray(progRows) ? progRows : []) {
       ads.push({
         id: `awin-program-${p.advertiser_id}`,
         title: p.name,
