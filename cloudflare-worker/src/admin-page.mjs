@@ -320,16 +320,13 @@ export function getAdminPage() {
     @media (max-width: 640px) {
       .ad-row {
         grid-template-columns: auto 80px minmax(0, 1fr);
-        grid-template-areas:
-          "select image main"
-          "select image actions";
         row-gap: .4rem;
         align-items: start;
       }
-      .ad-row .ad-select { grid-area: select; margin-top: .3rem; }
-      .ad-row img { grid-area: image; width: 80px; display: block; }
-      .ad-row .ad-details { grid-area: main; }
-      .ad-row .ad-actions { grid-area: actions; justify-self: start; }
+      .ad-row .ad-select { grid-column: 1; grid-row: 1 / span 2; margin-top: .3rem; }
+      .ad-row img { grid-column: 2; grid-row: 1 / span 2; width: 80px; display: block; }
+      .ad-row .ad-details { grid-column: 3; grid-row: 1; min-width: 0; }
+      .ad-row .ad-actions { grid-column: 3; grid-row: 2; justify-self: start; }
     }
       padding: .65rem .75rem;
       cursor: pointer;
