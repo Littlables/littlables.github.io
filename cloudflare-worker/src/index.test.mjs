@@ -3,6 +3,25 @@ import test from 'node:test';
 import worker from './index.js';
 import { createAdminSessionCookie } from './github-auth.mjs';
 
+// Quiet the worker's structured JSON event logs ({"event":"PROVIDER_FETCH",...})
+// during tests so failures are easy to spot in CI output. Anything that isn't
+// a JSON event object still prints, so real errors and assertion details are
+// never hidden.
+for (const method of ['log', 'warn', 'error']) {
+  const original = console[method].bind(console);
+  console[method] = (...args) => {
+    if (args.length === 1 && typeof args[0] === 'string') {
+      try {
+        const parsed = JSON.parse(args[0]);
+        if (parsed && typeof parsed === 'object' && 'event' in parsed) return;
+      } catch {
+        // Not JSON — fall through and print it.
+      }
+    }
+    original(...args);
+  };
+}
+
 const authEnv = {
   GITHUB_ALLOWED_USER: 'littlables',
   GITHUB_SESSION_SECRET: 'test-session-secret-that-is-long-enough'
