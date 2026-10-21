@@ -58,6 +58,26 @@ function shuffleArray<T>(array: T[]): T[] {
   return result;
 }
 
+/**
+ * VRChat avatar ads are brand-risky for a family audience, so they are always
+ * served last — after every other ad in the pool has had its turn.
+ * (They were removed from the catalogs in Oct 2026; this is a guard in case
+ * a future catalog sync reintroduces them.)
+ */
+function isVrChatAd(ad: AdItem): boolean {
+  return /vrchat|vrcft|vrcfury|\bvrc\b|rexouium|dante/i.test(`${ad.title} ${ad.desc}`);
+}
+
+/** Stable partition: all non-VRChat ads first (order preserved), VRChat ads last. */
+function deprioritizeVrChatAds(ads: AdItem[]): AdItem[] {
+  const normal: AdItem[] = [];
+  const vrChat: AdItem[] = [];
+  for (const ad of ads) {
+    (isVrChatAd(ad) ? vrChat : normal).push(ad);
+  }
+  return [...normal, ...vrChat];
+}
+
 function resolveFallbackAdCategory(rawCategory?: string, fallbackCategory?: NewsCategory): StandardNewsCategory {
   if (rawCategory && isValidCategory(rawCategory)) return rawCategory;
   if (fallbackCategory && isValidCategory(fallbackCategory)) return fallbackCategory;
@@ -230,8 +250,9 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
   }
 
   if (adCache[category] && adCache[category].length > 0) {
-    // Return a newly shuffled copy each time to ensure unbiased random presentation
-    return shuffleArray(adCache[category]);
+    // Return a newly shuffled copy each time to ensure unbiased random presentation,
+    // keeping VRChat ads pinned to the end.
+    return deprioritizeVrChatAds(shuffleArray(adCache[category]));
   }
 
   // The frontpage gets a balanced mix sampled from every category catalog
@@ -239,7 +260,7 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
   if (category === 'all') {
     const frontPageAds = await fetchFrontPageAds();
     if (frontPageAds.length > 0) {
-      const mixed = shuffleArray(frontPageAds);
+      const mixed = deprioritizeVrChatAds(shuffleArray(frontPageAds));
       adCache[category] = mixed;
       return mixed;
     }
@@ -249,14 +270,13 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
   const lookupPaths = [
     `ads/${category}.json`,
     `/ads/${category}.json`,
-    `./ads/${category}.json`,
-    `ads/all.json`,
-    `/ads/all.json`
+    `./ads/${category}.json`
   ];
 
   let rawAds: RawProductAd[] = [];
 
-  // 1. Load Gumroad products for category
+  // 1. Load Gumroad products for category (no all.json fallback — an empty
+  // catalog should not fall back to the pet-heavy general file)
   for (const path of lookupPaths) {
     try {
       const response = await fetch(path);
@@ -314,8 +334,9 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
 
   if (rawAds.length > 0) {
     const parsed = rawAds.map((item, idx) => formatProductAd(item, category, idx));
-    // Completely and randomly mix all the ads (Gumroad, Amazon, TikTok) together
-    const mixed = shuffleArray(parsed);
+    // Completely and randomly mix all the ads (Gumroad, Amazon, TikTok) together,
+    // with VRChat ads pinned to the end.
+    const mixed = deprioritizeVrChatAds(shuffleArray(parsed));
     adCache[category] = mixed;
     return mixed;
   }
@@ -335,7 +356,8 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
 
 export function getRandomAds(ads: AdItem[], count: number = 2): AdItem[] {
   if (!ads || !ads.length) return [];
-  // Completely randomize and shuffle all ads for the category together
-  const mixed = shuffleArray(ads);
+  // Completely randomize and shuffle all ads for the category together,
+  // keeping VRChat ads pinned to the end.
+  const mixed = deprioritizeVrChatAds(shuffleArray(ads));
   return mixed.slice(0, count);
 }
