@@ -449,44 +449,34 @@ body {
   }
 }
 
-/* Category Pill Navigation */
+/* Category Pill Navigation — always a single horizontally-scrollable row */
 .news-category-container {
   width: 100%;
   margin-top: 0.25rem;
-  margin-bottom: 1rem;
-  overflow: visible;
+  margin-bottom: 0.5rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.25rem;
+  /* Keep scrolled-to pills from jamming against the clipped edge */
+  scroll-padding-inline: 1rem;
+}
+
+.news-category-container::-webkit-scrollbar {
+  display: none;
 }
 
 .news-category-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.5rem;
   margin: 0;
-  padding: 0.5rem 0.5rem 0.75rem 0.5rem;
+  width: max-content;
+  /* 1rem side inset gives the pill drop shadows room so the scroll
+     container doesn't clip them into a sharp edge */
+  padding: 0.6rem 1rem 0.7rem 1rem;
   overflow: visible;
-}
-
-@media (max-width: 768px) {
-  .news-category-container {
-    overflow-x: auto;
-    overflow-y: visible;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 0.5rem;
-    margin-bottom: 0.75rem;
-    /* Keep scrolled-to pills from jamming against the clipped edge */
-    scroll-padding-inline: 1rem;
-  }
-  .news-category-container::-webkit-scrollbar {
-    display: none;
-  }
-  .news-category-bar {
-    flex-wrap: nowrap;
-    width: max-content;
-    /* 1rem side inset gives the pill drop shadows room so the scroll
-       container doesn't clip them into a sharp edge */
-    padding: 0.6rem 1rem 0.85rem 1rem;
-  }
 }
 
 .cat-pill {
