@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch profile when user changes
+  // Fetch profile when user changes (create one if the signup trigger missed it)
   useEffect(() => {
     const client = getSupabaseClient();
     if (!client || !session?.user) {
@@ -83,14 +83,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    let cancelled = false;
+    const userId = session.user.id;
     client
       .from('profiles')
       .select('*')
-      .eq('id', session.user.id)
-      .single()
-      .then(({ data }) => {
-        if (data) setProfile(data as Profile);
+      .eq('id', userId)
+      .maybeSingle()
+      .then(async ({ data }) => {
+        if (cancelled) return;
+        if (data) {
+          setProfile(data as Profile);
+          return;
+        }
+        // No row (e.g. signed up before the trigger existed) — create it
+        const meta = session.user.user_metadata || {};
+        const displayName =
+          meta.full_name || meta.name || (session.user.email || '').split('@')[0] || null;
+        const { data: created } = await client
+          .from('profiles')
+          .upsert(
+            {
+              id: userId,
+              display_name: displayName,
+              avatar_url: meta.avatar_url || meta.picture || null,
+            },
+            { onConflict: 'id' }
+          )
+          .select()
+          .single();
+        if (!cancelled && created) setProfile(created as Profile);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [session?.user?.id]);
 
   const signInWithGoogle = async () => {
@@ -140,10 +166,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = async (updates: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>) => {
     const client = getSupabaseClient();
     if (!client || !session?.user) throw new Error('Not signed in');
+    // Upsert so saving works even if the profile row is missing
     const { data, error } = await client
       .from('profiles')
-      .update(updates)
-      .eq('id', session.user.id)
+      .upsert({ id: session.user.id, ...updates }, { onConflict: 'id' })
       .select()
       .single();
     if (error) throw error;
