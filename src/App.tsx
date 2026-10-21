@@ -12,6 +12,7 @@ import { InfoDialog } from './components/InfoDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
 import { ProfileDialog } from './components/ProfileDialog';
+import { useAuth } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
 import {
@@ -34,6 +35,19 @@ import { t, getDetectedLocale } from './constants/translations';
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
+  const { profile } = useAuth();
+
+  // Apply custom background color from profile (overrides theme)
+  useEffect(() => {
+    const bg = profile?.background_color;
+    if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
+      document.documentElement.style.setProperty('--news-bg-override', bg);
+      document.body.style.background = bg;
+    } else {
+      document.documentElement.style.removeProperty('--news-bg-override');
+      document.body.style.background = '';
+    }
+  }, [profile?.background_color]);
 
   const [category, setCategoryState] = useState<NewsCategory>(() => {
     const urlTopic = parseTopicFromUrl();

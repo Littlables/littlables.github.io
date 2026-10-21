@@ -2,10 +2,33 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { Session, User } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../services/supabaseService';
 
+export interface SocialLinks {
+  twitter?: string;
+  instagram?: string;
+  tiktok?: string;
+  youtube?: string;
+  website?: string;
+}
+
+export interface PillConfig {
+  id: string;
+  type: 'category' | 'custom';
+  label?: string;      // for custom pills
+  keywords?: string;   // for custom pills (search keywords)
+}
+
 export interface Profile {
   id: string;
   display_name: string | null;
+  username: string | null;
+  bio: string | null;
+  social_links: SocialLinks;
   avatar_url: string | null;
+  avatar_type: 'initial' | 'character' | 'upload';
+  avatar_character: string | null;
+  theme: string | null;
+  background_color: string | null;
+  pills: PillConfig[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -19,7 +42,9 @@ interface AuthContextValue {
   signInWithEmail: (email: string) => Promise<void>;
   verifyEmailOtp: (email: string, token: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateProfile: (updates: Partial<Pick<Profile, 'display_name' | 'avatar_url'>>) => Promise<void>;
+  updateProfile: (updates: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
+  uploadAvatar: (file: File) => Promise<string>;
+  checkUsernameAvailable: (username: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -112,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null);
   };
 
-  const updateProfile = async (updates: Partial<Pick<Profile, 'display_name' | 'avatar_url'>>) => {
+  const updateProfile = async (updates: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>) => {
     const client = getSupabaseClient();
     if (!client || !session?.user) throw new Error('Not signed in');
     const { data, error } = await client
@@ -123,6 +148,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .single();
     if (error) throw error;
     if (data) setProfile(data as Profile);
+  };
+
+  const uploadAvatar = async (file: File): Promise<string> => {
+    const client = getSupabaseClient();
+    if (!client || !session?.user) throw new Error('Not signed in');
+
+    // Validate file type and size (max 2MB)
+    if (!file.type.startsWith('image/')) throw new Error('Please choose an image file');
+    if (file.size > 2 * 1024 * 1024) throw new Error('Image must be under 2MB');
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const path = `${session.user.id}/avatar.${ext}`;
+
+    const { error: uploadError } = await client.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (uploadError) throw uploadError;
+
+    const { data } = client.storage.from('avatars').getPublicUrl(path);
+    // Cache-bust with timestamp
+    const url = `${data.publicUrl}?t=${Date.now()}`;
+
+    await updateProfile({ avatar_url: url, avatar_type: 'upload' });
+    return url;
+  };
+
+  const checkUsernameAvailable = async (username: string): Promise<boolean> => {
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Supabase not configured');
+    const normalized = username.toLowerCase().trim();
+    if (!/^[a-z0-9_]{3,30}$/.test(normalized)) return false;
+
+    const { data, error } = await client
+      .from('profiles')
+      .select('id')
+      .eq('username', normalized)
+      .neq('id', session?.user?.id || '')
+      .limit(1);
+    if (error) throw error;
+    return !data || data.length === 0;
   };
 
   return (
@@ -137,6 +202,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         verifyEmailOtp,
         signOut,
         updateProfile,
+        uploadAvatar,
+        checkUsernameAvailable,
       }}
     >
       {children}

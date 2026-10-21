@@ -1575,3 +1575,317 @@ body.story-modal-open {
   font-size: 0.9rem;
   word-break: break-all;
 }
+
+/* Expanded Profile Dialog */
+.profile-dialog-expanded {
+  width: min(94vw, 32rem);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.profile-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--news-border, #334155);
+  padding-bottom: 0.5rem;
+}
+
+.profile-tab {
+  background: none;
+  border: none;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.profile-tab:hover {
+  color: var(--news-text, #f1f5f9);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.profile-tab.active {
+  color: #fff;
+  background: #4f46e5;
+}
+
+.profile-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-section-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--news-text-secondary, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.profile-hint {
+  font-size: 0.85rem;
+  color: var(--news-text-secondary, #94a3b8);
+  margin: 0 0 0.5rem;
+}
+
+.profile-username {
+  color: #4f46e5;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.username-hint {
+  font-size: 0.8rem;
+  margin-top: -0.4rem;
+}
+
+.username-hint.available { color: #86efac; }
+.username-hint.taken { color: #fca5a5; }
+
+.profile-textarea {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.profile-textarea:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
+.social-field {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.social-label {
+  min-width: 5.5rem;
+  font-size: 0.8rem;
+  color: var(--news-text-secondary, #94a3b8);
+  font-weight: 600;
+}
+
+.social-field input {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.9rem;
+}
+
+/* Character avatars */
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+}
+
+.character-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.6rem 0.3rem;
+  border-radius: 0.7rem;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.character-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.character-option.selected {
+  border-color: #4f46e5;
+  background: rgba(79, 70, 229, 0.15);
+}
+
+.character-emoji {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+}
+
+.character-name {
+  font-size: 0.7rem;
+  color: var(--news-text-secondary, #94a3b8);
+}
+
+.profile-avatar-sm {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  object-fit: cover;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+/* Pill manager */
+.pill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pill-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--news-border, #334155);
+}
+
+.pill-icon { font-size: 1.1rem; }
+.pill-label { flex: 1; font-size: 0.9rem; font-weight: 600; }
+
+.pill-remove {
+  background: none;
+  border: none;
+  color: #fca5a5;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.3rem;
+}
+
+.pill-reorder {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.pill-reorder button {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 0.35rem;
+  color: var(--news-text, #f1f5f9);
+  width: 1.6rem;
+  height: 1.6rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.pill-reorder button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pill-toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pill-toggle {
+  padding: 0.45rem 0.8rem;
+  border-radius: 9999px;
+  border: 1px solid var(--news-border, #334155);
+  background: transparent;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.pill-toggle.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #fff;
+}
+
+/* Theme picker */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.8rem 0.4rem;
+  border-radius: 0.7rem;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.theme-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.theme-option.selected {
+  border-color: #4f46e5;
+  background: rgba(79, 70, 229, 0.15);
+}
+
+.theme-icon { font-size: 1.5rem; }
+.theme-name { font-size: 0.75rem; color: var(--news-text-secondary, #94a3b8); }
+
+/* Color picker */
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.color-wheel {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  border: 2px solid var(--news-border, #334155);
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.color-wheel::-webkit-color-swatch-wrapper { padding: 2px; }
+.color-wheel::-webkit-color-swatch { border: none; border-radius: 9999px; }
+
+.hex-input {
+  width: 7rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+
+.color-preview {
+  margin-top: 0.6rem;
+  padding: 1.5rem;
+  border-radius: 0.7rem;
+  text-align: center;
+  color: #fff;
+  font-size: 0.85rem;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.profile-footer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--news-border, #334155);
+}
