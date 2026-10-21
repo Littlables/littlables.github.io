@@ -205,11 +205,11 @@ export function getAdminPage() {
 
     /* Filters & Inputs */
     .awin-panel {
-      border: 1px solid var(--border, #e2e8f0);
+      border: 1px solid #334155;
       border-radius: .6rem;
       padding: .7rem .9rem;
       margin-bottom: .8rem;
-      background: var(--panel-bg, #f8fafc);
+      background: #1e293b;
     }
     .awin-panel-row {
       display: flex;
