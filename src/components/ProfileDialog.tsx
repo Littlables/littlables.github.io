@@ -67,6 +67,19 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
     }
   }, [isOpen, profile]);
 
+  // Live-preview the picked background color on the page as it's chosen.
+  // Reverts to the last saved color if the dialog closes without saving.
+  useEffect(() => {
+    if (!isOpen || tab !== 'theme') return;
+    const valid = (c: string) => c && /^#[0-9a-fA-F]{6}$/.test(c);
+    const live = valid(bgColor) ? bgColor : null;
+    const saved = valid(profile?.background_color || '') ? profile!.background_color : null;
+    document.body.style.background = live || saved || '';
+    return () => {
+      document.body.style.background = saved || '';
+    };
+  }, [isOpen, tab, bgColor, profile?.background_color]);
+
   if (!isOpen) return null;
 
   // Username availability check (debounced)
