@@ -1,8 +1,8 @@
-name: Deploy to GitHub Pages & Cloudflare Worker
+name: Deploy Cloudflare Worker & Run Migrations
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
   workflow_dispatch:
     inputs:
       deploy_worker:
@@ -18,49 +18,12 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages-and-worker"
+  group: "worker-and-migrations"
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
-    name: Deploy Frontend to GitHub Pages
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4.4.0
-
-      - name: Set up Node
-        uses: actions/setup-node@v4.4.0
-        with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: './package-lock.json'
-
-      - name: Install dependencies
-        run: npm ci || npm install
-
-      - name: Build project
-        run: npm run build
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4.0.0
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3.0.1
-        with:
-          path: './dist'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4.0.5
-
   migrate-supabase:
     name: Run Supabase migrations (on changes)
     runs-on: ubuntu-latest

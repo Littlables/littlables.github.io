@@ -1,0 +1,30 @@
+name: Promote dev to prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type YES to merge dev into main and deploy to littlables.com'
+        required: true
+        default: 'YES'
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge dev into main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin dev
+          git merge origin/dev --no-edit -m "Promote dev to prod"
+          git push origin main
