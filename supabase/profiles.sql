@@ -65,3 +65,5 @@ CREATE TRIGGER on_profile_updated
 GRANT ALL ON public.profiles TO service_role;
 GRANT SELECT, UPDATE ON public.profiles TO authenticated;
 GRANT SELECT ON public.profiles TO anon;
+
+-- Trigger: re-run migrations on dev (2026-10-21)
