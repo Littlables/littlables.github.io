@@ -309,24 +309,14 @@ export function getAdminPage() {
       border-radius: 10px;
     }
     .story { grid-template-columns: 80px minmax(0, 1fr) auto; }
+    .story.ai-pick-row { grid-template-columns: auto 80px minmax(0, 1fr) auto; }
     .ad-row { grid-template-columns: auto 80px minmax(0, 1fr) auto; }
     .ad-select {
-      width: 1.1rem;
-      height: 1.1rem;
-      accent-color: #6366f1;
+      width: 18px;
+      height: 18px;
+      accent-color: #4f46e5;
       cursor: pointer;
-      margin-left: .25rem;
-    }
-    @media (max-width: 640px) {
-      .ad-row {
-        grid-template-columns: auto 80px minmax(0, 1fr);
-        row-gap: .4rem;
-        align-items: start;
-      }
-      .ad-row .ad-select { grid-column: 1; grid-row: 1 / span 2; margin-top: .3rem; }
-      .ad-row img { grid-column: 2; grid-row: 1 / span 2; width: 80px; display: block; }
-      .ad-row .ad-details { grid-column: 3; grid-row: 1; min-width: 0; }
-      .ad-row .ad-actions { grid-column: 3; grid-row: 2; justify-self: start; }
+      margin: 0;
     }
       padding: .65rem .75rem;
       cursor: pointer;
@@ -1051,7 +1041,7 @@ export function getAdminPage() {
         gap: .55rem;
         padding: .55rem;
       }
-      .story.ai-pick-row {
+      .story.ai-pick-row, .ad-row {
         grid-template-columns: auto 64px minmax(0, 1fr);
       }
       .story img, .ad-row img { width: 64px; height: auto; aspect-ratio: 16 / 9; }
