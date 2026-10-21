@@ -96,17 +96,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const meta = session.user.user_metadata || {};
         const oauthAvatar = meta.avatar_url || meta.picture || null;
         if (data) {
-          // Backfill the OAuth profile pic if the row was created without it
-          if (!data.avatar_url && oauthAvatar) {
-            const { data: updated } = await client
-              .from('profiles')
-              .update({ avatar_url: oauthAvatar })
-              .eq('id', userId)
-              .select()
-              .single();
-            if (!cancelled) setProfile(((updated || data) as Profile));
-            return;
-          }
           setProfile(data as Profile);
           return;
         }
