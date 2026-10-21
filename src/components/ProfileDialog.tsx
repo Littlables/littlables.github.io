@@ -34,6 +34,9 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   const [pills, setPills] = useState<PillConfig[]>([]);
   const [bgColor, setBgColor] = useState('');
   const [bgHex, setBgHex] = useState('');
+  // The active theme's background color, so the wheel reflects the current
+  // theme when no custom color is picked
+  const [themeBg, setThemeBg] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
@@ -90,6 +93,14 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
       else root.style.removeProperty('--news-bg');
     };
   }, [isOpen, tab, bgColor, profile?.background_color]);
+
+  // Keep the color wheel in sync with the active theme's background when
+  // no custom color is picked
+  useEffect(() => {
+    if (!isOpen) return;
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--news-bg').trim();
+    setThemeBg(/^#[0-9a-fA-F]{6}$/.test(v) ? v : '');
+  }, [isOpen, localTheme, bgColor, profile?.background_color]);
 
   if (!isOpen) return null;
 
@@ -537,7 +548,7 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
             <div className="color-picker-row">
               <input
                 type="color"
-                value={bgColor || '#1e293b'}
+                value={bgColor || themeBg || '#1e293b'}
                 onChange={(e) => handleBgColorChange(e.target.value)}
                 className="color-wheel"
                 aria-label="Pick background color"
