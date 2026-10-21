@@ -159,6 +159,10 @@ async function fetchFrontPageAds(): Promise<AdItem[]> {
   const tiktokAds = await fetchFirstAvailableJson(['ads/tiktok.json']);
   sampled.push(...shuffleArray(tiktokAds).slice(0, FRONT_PAGE_TIKTOK_ADS));
 
+  // Awin affiliate ads (from Supabase via the worker) for extra variety
+  const awinAds = await fetchAwinAds('all');
+  sampled.push(...shuffleArray(awinAds).slice(0, 5));
+
   return sampled.map((item, idx) => formatProductAd(item, 'all', idx));
 }
 
@@ -173,6 +177,23 @@ async function fetchWorkerAdsByKeyword(keyword: string): Promise<RawProductAd[]>
     if (Array.isArray(data?.ads)) return data.ads;
   } catch {
     // Worker /ads endpoint optional fallback
+  }
+  return [];
+}
+
+/** Fetch Awin affiliate ads from the worker (served from Supabase). */
+async function fetchAwinAds(category: string): Promise<RawProductAd[]> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads';
+    url.searchParams.set('category', category);
+    url.searchParams.set('network', 'awin');
+    const response = await fetch(url.href, { cache: 'no-cache' });
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (Array.isArray(data?.ads)) return data.ads;
+  } catch {
+    // Awin ads are optional — the site works without them
   }
   return [];
 }
@@ -331,9 +352,15 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
     }
   }
 
+  // 4. Load Awin affiliate ads for category (from Supabase via the worker)
+  const awinAds = await fetchAwinAds(category);
+  if (awinAds.length > 0) {
+    rawAds = [...rawAds, ...awinAds];
+  }
+
   if (rawAds.length > 0) {
     const parsed = rawAds.map((item, idx) => formatProductAd(item, category, idx));
-    // Completely and randomly mix all the ads (Gumroad, Amazon, TikTok) together,
+    // Completely and randomly mix all the ads (Gumroad, Amazon, TikTok, Awin) together,
     // with VRChat ads pinned to the end.
     const mixed = deprioritizeVrChatAds(shuffleArray(parsed));
     adCache[category] = mixed;
