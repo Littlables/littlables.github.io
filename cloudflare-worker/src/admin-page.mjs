@@ -1821,6 +1821,15 @@ export function getAdminPage() {
         button.disabled = state.busy.has(provider.id) || provider.status === 'running' || !provider.configured;
         button.addEventListener('click', () => updateProvider(provider.id));
         head.append(title, button);
+        if (provider.status === 'running') {
+          const resetButton = document.createElement('button');
+          resetButton.type = 'button';
+          resetButton.className = 'small-btn';
+          resetButton.textContent = 'Reset stuck run';
+          resetButton.disabled = state.busy.has(provider.id);
+          resetButton.addEventListener('click', () => resetProviderSync(provider.id));
+          head.append(resetButton);
+        }
         const description = document.createElement('p');
         description.className = 'provider-description muted';
         description.textContent = provider.description || '';
@@ -3367,6 +3376,31 @@ export function getAdminPage() {
       } catch (error) {
         messageEl.className = 'error';
         messageEl.textContent = providerId + ' update failed: ' + error.message;
+      } finally {
+        state.busy.delete(providerId);
+        await refreshData();
+      }
+    }
+
+    async function resetProviderSync(providerId) {
+      if (!window.confirm('Clear the stuck "running" state for ' + providerId + '? Use this only if the update is genuinely stuck — it will let you run the provider again.')) return;
+      if (state.busy.has(providerId)) return;
+      state.busy.add(providerId);
+      renderProviders(state.providers);
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Resetting ' + providerId + '…';
+      try {
+        const result = await request('/admin/api/providers/' + encodeURIComponent(providerId) + '/reset', { method: 'POST' });
+        if (result.reset) {
+          messageEl.className = 'success';
+          messageEl.textContent = providerId + ' lock cleared — you can update it again now.';
+        } else {
+          messageEl.className = 'muted';
+          messageEl.textContent = providerId + ' was not stuck (status: ' + (result.previousStatus || 'unknown') + ').';
+        }
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = providerId + ' reset failed: ' + error.message;
       } finally {
         state.busy.delete(providerId);
         await refreshData();

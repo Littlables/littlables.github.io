@@ -700,6 +700,37 @@ export async function finishNewsProviderSync(env, provider, {
   if (!response.ok) throw new Error(`Saving ${provider} update status failed (HTTP ${response.status})`);
 }
 
+export async function resetNewsProviderSync(env, provider, resetBy) {
+  // Clear a stuck "running" lock (e.g. the worker was killed or redeployed
+  // mid-sync and finishNewsProviderSync never ran) so the provider can be
+  // updated again. Harmless when the provider is not actually stuck.
+  const lookupQuery = new URLSearchParams({
+    provider: `eq.${provider}`,
+    select: 'provider,status,started_at'
+  });
+  const lookupResponse = await fetch(supabaseUrl(env, SYNC_TABLE, lookupQuery), {
+    headers: supabaseHeaders(env)
+  });
+  const rows = await readRows(lookupResponse, `Provider ${provider} sync state lookup`);
+  const wasStuck = rows.length === 1 && rows[0].status === 'running';
+  if (wasStuck) {
+    const resetQuery = new URLSearchParams({ provider: `eq.${provider}` });
+    const response = await fetch(supabaseUrl(env, SYNC_TABLE, resetQuery), {
+      method: 'PATCH',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        status: 'failed',
+        started_at: null,
+        last_error: `Sync lock manually reset by ${resetBy} — the previous run did not finish`,
+        updated_by: resetBy,
+        updated_at: new Date().toISOString()
+      })
+    });
+    if (!response.ok) throw new Error(`Resetting ${provider} sync state failed (HTTP ${response.status})`);
+  }
+  return { provider, reset: wasStuck, previousStatus: rows[0]?.status ?? 'never' };
+}
+
 export function buildKeywordOrFilter(queryText) {
   const raw = String(queryText || '')
     .trim()
