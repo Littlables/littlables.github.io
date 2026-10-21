@@ -317,6 +317,19 @@ export function getAdminPage() {
       cursor: pointer;
       margin-left: .25rem;
     }
+    @media (max-width: 640px) {
+      .ad-row {
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-areas:
+          "select main"
+          "select actions";
+        row-gap: .4rem;
+      }
+      .ad-row .ad-select { grid-area: select; align-self: start; margin-top: .3rem; }
+      .ad-row img { display: none; }
+      .ad-row .ad-details { grid-area: main; }
+      .ad-row .ad-actions { grid-area: actions; justify-self: start; }
+    }
       padding: .65rem .75rem;
       cursor: pointer;
       transition: border-color 0.15s ease, background-color 0.15s ease;
@@ -1227,14 +1240,17 @@ export function getAdminPage() {
             </select>
           </label>
         </div>
-        <div id="ads-bulk-bar" class="awin-panel" hidden style="display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem;">
+        <div id="ads-bulk-bar" class="awin-panel" hidden style="display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem; flex-wrap: wrap;">
           <span id="ads-bulk-count" class="muted"></span>
           <label class="provider-toolbar" for="ads-bulk-category">
             Set category
             <select id="ads-bulk-category" class="provider-filter"></select>
           </label>
-          <button id="ads-bulk-apply" type="button" class="small-btn">Apply to selected</button>
-          <button id="ads-bulk-clear" type="button" class="secondary small-btn">Clear selection</button>
+          <button id="ads-bulk-apply" type="button" class="small-btn">Apply</button>
+          <button id="ads-bulk-clear" type="button" class="secondary small-btn">Clear</button>
+        </div>
+        <div style="margin-bottom: .6rem;">
+          <button id="ads-select-all" type="button" class="secondary small-btn">Select all on page</button>
         </div>
         <nav id="ads-categories" class="category-tabs" aria-label="Filter ads by category"></nav>
         <p id="ads-results-count" class="muted" style="margin-bottom: .5rem;"></p>
@@ -2553,6 +2569,9 @@ export function getAdminPage() {
       const net = state.activeAdNetwork;
       const prog = state.activeAdProgram;
       const quality = state.activeAdQuality;
+      // Reset select-all toggle label whenever the list re-renders.
+      const selectAllBtn = document.getElementById('ads-select-all');
+      if (selectAllBtn) selectAllBtn.textContent = 'Select all on page';
       const filtered = state.ads.filter((ad) => {
         if (cat !== 'all' && ad.category !== cat && ad.category !== 'all') return false;
         if (net !== 'all' && (ad.network || '').toLowerCase() !== net.toLowerCase()) return false;
@@ -2698,6 +2717,39 @@ export function getAdminPage() {
 
     document.getElementById('ads-bulk-clear').addEventListener('click', () => {
       state.selectedAdIds.clear();
+      updateBulkBar();
+      filterAndRenderAds();
+    });
+
+    document.getElementById('ads-select-all').addEventListener('click', () => {
+      // Select all ads on the current page (respecting active filters).
+      const q = state.adSearchQuery.toLowerCase().trim();
+      const cat = state.activeAdCategory;
+      const net = state.activeAdNetwork;
+      const prog = state.activeAdProgram;
+      const quality = state.activeAdQuality;
+      const filtered = state.ads.filter((ad) => {
+        if (cat !== 'all' && ad.category !== cat && ad.category !== 'all') return false;
+        if (net !== 'all' && (ad.network || '').toLowerCase() !== net.toLowerCase()) return false;
+        if (prog !== 'all' && net.toLowerCase() === 'awin' && (ad.sponsor || '') !== prog) return false;
+        if (quality === 'needs-category' && ad.category && ad.category !== 'all') return false;
+        if (quality === 'no-image' && ad.img) return false;
+        if (quality === 'products' && !String(ad.id || '').startsWith('awin-product-')) return false;
+        if (quality === 'programs' && !String(ad.id || '').startsWith('awin-program-')) return false;
+        return true;
+      });
+      // Only the current pagination slice.
+      const pageSize = state.pageSizes.ads || 10;
+      const page = state.pages.ads || 1;
+      const slice = filtered.slice((page - 1) * pageSize, page * pageSize);
+      // Toggle: if all on page are selected, deselect them; otherwise select them.
+      const allSelected = slice.length > 0 && slice.every(ad => state.selectedAdIds.has(ad.id));
+      for (const ad of slice) {
+        if (allSelected) state.selectedAdIds.delete(ad.id);
+        else state.selectedAdIds.add(ad.id);
+      }
+      document.getElementById('ads-select-all').textContent =
+        allSelected ? 'Select all on page' : 'Deselect all on page';
       updateBulkBar();
       filterAndRenderAds();
     });
