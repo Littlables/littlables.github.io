@@ -12,6 +12,7 @@ import { InfoDialog } from './components/InfoDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
 import { ProfileDialog } from './components/ProfileDialog';
+import { PublicProfilePage } from './components/PublicProfilePage';
 import { useAuth } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
@@ -32,6 +33,13 @@ import {
   formatCustomTopicLabel
 } from './services/urlService';
 import { t, getDetectedLocale } from './constants/translations';
+
+/** Extracts a `@username` profile route from the URL path, e.g. `/@katie`. */
+function parseProfileFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/?$/i);
+  return match ? match[1].toLowerCase() : null;
+}
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
@@ -68,6 +76,7 @@ export const App: React.FC = () => {
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
@@ -103,6 +112,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
+      const urlProfile = parseProfileFromUrl();
+      setProfileRoute(urlProfile);
+      if (urlProfile) return;
       const urlTopic = parseTopicFromUrl() || 'all';
       const urlStory = parseStoryFromUrl();
       if (urlTopic !== category) {
@@ -223,11 +235,13 @@ export const App: React.FC = () => {
   const handleHomeRefresh = () => {
     setSelectedStory(null);
     setActiveStoryParam(null);
+    setProfileRoute(null);
     try {
       localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
     } catch {}
     if (typeof window !== 'undefined') {
-      const homeHref = getTopicHref('all');
+      // Always return to the site root (clears any /@username profile path)
+      const homeHref = `/?topic=${encodeURIComponent('all')}`;
       if (window.location.pathname + window.location.search !== homeHref) {
         window.history.pushState({ topic: 'all', story: null }, '', homeHref);
       }
@@ -336,6 +350,13 @@ export const App: React.FC = () => {
           onSelectCategory={handleSelectCategory}
         />
 
+        {profileRoute ? (
+          <PublicProfilePage
+            username={profileRoute}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+          />
+        ) : (
         <main id="news-grid-container" className="news-grid">
           {isLoading && stories.length === 0 && ads.length === 0 ? (
             <>
@@ -422,6 +443,7 @@ export const App: React.FC = () => {
             </>
           )}
         </main>
+        )}
       </div>
 
       <StoryModal

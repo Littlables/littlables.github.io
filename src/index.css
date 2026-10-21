@@ -1889,3 +1889,102 @@ body.story-modal-open {
   padding-top: 1rem;
   border-top: 1px solid var(--news-border, #334155);
 }
+
+/* ── Public profile / space page ── */
+.space-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+.space-card {
+  background: var(--card-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.09));
+  border-radius: 1.25rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+.space-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.space-avatar-img {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--accent, #4f46e5);
+}
+.space-avatar-character,
+.space-avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3px solid var(--accent, #4f46e5);
+}
+.space-avatar-initial {
+  background: linear-gradient(135deg, #4f46e5, #ec4899);
+  color: #fff;
+  font-weight: 700;
+}
+.space-display-name {
+  font-size: 1.6rem;
+  margin: 0.5rem 0 0;
+}
+.space-username {
+  opacity: 0.65;
+  margin: 0;
+  font-size: 0.95rem;
+}
+.space-bio {
+  max-width: 480px;
+  margin: 0.5rem 0 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.space-socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+.space-social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.12));
+  font-size: 0.85rem;
+  text-decoration: none;
+  color: inherit;
+}
+.space-social-link:hover {
+  border-color: var(--accent, #4f46e5);
+}
+.space-pills-section {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--card-border, rgba(255, 255, 255, 0.09));
+}
+.space-section-title {
+  font-size: 1.05rem;
+  margin: 0 0 0.9rem;
+}
+.space-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.space-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  font-size: 0.9rem;
+}
