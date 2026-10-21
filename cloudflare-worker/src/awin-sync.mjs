@@ -208,9 +208,111 @@ function productToRow(advertiserId, p, fallbackCategory) {
 }
 
 /**
- * Full sync pipeline. Returns a per-step summary for the admin panel.
- * options: { includeProducts: boolean, productLocale: string, maxPrograms: number }
+ * Parse a CSV string into an array of objects. Handles quoted fields.
  */
+function parseCsv(text) {
+  const lines = text.split('\n');
+  if (!lines.length) return [];
+  // Remove BOM
+  let header = lines[0].replace(/^\uFEFF/, '');
+  const headers = splitCsvLine(header);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const values = splitCsvLine(line);
+    const obj = {};
+    for (let j = 0; j < headers.length; j++) {
+      obj[headers[j]] = values[j] || '';
+    }
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function splitCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+/**
+ * Fetch the Darwin feed list and return active (joined) feeds.
+ * Requires AWIN_FEED_LIST_URL worker secret.
+ */
+export async function fetchDarwinFeedList(env) {
+  if (!env.AWIN_FEED_LIST_URL) return [];
+  const res = await fetch(env.AWIN_FEED_LIST_URL);
+  if (!res.ok) throw new Error(`Feed list failed (HTTP ${res.status})`);
+  const text = await res.text();
+  const rows = parseCsv(text);
+  return rows.filter(r =>
+    r['Membership Status'] === 'active' && r['URL']
+  ).map(r => ({
+    advertiserId: Number(r['Advertiser ID']),
+    advertiserName: r['Advertiser Name'],
+    feedUrl: r['URL'],
+    format: r['Datafeed Format'],
+    productCount: Number(r['No of products']) || 0,
+  }));
+}
+
+/**
+ * Download and parse a Darwin/legacy feed (gzipped CSV).
+ */
+export async function fetchDarwinFeed(feedUrl) {
+  const res = await fetch(feedUrl);
+  if (!res.ok) throw new Error(`Feed download failed (HTTP ${res.status})`);
+  const buffer = await res.arrayBuffer();
+  // Decompress gzip using the platform's DecompressionStream
+  const ds = new DecompressionStream('gzip');
+  const stream = new Blob([buffer]).stream().pipeThrough(ds);
+  const text = await new Response(stream).text();
+  return parseCsv(text);
+}
+
+function darwinRowToProduct(advertiserId, row, fallbackCategory) {
+  // Supports both Google/Darwin format and legacy Awin CSV format
+  const id = row['id'] || row['aw_product_id'];
+  const title = row['title'] || row['product_name'];
+  if (!id || !title) return null;
+  return {
+    id: `${advertiserId}:${id}`,
+    advertiser_id: advertiserId,
+    title,
+    description: (row['description'] || '').slice(0, 500) || null,
+    link: row['link'] || row['merchant_deep_link'] || null,
+    tracked_url: row['aw_deep_link'] || null,
+    image_link: row['image_link'] || row['aw_image_url'] || row['merchant_image_url'] || null,
+    additional_images: row['additional_image_link'] || null,
+    price: parsePrice(row['price'] || row['search_price']),
+    sale_price: parsePrice(row['sale_price']),
+    currency_code: null,
+    brand: row['brand'] || row['brand_name'] || null,
+    availability: row['availability'] || row['stock_status'] || null,
+    category: fallbackCategory || null,
+    raw: row,
+    synced_at: new Date().toISOString(),
+  };
+}
 export async function syncAwin(env, options = {}) {
   if (!env.AWIN_API_TOKEN) throw new Error('AWIN_API_TOKEN is not configured');
   const { includeProducts = true, productLocale = 'en_US', maxPrograms = 50 } = options;
@@ -285,6 +387,29 @@ export async function syncAwin(env, options = {}) {
 
     let productCount = 0;
     if (includeProducts) {
+      // Try Darwin/legacy feeds first (bulk, has pre-tagged links).
+      try {
+        const darwinFeeds = await fetchDarwinFeedList(env);
+        step('Fetch Darwin feed list', 'ok', `${darwinFeeds.length} active feeds`);
+        for (const feed of darwinFeeds) {
+          try {
+            const rows = await fetchDarwinFeed(feed.feedUrl);
+            const cat = manual.get(feed.advertiserId)
+              || suggestCategory(null, feed.advertiserName);
+            const prows = rows
+              .map(r => darwinRowToProduct(feed.advertiserId, r, cat))
+              .filter(Boolean);
+            const n = await upsertRows(env, 'awin_products', prows, 'id');
+            productCount += n;
+            step(`Feed: ${feed.advertiserName}`, 'ok', `${n} products`);
+          } catch (e) {
+            step(`Feed: ${feed.advertiserName}`, 'skipped', e.message.slice(0, 120));
+          }
+        }
+      } catch (e) {
+        step('Darwin feeds', 'skipped', e.message.slice(0, 120));
+      }
+      // Fall back to REST Enhanced Feeds for programs without Darwin feeds.
       for (const p of list) {
         try {
           const products = await fetchProductFeed(env, publisherId, p.id, productLocale);
