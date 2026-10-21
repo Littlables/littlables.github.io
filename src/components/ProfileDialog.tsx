@@ -43,9 +43,15 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const usernameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load profile data when opened
+  // Load profile data when the dialog opens — not on every profile update,
+  // so saves (Clear, theme pick, avatar) don't clobber edits or yank the tab
+  const loadedForOpen = useRef(false);
   useEffect(() => {
-    if (isOpen && profile) {
+    if (!isOpen) {
+      loadedForOpen.current = false;
+      return;
+    }
+    if (profile && !loadedForOpen.current) {
       setDisplayName(profile.display_name || '');
       setUsername(profile.username || '');
       setUsernameStatus('idle');
@@ -57,6 +63,7 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
       setTab('profile');
       setError('');
       setSaved(false);
+      loadedForOpen.current = true;
     }
   }, [isOpen, profile]);
 
