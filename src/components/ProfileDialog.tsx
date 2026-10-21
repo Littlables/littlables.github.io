@@ -208,6 +208,18 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
     }
   };
 
+  const googlePicUrl = user?.user_metadata?.picture || user?.user_metadata?.avatar_url || null;
+
+  const handleGoogleAvatar = async () => {
+    if (!googlePicUrl) return;
+    setError('');
+    try {
+      await updateProfile({ avatar_type: 'upload', avatar_character: null, avatar_url: googlePicUrl });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to set avatar');
+    }
+  };
+
   const handleThemeSelect = async (themeId: string) => {
     setLocalTheme(themeId as any);
     try {
@@ -476,9 +488,16 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
               ))}
             </div>
 
-            <button type="button" className="link-button" onClick={handleInitialAvatar}>
-              Use initial letter instead
-            </button>
+            <div className="avatar-alt-options">
+              {googlePicUrl && (
+                <button type="button" className="link-button" onClick={handleGoogleAvatar}>
+                  Use Google profile photo
+                </button>
+              )}
+              <button type="button" className="link-button" onClick={handleInitialAvatar}>
+                Use initial letter instead
+              </button>
+            </div>
           </div>
         )}
 

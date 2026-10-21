@@ -1754,6 +1754,13 @@ body.story-modal-open {
   color: var(--news-text-secondary, #94a3b8);
 }
 
+.avatar-alt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-top: 0.75rem;
+}
+
 .profile-avatar-sm {
   width: 2.5rem;
   height: 2.5rem;

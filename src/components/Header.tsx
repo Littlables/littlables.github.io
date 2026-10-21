@@ -1,6 +1,7 @@
 import React from 'react';
 import { t } from '../constants/translations';
 import { useAuth } from '../contexts/AuthContext';
+import { CHARACTER_AVATARS } from '../constants/avatars';
 
 interface HeaderProps {
   onHomeClick: () => void;
@@ -20,6 +21,11 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading
 }) => {
   const { user, profile } = useAuth();
+
+  const character =
+    profile?.avatar_type === 'character'
+      ? CHARACTER_AVATARS.find((c) => c.id === profile.avatar_character) || null
+      : null;
 
   const handleBrandClick = () => {
     if (isLoading) return;
@@ -116,6 +122,13 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {profile?.avatar_url ? (
               <img src={profile.avatar_url} alt="" className="header-avatar" />
+            ) : character ? (
+              <span
+                className="header-avatar"
+                style={{ background: character.bg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}
+              >
+                <span className="avatar-emoji-glyph">{character.emoji}</span>
+              </span>
             ) : (
               <span className="header-avatar-fallback">
                 {(profile?.display_name || user.email || '?')[0].toUpperCase()}
