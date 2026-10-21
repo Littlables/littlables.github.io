@@ -319,14 +319,15 @@ export function getAdminPage() {
     }
     @media (max-width: 640px) {
       .ad-row {
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: auto 80px minmax(0, 1fr);
         grid-template-areas:
-          "select main"
-          "select actions";
+          "select image main"
+          "select image actions";
         row-gap: .4rem;
+        align-items: start;
       }
-      .ad-row .ad-select { grid-area: select; align-self: start; margin-top: .3rem; }
-      .ad-row img { display: none; }
+      .ad-row .ad-select { grid-area: select; margin-top: .3rem; }
+      .ad-row img { grid-area: image; width: 80px; display: block; }
       .ad-row .ad-details { grid-area: main; }
       .ad-row .ad-actions { grid-area: actions; justify-self: start; }
     }
