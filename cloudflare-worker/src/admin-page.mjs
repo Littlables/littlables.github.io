@@ -4299,6 +4299,14 @@ export function getAdminPage() {
       card.append(imageWrap, content);
       preview.append(card);
 
+      if (state.previewStatusMessage) {
+        const statusMsg = document.createElement('p');
+        statusMsg.id = 'preview-status';
+        statusMsg.className = 'preview-status-msg ' + (state.previewStatusType || 'muted');
+        statusMsg.textContent = state.previewStatusMessage;
+        preview.append(statusMsg);
+      }
+
       const actions = document.createElement('div');
       actions.className = 'preview-actions';
       const close = document.createElement('button');
@@ -4316,7 +4324,43 @@ export function getAdminPage() {
       save.addEventListener('click', saveAdPreview);
       actions.append(save);
 
+      const genImage = document.createElement('button');
+      genImage.type = 'button';
+      genImage.className = 'secondary small-btn';
+      genImage.textContent = state.generatingAdImage ? 'Generating image…' : 'Generate AI image';
+      genImage.disabled = !!state.generatingAdImage;
+      genImage.addEventListener('click', generateAdPreviewImage);
+      actions.append(genImage);
+
       preview.append(actions);
+    }
+
+    async function generateAdPreviewImage() {
+      const draft = state.previewAdDraft;
+      if (!draft || state.generatingAdImage) return;
+      state.generatingAdImage = true;
+      renderAdPreview();
+      try {
+        const result = await request('/admin/api/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: draft.title,
+            description: draft.desc,
+            category: draft.category,
+            link: draft.url && draft.url !== 'https://' ? draft.url : undefined
+          })
+        });
+        draft.img = result.image;
+        state.previewStatusType = 'success';
+        state.previewStatusMessage = 'AI image generated! Click Save to keep this image.';
+      } catch (error) {
+        state.previewStatusType = 'error';
+        state.previewStatusMessage = 'Could not generate AI image: ' + error.message;
+      } finally {
+        state.generatingAdImage = false;
+        renderAdPreview();
+      }
     }
 
     const STORY_FIELD_LIMITS = {
