@@ -9,6 +9,7 @@ import {
   getNewsAdminSnapshot,
   getStoredNewsFeed,
   disapproveNewsStory,
+  resetNewsProviderSync,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories
@@ -439,6 +440,51 @@ test('provider update completion stores status and clears the running lock', asy
     assert.equal(payload.stories_saved, 12);
     assert.equal(payload.started_at, null);
     assert.equal(payload.last_error, 'arts: request failed');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync reset clears a stuck running lock', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, options) => {
+    const requestUrl = new URL(String(input));
+    requests.push({ url: requestUrl, options });
+    if (!options.method) {
+      return Response.json([{ provider: 'gnews', status: 'running', started_at: '2026-10-20T00:00:00Z' }]);
+    }
+    return new Response(null, { status: 204 });
+  };
+  try {
+    const result = await resetNewsProviderSync(env, 'gnews', 'admin@example.com');
+    assert.deepEqual(result, { provider: 'gnews', reset: true, previousStatus: 'running' });
+    assert.equal(requests.length, 2);
+    const patch = requests[1];
+    assert.equal(patch.url.pathname, '/rest/v1/news_provider_sync');
+    assert.equal(patch.url.searchParams.get('provider'), 'eq.gnews');
+    assert.equal(patch.options.method, 'PATCH');
+    const payload = JSON.parse(patch.options.body);
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.started_at, null);
+    assert.equal(payload.updated_by, 'admin@example.com');
+    assert.ok(payload.last_error.includes('admin@example.com'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider sync reset leaves a non-running provider untouched', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = async (input) => {
+    requestCount += 1;
+    return Response.json([{ provider: 'gnews', status: 'succeeded', started_at: null }]);
+  };
+  try {
+    const result = await resetNewsProviderSync(env, 'gnews', 'admin@example.com');
+    assert.deepEqual(result, { provider: 'gnews', reset: false, previousStatus: 'succeeded' });
+    assert.equal(requestCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
