@@ -489,6 +489,12 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
   ]);
 
   const ads = [];
+  // Map advertiser_id -> program name for product sponsor labels.
+  const progRows = progRes.ok ? await progRes.json().catch(() => []) : [];
+  const progNameById = new Map();
+  for (const p of Array.isArray(progRows) ? progRows : []) {
+    progNameById.set(Number(p.advertiser_id), p.name);
+  }
   if (prodRes.ok) {
     const prodRows = await prodRes.json().catch(() => []);
     for (const p of Array.isArray(prodRows) ? prodRows : []) {
@@ -498,7 +504,7 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
         desc: p.description || '',
         img: p.image_link || '',
         url: p.tracked_url || p.link || '#',
-        sponsor: p.brand || 'Awin Partner',
+        sponsor: progNameById.get(Number(p.advertiser_id)) || p.brand || 'Awin Partner',
         cta: p.sale_price || p.price ? 'Shop now →' : 'Learn more →',
         price: p.sale_price || p.price || null,
         category: p.category || 'all',
@@ -507,7 +513,6 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
     }
   }
   if (progRes.ok) {
-    const progRows = await progRes.json().catch(() => []);
     for (const p of Array.isArray(progRows) ? progRows : []) {
       ads.push({
         id: `awin-program-${p.advertiser_id}`,
