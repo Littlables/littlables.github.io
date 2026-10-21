@@ -1167,6 +1167,57 @@ async function serveAdmin(request, env) {
     }
   }
 
+  if (url.pathname === '/admin/api/awin/ads/bulk' && request.method === 'PATCH') {
+    try {
+      const body = await request.json();
+      const ids = Array.isArray(body.ids) ? body.ids : [];
+      const category = String(body.category || '').trim();
+      if (!ids.length || !category) {
+        return jsonResponse({ error: 'ids and category are required' }, 400);
+      }
+      const headers = {
+        'apikey': env.SUPABASE_SECRET_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      };
+      const base = env.SUPABASE_URL.replace(/\/$/, '');
+      let updated = 0;
+      // Split into programs (awin-program-<advId>) and products (awin-product-<advId>:<prodId>)
+      const programIds = [];
+      const productIds = [];
+      for (const id of ids) {
+        const m = String(id).match(/^awin-(program|product)-(.+)$/);
+        if (!m) continue;
+        if (m[1] === 'program') programIds.push(m[2]);
+        else productIds.push(m[2]);
+      }
+      if (programIds.length) {
+        const res = await fetch(
+          `${base}/rest/v1/awin_programs?advertiser_id=in.(${programIds.join(',')})`,
+          { method: 'PATCH', headers, body: JSON.stringify({ category }) }
+        );
+        if (!res.ok) throw new Error(`Program update failed (HTTP ${res.status})`);
+        updated += programIds.length;
+      }
+      if (productIds.length) {
+        // Products use text IDs like "53739:abc123" — batch in chunks of 50.
+        for (let i = 0; i < productIds.length; i += 50) {
+          const chunk = productIds.slice(i, i + 50);
+          const orFilter = chunk.map(id => `id.eq.${encodeURIComponent(id)}`).join(',');
+          const res = await fetch(
+            `${base}/rest/v1/awin_products?or=(${orFilter})`,
+            { method: 'PATCH', headers, body: JSON.stringify({ category }) }
+          );
+          if (!res.ok) throw new Error(`Product update failed (HTTP ${res.status})`);
+          updated += chunk.length;
+        }
+      }
+      return jsonResponse({ ok: true, updated });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Bulk update failed' }, 500);
+    }
+  }
+
   if (url.pathname.startsWith('/admin/api/')) {
     return jsonResponse({ error: 'Admin API route not found' }, 404);
   }

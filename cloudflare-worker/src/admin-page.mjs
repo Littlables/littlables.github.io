@@ -302,12 +302,21 @@ export function getAdminPage() {
     }
     .story, .ad-row {
       display: grid;
-      grid-template-columns: 80px minmax(0, 1fr) auto;
       align-items: center;
       gap: .75rem;
       background: #0f172a;
       border: 1px solid #334155;
       border-radius: 10px;
+    }
+    .story { grid-template-columns: 80px minmax(0, 1fr) auto; }
+    .ad-row { grid-template-columns: auto 80px minmax(0, 1fr) auto; }
+    .ad-select {
+      width: 1.1rem;
+      height: 1.1rem;
+      accent-color: #6366f1;
+      cursor: pointer;
+      margin-left: .25rem;
+    }
       padding: .65rem .75rem;
       cursor: pointer;
       transition: border-color 0.15s ease, background-color 0.15s ease;
@@ -1201,6 +1210,31 @@ export function getAdminPage() {
               <option value="Partner">Partner</option>
             </select>
           </label>
+          <label class="provider-toolbar" for="ads-program-filter" id="ads-program-filter-wrap" hidden>
+            Program
+            <select id="ads-program-filter" class="provider-filter">
+              <option value="all">All programs</option>
+            </select>
+          </label>
+          <label class="provider-toolbar" for="ads-quality-filter">
+            Show
+            <select id="ads-quality-filter" class="provider-filter">
+              <option value="all">All ads</option>
+              <option value="needs-category">Needs category</option>
+              <option value="no-image">Missing image</option>
+              <option value="products">Products only</option>
+              <option value="programs">Brand cards only</option>
+            </select>
+          </label>
+        </div>
+        <div id="ads-bulk-bar" class="awin-panel" hidden style="display: flex; gap: .6rem; align-items: center; margin-bottom: .6rem;">
+          <span id="ads-bulk-count" class="muted"></span>
+          <label class="provider-toolbar" for="ads-bulk-category">
+            Set category
+            <select id="ads-bulk-category" class="provider-filter"></select>
+          </label>
+          <button id="ads-bulk-apply" type="button" class="small-btn">Apply to selected</button>
+          <button id="ads-bulk-clear" type="button" class="secondary small-btn">Clear selection</button>
         </div>
         <nav id="ads-categories" class="category-tabs" aria-label="Filter ads by category"></nav>
         <p id="ads-results-count" class="muted" style="margin-bottom: .5rem;"></p>
@@ -1406,6 +1440,9 @@ export function getAdminPage() {
       activeHistoryProvider: 'all',
       activeAdCategory: 'all',
       activeAdNetwork: 'all',
+      activeAdProgram: 'all',
+      activeAdQuality: 'all',
+      selectedAdIds: new Set(),
       activeLogStatus: 'all',
       activeLogProvider: 'all',
       activeLogCategory: 'all',
@@ -2514,9 +2551,19 @@ export function getAdminPage() {
       const q = state.adSearchQuery.toLowerCase().trim();
       const cat = state.activeAdCategory;
       const net = state.activeAdNetwork;
+      const prog = state.activeAdProgram;
+      const quality = state.activeAdQuality;
       const filtered = state.ads.filter((ad) => {
         if (cat !== 'all' && ad.category !== cat && ad.category !== 'all') return false;
         if (net !== 'all' && (ad.network || '').toLowerCase() !== net.toLowerCase()) return false;
+        if (prog !== 'all' && net.toLowerCase() === 'awin') {
+          const adProg = ad.sponsor || '';
+          if (adProg !== prog) return false;
+        }
+        if (quality === 'needs-category' && ad.category && ad.category !== 'all') return false;
+        if (quality === 'no-image' && ad.img) return false;
+        if (quality === 'products' && !String(ad.id || '').startsWith('awin-product-')) return false;
+        if (quality === 'programs' && !String(ad.id || '').startsWith('awin-program-')) return false;
         if (q) {
           const matchTitle = (ad.title || '').toLowerCase().includes(q);
           const matchDesc = (ad.desc || '').toLowerCase().includes(q);
@@ -2552,7 +2599,7 @@ export function getAdminPage() {
         row.tabIndex = 0;
         row.setAttribute('aria-label', 'Edit ad: ' + decodeHtmlEntities(ad.title));
         row.addEventListener('click', (event) => {
-          if (event.target.closest('button')) return;
+          if (event.target.closest('button') || event.target.closest('input[type="checkbox"]')) return;
           openAdPreview(ad);
         });
         row.addEventListener('keydown', (event) => {
@@ -2563,6 +2610,19 @@ export function getAdminPage() {
         });
 
         const fallbackAdImg = 'img/' + (ad.category || 'all') + '_1.jpg';
+        const selectBox = document.createElement('input');
+        selectBox.type = 'checkbox';
+        selectBox.className = 'ad-select';
+        selectBox.checked = state.selectedAdIds.has(ad.id);
+        selectBox.setAttribute('aria-label', 'Select ad: ' + decodeHtmlEntities(ad.title));
+        selectBox.addEventListener('click', (e) => e.stopPropagation());
+        selectBox.addEventListener('change', () => {
+          if (selectBox.checked) state.selectedAdIds.add(ad.id);
+          else state.selectedAdIds.delete(ad.id);
+          updateBulkBar();
+        });
+        row.append(selectBox);
+
         const image = document.createElement('img');
         image.src = ad.img || fallbackAdImg;
         image.alt = '';
@@ -2614,6 +2674,66 @@ export function getAdminPage() {
       });
     }
 
+    function updateBulkBar() {
+      const bar = document.getElementById('ads-bulk-bar');
+      const count = state.selectedAdIds.size;
+      bar.hidden = count === 0;
+      document.getElementById('ads-bulk-count').textContent =
+        count === 1 ? '1 ad selected' : count + ' ads selected';
+    }
+
+    // Populate bulk category dropdown from the site's categories.
+    function populateBulkCategories() {
+      const sel = document.getElementById('ads-bulk-category');
+      sel.replaceChildren();
+      for (const c of categories) {
+        if (c.id === 'all') continue;
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.label;
+        sel.append(opt);
+      }
+    }
+    populateBulkCategories();
+
+    document.getElementById('ads-bulk-clear').addEventListener('click', () => {
+      state.selectedAdIds.clear();
+      updateBulkBar();
+      filterAndRenderAds();
+    });
+
+    document.getElementById('ads-bulk-apply').addEventListener('click', async () => {
+      const category = document.getElementById('ads-bulk-category').value;
+      const ids = [...state.selectedAdIds];
+      if (!ids.length || !category) return;
+      const btn = document.getElementById('ads-bulk-apply');
+      btn.disabled = true;
+      btn.textContent = 'Applying…';
+      try {
+        // Split Awin ads (persisted in Supabase) from in-memory ads.
+        const awinIds = ids.filter(id => String(id).startsWith('awin-'));
+        if (awinIds.length) {
+          await request('/admin/api/awin/ads/bulk', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: awinIds, category })
+          });
+        }
+        // Update local state for all selected ads.
+        for (const ad of state.ads) {
+          if (state.selectedAdIds.has(ad.id)) ad.category = category;
+        }
+        state.selectedAdIds.clear();
+        updateBulkBar();
+        filterAndRenderAds();
+      } catch (err) {
+        alert('Bulk update failed: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Apply to selected';
+      }
+    });
+
     adSearchInput.addEventListener('input', () => {
       state.adSearchQuery = adSearchInput.value;
       state.pages.ads = 1;
@@ -2622,6 +2742,47 @@ export function getAdminPage() {
 
     adsNetworkFilterEl.addEventListener('change', () => {
       state.activeAdNetwork = adsNetworkFilterEl.value;
+      state.activeAdProgram = 'all';
+      state.pages.ads = 1;
+      updateProgramFilter();
+      filterAndRenderAds();
+    });
+
+    const adsProgramFilterEl = document.getElementById('ads-program-filter');
+    const adsProgramFilterWrap = document.getElementById('ads-program-filter-wrap');
+    const adsQualityFilterEl = document.getElementById('ads-quality-filter');
+
+    function updateProgramFilter() {
+      const isAwin = state.activeAdNetwork.toLowerCase() === 'awin';
+      adsProgramFilterWrap.hidden = !isAwin;
+      if (!isAwin) return;
+      const programs = [...new Set(
+        state.ads
+          .filter(ad => (ad.network || '').toLowerCase() === 'awin')
+          .map(ad => ad.sponsor || 'Unknown')
+      )].sort();
+      adsProgramFilterEl.replaceChildren();
+      const allOpt = document.createElement('option');
+      allOpt.value = 'all';
+      allOpt.textContent = 'All programs (' + programs.length + ')';
+      adsProgramFilterEl.append(allOpt);
+      for (const p of programs) {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        adsProgramFilterEl.append(opt);
+      }
+      adsProgramFilterEl.value = 'all';
+    }
+
+    adsProgramFilterEl.addEventListener('change', () => {
+      state.activeAdProgram = adsProgramFilterEl.value;
+      state.pages.ads = 1;
+      filterAndRenderAds();
+    });
+
+    adsQualityFilterEl.addEventListener('change', () => {
+      state.activeAdQuality = adsQualityFilterEl.value;
       state.pages.ads = 1;
       filterAndRenderAds();
     });
