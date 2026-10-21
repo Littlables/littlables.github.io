@@ -467,20 +467,20 @@ export async function syncAwin(env, options = {}) {
  * Read Awin ads from Supabase for the public /ads endpoint and admin panel.
  * Returns ads in the worker's ad shape.
  */
-export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
+export async function getAwinAds(env, { category = 'all', query = '', includeDisabled = false } = {}) {
   const params = new URLSearchParams({
-    select: 'id,advertiser_id,title,description,link,tracked_url,image_link,price,sale_price,brand,availability,category',
-    enabled: 'eq.true',
+    select: 'id,advertiser_id,title,description,link,tracked_url,image_link,price,sale_price,brand,availability,category,enabled',
     order: 'synced_at.desc',
     limit: '200',
   });
+  if (!includeDisabled) params.set('enabled', 'eq.true');
   if (category && category !== 'all') params.set('category', `eq.${category}`);
 
   const [prodRes, progRes] = await Promise.all([
     fetch(supabaseUrl(env, 'awin_products', params), { headers: supabaseHeaders(env) }),
     fetch(
       supabaseUrl(env, 'awin_programs', new URLSearchParams({
-        select: 'advertiser_id,name,description,logo_url,click_through_url,category',
+        select: 'advertiser_id,name,description,logo_url,click_through_url,category,enabled',
         enabled: 'eq.true',
         ...(category && category !== 'all' ? { category: `eq.${category}` } : {}),
       })),
@@ -509,6 +509,7 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
         price: p.sale_price || p.price || null,
         category: p.category || 'all',
         network: 'Awin',
+        enabled: p.enabled !== false,
       });
     }
   }
@@ -524,6 +525,7 @@ export async function getAwinAds(env, { category = 'all', query = '' } = {}) {
         cta: 'Visit store →',
         category: p.category || 'all',
         network: 'Awin',
+        enabled: p.enabled !== false,
       });
     }
   }

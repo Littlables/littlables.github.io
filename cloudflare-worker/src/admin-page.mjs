@@ -1225,6 +1225,8 @@ export function getAdminPage() {
               <option value="no-image">Missing image</option>
               <option value="products">Products only</option>
               <option value="programs">Brand cards only</option>
+              <option value="hidden">Hidden only</option>
+              <option value="visible">Visible only</option>
             </select>
           </label>
         </div>
@@ -1235,6 +1237,8 @@ export function getAdminPage() {
             <select id="ads-bulk-category" class="provider-filter"></select>
           </label>
           <button id="ads-bulk-apply" type="button" class="small-btn">Apply</button>
+          <button id="ads-bulk-hide" type="button" class="secondary small-btn">Hide</button>
+          <button id="ads-bulk-show" type="button" class="secondary small-btn">Show</button>
           <button id="ads-bulk-clear" type="button" class="secondary small-btn">Clear</button>
         </div>
         <div style="margin-bottom: .6rem;">
@@ -2571,6 +2575,8 @@ export function getAdminPage() {
         if (quality === 'no-image' && ad.img) return false;
         if (quality === 'products' && !String(ad.id || '').startsWith('awin-product-')) return false;
         if (quality === 'programs' && !String(ad.id || '').startsWith('awin-program-')) return false;
+        if (quality === 'hidden' && ad.enabled !== false) return false;
+        if (quality === 'visible' && ad.enabled === false) return false;
         if (q) {
           const matchTitle = (ad.title || '').toLowerCase().includes(q);
           const matchDesc = (ad.desc || '').toLowerCase().includes(q);
@@ -2641,6 +2647,14 @@ export function getAdminPage() {
         details.className = 'ad-details';
         const title = document.createElement('h3');
         title.textContent = decodeHtmlEntities(ad.title);
+        if (ad.enabled === false) {
+          const hiddenBadge = document.createElement('span');
+          hiddenBadge.className = 'meta-badge-status meta-banned';
+          hiddenBadge.textContent = ' Hidden';
+          hiddenBadge.style.marginLeft = '.4rem';
+          title.append(hiddenBadge);
+          row.style.opacity = '0.6';
+        }
         const meta = document.createElement('p');
         meta.className = 'ad-meta';
 
@@ -2675,6 +2689,32 @@ export function getAdminPage() {
           openAdPreview(ad);
         });
         actions.append(editBtn);
+
+        // Hide/Show toggle for Awin ads (persisted in Supabase).
+        if (String(ad.id || '').startsWith('awin-')) {
+          const toggleBtn = document.createElement('button');
+          toggleBtn.type = 'button';
+          toggleBtn.className = 'secondary small-btn';
+          const isHidden = ad.enabled === false;
+          toggleBtn.textContent = isHidden ? 'Show' : 'Hide';
+          toggleBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            toggleBtn.disabled = true;
+            try {
+              await request('/admin/api/awin/ads/bulk', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: [ad.id], enabled: isHidden })
+              });
+              ad.enabled = isHidden;
+              filterAndRenderAds();
+            } catch (err) {
+              alert('Failed: ' + err.message);
+              toggleBtn.disabled = false;
+            }
+          });
+          actions.append(toggleBtn);
+        }
         row.append(actions);
 
         adsListEl.append(row);
@@ -2709,6 +2749,32 @@ export function getAdminPage() {
       filterAndRenderAds();
     });
 
+    async function bulkSetEnabled(enabled) {
+      const ids = [...state.selectedAdIds].filter(id => String(id).startsWith('awin-'));
+      if (!ids.length) {
+        alert('Select at least one Awin ad.');
+        return;
+      }
+      try {
+        await request('/admin/api/awin/ads/bulk', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids, enabled })
+        });
+        for (const ad of state.ads) {
+          if (state.selectedAdIds.has(ad.id)) ad.enabled = enabled;
+        }
+        state.selectedAdIds.clear();
+        updateBulkBar();
+        filterAndRenderAds();
+      } catch (err) {
+        alert('Failed: ' + err.message);
+      }
+    }
+
+    document.getElementById('ads-bulk-hide').addEventListener('click', () => bulkSetEnabled(false));
+    document.getElementById('ads-bulk-show').addEventListener('click', () => bulkSetEnabled(true));
+
     document.getElementById('ads-select-all').addEventListener('click', () => {
       // Select all ads on the current page (respecting active filters).
       const q = state.adSearchQuery.toLowerCase().trim();
@@ -2724,6 +2790,8 @@ export function getAdminPage() {
         if (quality === 'no-image' && ad.img) return false;
         if (quality === 'products' && !String(ad.id || '').startsWith('awin-product-')) return false;
         if (quality === 'programs' && !String(ad.id || '').startsWith('awin-program-')) return false;
+        if (quality === 'hidden' && ad.enabled !== false) return false;
+        if (quality === 'visible' && ad.enabled === false) return false;
         return true;
       });
       // Only the current pagination slice.
