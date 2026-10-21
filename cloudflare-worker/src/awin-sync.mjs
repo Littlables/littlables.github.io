@@ -289,6 +289,33 @@ export async function fetchDarwinFeed(feedUrl) {
   return parseCsv(text);
 }
 
+/**
+ * Pick the best image URL from a feed row.
+ * Prefers direct CDN URLs over image proxy/thumbnail services,
+ * since proxies often serve fixed small sizes with signed URLs.
+ */
+function pickBestImage(row) {
+  const candidates = [
+    row['image_link'],
+    row['aw_image_url'],
+    row['merchant_image_url'],
+    row['lifestyle_image_link'],
+    row['additional_image_link'],
+  ].filter(Boolean);
+  if (!candidates.length) return null;
+
+  // Proxy/thumbnail services that typically serve small fixed-size images.
+  const proxyPattern = /productserve\.com|images\.weserv\.nl|wsrv\.nl|thumbor/i;
+  const direct = candidates.filter(url => !proxyPattern.test(url));
+  // Prefer direct URLs; fall back to proxies if that's all we have.
+  const pool = direct.length ? direct : candidates;
+
+  // Among direct URLs, prefer ones without explicit small-size params.
+  const smallParam = /[?&](w|width|h|height|size)=\d{1,3}([&#]|$)/i;
+  const fullSize = pool.filter(url => !smallParam.test(url));
+  return (fullSize.length ? fullSize : pool)[0];
+}
+
 function darwinRowToProduct(advertiserId, row, fallbackCategory) {
   // Supports both Google/Darwin format and legacy Awin CSV format
   const id = row['id'] || row['aw_product_id'];
@@ -301,7 +328,7 @@ function darwinRowToProduct(advertiserId, row, fallbackCategory) {
     description: (row['description'] || '').slice(0, 500) || null,
     link: row['link'] || row['merchant_deep_link'] || null,
     tracked_url: row['aw_deep_link'] || null,
-    image_link: row['image_link'] || row['aw_image_url'] || row['merchant_image_url'] || null,
+    image_link: pickBestImage(row),
     additional_images: row['additional_image_link'] || null,
     price: parsePrice(row['price'] || row['search_price']),
     sale_price: parsePrice(row['sale_price']),
