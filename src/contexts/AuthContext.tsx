@@ -92,12 +92,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle()
       .then(async ({ data }) => {
         if (cancelled) return;
+        const meta = session.user.user_metadata || {};
+        const oauthAvatar = meta.avatar_url || meta.picture || null;
         if (data) {
+          // Backfill the OAuth profile pic if the row was created without it
+          if (!data.avatar_url && oauthAvatar) {
+            const { data: updated } = await client
+              .from('profiles')
+              .update({ avatar_url: oauthAvatar })
+              .eq('id', userId)
+              .select()
+              .single();
+            if (!cancelled) setProfile(((updated || data) as Profile));
+            return;
+          }
           setProfile(data as Profile);
           return;
         }
         // No row (e.g. signed up before the trigger existed) — create it
-        const meta = session.user.user_metadata || {};
         const displayName =
           meta.full_name || meta.name || (session.user.email || '').split('@')[0] || null;
         const { data: created } = await client
@@ -106,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             {
               id: userId,
               display_name: displayName,
-              avatar_url: meta.avatar_url || meta.picture || null,
+              avatar_url: oauthAvatar,
             },
             { onConflict: 'id' }
           )

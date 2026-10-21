@@ -262,7 +262,7 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
 
   const renderAvatar = (size: 'lg' | 'sm' = 'lg') => {
     const cls = size === 'lg' ? 'profile-avatar' : 'profile-avatar-sm';
-    if (profile?.avatar_type === 'upload' && profile.avatar_url) {
+    if (profile?.avatar_url) {
       return <img src={profile.avatar_url} alt="Profile" className={cls} />;
     }
     if (profile?.avatar_type === 'character' && profile.avatar_character) {

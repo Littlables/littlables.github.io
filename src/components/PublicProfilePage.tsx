@@ -116,7 +116,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
   );
 
   const renderAvatar = (size: number) => {
-    if (profile?.avatar_type === 'upload' && profile.avatar_url) {
+    if (profile?.avatar_url) {
       return (
         <img
           src={profile.avatar_url}
