@@ -453,16 +453,16 @@ body {
 .news-category-container {
   width: 100%;
   margin-top: 0.25rem;
-  margin-bottom: 1.75rem;
+  margin-bottom: 1rem;
   overflow: visible;
 }
 
 .news-category-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.5rem;
   margin: 0;
-  padding: 0.5rem 0.25rem 1rem 0.25rem;
+  padding: 0.5rem 0.5rem 0.75rem 0.5rem;
   overflow: visible;
 }
 
@@ -472,8 +472,10 @@ body {
     overflow-y: visible;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 0.75rem;
-    margin-bottom: 1.25rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+    /* Keep scrolled-to pills from jamming against the clipped edge */
+    scroll-padding-inline: 1rem;
   }
   .news-category-container::-webkit-scrollbar {
     display: none;
@@ -481,7 +483,9 @@ body {
   .news-category-bar {
     flex-wrap: nowrap;
     width: max-content;
-    padding: 0.5rem 0.5rem 0.85rem 0.5rem;
+    /* 1rem side inset gives the pill drop shadows room so the scroll
+       container doesn't clip them into a sharp edge */
+    padding: 0.6rem 1rem 0.85rem 1rem;
   }
 }
 
@@ -489,14 +493,14 @@ body {
   background: var(--news-card-bg);
   border: 1px solid var(--news-card-border);
   color: var(--news-text-muted);
-  padding: 0.5rem 1rem;
+  padding: 0.35rem 0.85rem;
   border-radius: 9999px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.4rem;
   white-space: nowrap;
   text-decoration: none;
   transition: all 0.2s ease;

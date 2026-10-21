@@ -56,6 +56,23 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
     return () => window.cancelAnimationFrame(rafId);
   }, [currentCategory]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    // Let a vertical mouse wheel scroll the bar horizontally when hovering it.
+    // Native listener (non-passive) so we can preventDefault the page scroll.
+    const onWheel = (event: WheelEvent) => {
+      // No-op when the bar fits (e.g. wrapped on desktop) or the gesture is
+      // already horizontal (trackpads, shift+wheel) — leave those alone.
+      if (container.scrollWidth <= container.clientWidth + 1) return;
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      container.scrollLeft += event.deltaY;
+    };
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  }, []);
+
   return (
     <div ref={containerRef} className="news-category-container">
       <nav className="news-category-bar" id="news-category-bar" aria-label="News Categories">
