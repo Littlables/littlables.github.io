@@ -74,6 +74,20 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
     }
   }, [isOpen, profile]);
 
+  // Live-apply the picked background color to the page as it's chosen,
+  // so what she sees while picking is what gets saved. Reverts to the
+  // last saved color if the dialog closes without saving.
+  useEffect(() => {
+    if (!isOpen || tab !== 'theme') return;
+    const valid = (c: string) => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
+    const live = valid(bgColor) ? bgColor : null;
+    const saved = valid(profile?.background_color || '') ? profile?.background_color || null : null;
+    document.body.style.background = live || saved || '';
+    return () => {
+      document.body.style.background = saved || '';
+    };
+  }, [isOpen, tab, bgColor, profile?.background_color]);
+
   if (!isOpen) return null;
 
   // Username availability check (debounced)
@@ -540,11 +554,6 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
                 </button>
               )}
             </div>
-            {bgColor && (
-              <div className="color-preview" style={{ background: bgColor }}>
-                <span>Preview</span>
-              </div>
-            )}
 
             <button type="button" className="sign-in-button primary-button" onClick={handleSaveTheme} disabled={saving} style={{ marginTop: '1rem' }}>
               {saving ? 'Saving…' : 'Save Theme'}
