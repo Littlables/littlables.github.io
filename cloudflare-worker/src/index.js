@@ -1172,8 +1172,9 @@ async function serveAdmin(request, env) {
       const body = await request.json();
       const ids = Array.isArray(body.ids) ? body.ids : [];
       const category = String(body.category || '').trim();
-      if (!ids.length || !category) {
-        return jsonResponse({ error: 'ids and category are required' }, 400);
+      const enabled = body.enabled;
+      if (!ids.length || (!category && typeof enabled !== 'boolean')) {
+        return jsonResponse({ error: 'ids and category or enabled are required' }, 400);
       }
       const headers = {
         'apikey': env.SUPABASE_SECRET_KEY,
@@ -1181,6 +1182,9 @@ async function serveAdmin(request, env) {
         'Content-Type': 'application/json',
       };
       const base = env.SUPABASE_URL.replace(/\/$/, '');
+      const patch = {};
+      if (category) patch.category = category;
+      if (typeof enabled === 'boolean') patch.enabled = enabled;
       let updated = 0;
       // Split into programs (awin-program-<advId>) and products (awin-product-<advId>:<prodId>)
       const programIds = [];
@@ -1194,7 +1198,7 @@ async function serveAdmin(request, env) {
       if (programIds.length) {
         const res = await fetch(
           `${base}/rest/v1/awin_programs?advertiser_id=in.(${programIds.join(',')})`,
-          { method: 'PATCH', headers, body: JSON.stringify({ category }) }
+          { method: 'PATCH', headers, body: JSON.stringify(patch) }
         );
         if (!res.ok) throw new Error(`Program update failed (HTTP ${res.status})`);
         updated += programIds.length;
@@ -1206,7 +1210,7 @@ async function serveAdmin(request, env) {
           const orFilter = chunk.map(id => `id.eq.${encodeURIComponent(id)}`).join(',');
           const res = await fetch(
             `${base}/rest/v1/awin_products?or=(${orFilter})`,
-            { method: 'PATCH', headers, body: JSON.stringify({ category }) }
+            { method: 'PATCH', headers, body: JSON.stringify(patch) }
           );
           if (!res.ok) throw new Error(`Product update failed (HTTP ${res.status})`);
           updated += chunk.length;
@@ -1777,7 +1781,8 @@ export default {
         || (network.toLowerCase() !== 'gumroad' && network.toLowerCase() !== 'amazon'
           && network.toLowerCase() !== 'tiktok'))) {
         try {
-          awinAds = await getAwinAds(env, { category: effectiveCategory, query: effectiveQuery });
+          // Admin panel sees hidden ads too (includeDisabled: true).
+          awinAds = await getAwinAds(env, { category: effectiveCategory, query: effectiveQuery, includeDisabled: true });
         } catch (err) {
           console.error('Awin ads fetch failed:', err.message);
         }
