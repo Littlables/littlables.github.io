@@ -1366,6 +1366,20 @@ body.story-modal-open {
   margin-bottom: 1rem;
 }
 
+/* Sticky save/error banner pinned to the top of the profile dialog */
+.dialog-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-right: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.dialog-banner.dialog-error,
+.dialog-banner.dialog-success {
+  margin-bottom: 1rem;
+}
+
 .sign-in-options {
   display: flex;
   flex-direction: column;

@@ -361,6 +361,12 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
       <div className="dialog profile-dialog-expanded" onClick={(e) => e.stopPropagation()}>
         <button className="dialog-close" onClick={onClose} aria-label="Close">×</button>
 
+        {(error || saved) && (
+          <div className={`dialog-banner ${error ? 'dialog-error' : 'dialog-success'}`}>
+            {error || 'Saved!'}
+          </div>
+        )}
+
         <div className="profile-tabs">
           {tabs.map((tabItem) => (
             <button
@@ -373,9 +379,6 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
             </button>
           ))}
         </div>
-
-        {error && <div className="dialog-error">{error}</div>}
-        {saved && <div className="dialog-success">Saved!</div>}
 
         {tab === 'profile' && (
           <div className="profile-tab-content">
