@@ -41,6 +41,7 @@ import {
   bulkDecideNewsStories
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
+import { syncAwin, getAwinAds } from './awin-sync.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -1069,7 +1070,20 @@ async function serveAdmin(request, env) {
     const category = url.searchParams.get('category') || 'all';
     const network = url.searchParams.get('network') || 'all';
     const query = url.searchParams.get('q') || '';
-    return jsonResponse({ ads: getAds({ category, network, query }) });
+    const embedded = getAds({ category, network, query });
+    // Include Awin ads from Supabase so the admin panel manages all inventory.
+    let awinAds = [];
+    if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY) {
+      try {
+        awinAds = await getAwinAds(env, { category, query });
+        if (network && network !== 'all') {
+          awinAds = awinAds.filter(a => a.network.toLowerCase() === network.toLowerCase());
+        }
+      } catch (err) {
+        console.error('Admin Awin ads fetch failed:', err.message);
+      }
+    }
+    return jsonResponse({ ads: [...embedded, ...awinAds] });
   }
 
   if (url.pathname === '/admin/api/ads' && request.method === 'POST') {
@@ -1098,6 +1112,58 @@ async function serveAdmin(request, env) {
       return jsonResponse({ id: adId, updated: true, ad: updated });
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update ad' }, 500);
+    }
+  }
+
+  if (url.pathname === '/admin/api/awin/sync' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Awin sync must be requested from the admin origin' }, 403);
+    }
+    try {
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Admin update rate limit exceeded' }, 429);
+      const payload = await request.json().catch(() => ({}));
+      const result = await syncAwin(env, {
+        includeProducts: payload.includeProducts !== false,
+        productLocale: payload.productLocale || 'en_US',
+        maxPrograms: Math.min(Number(payload.maxPrograms) || 50, 100),
+      });
+      return jsonResponse(result);
+    } catch (err) {
+      console.error('Awin sync failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not sync Awin' }, 502);
+    }
+  }
+
+  if (url.pathname === '/admin/api/awin/status' && request.method === 'GET') {
+    try {
+      const base = `${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/awin_sync_runs`;
+      const params = new URLSearchParams({
+        select: 'id,started_at,finished_at,status,steps,error',
+        order: 'started_at.desc',
+        limit: '5',
+      });
+      const res = await fetch(`${base}?${params}`, {
+        headers: {
+          apikey: env.SUPABASE_SECRET_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
+        },
+      });
+      const runs = res.ok ? await res.json() : [];
+      const countsRes = await fetch(
+        `${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/awin_programs?select=advertiser_id&enabled=eq.true`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SECRET_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
+          },
+        }
+      );
+      const programRows = countsRes.ok ? await countsRes.json().catch(() => []) : [];
+      const programCount = Array.isArray(programRows) ? programRows.length : 0;
+      return jsonResponse({ runs, programCount, configured: Boolean(env.AWIN_API_TOKEN) });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not load Awin status' }, 500);
     }
   }
 
@@ -1647,10 +1713,25 @@ export default {
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();
       const query = (url.searchParams.get('q') || url.searchParams.get('topic') || '').trim();
+      const network = (url.searchParams.get('network') || 'all').trim();
       const isStandardCategory = NEWS_CATEGORY_SET.has(category.toLowerCase());
       const effectiveCategory = isStandardCategory ? category.toLowerCase() : 'all';
       const effectiveQuery = query || (!isStandardCategory ? category : '');
-      return jsonResponse({ ads: getAds({ category: effectiveCategory, query: effectiveQuery }) });
+      const embedded = getAds({ category: effectiveCategory, query: effectiveQuery });
+      // Merge Awin ads from Supabase (best effort — never break the endpoint).
+      // network=awin returns only Awin ads; otherwise they're appended.
+      const wantOnlyAwin = network.toLowerCase() === 'awin';
+      let awinAds = [];
+      if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY && (wantOnlyAwin
+        || (network.toLowerCase() !== 'gumroad' && network.toLowerCase() !== 'amazon'
+          && network.toLowerCase() !== 'tiktok'))) {
+        try {
+          awinAds = await getAwinAds(env, { category: effectiveCategory, query: effectiveQuery });
+        } catch (err) {
+          console.error('Awin ads fetch failed:', err.message);
+        }
+      }
+      return jsonResponse({ ads: wantOnlyAwin ? awinAds : [...embedded, ...awinAds] });
     }
     return jsonResponse({ error: 'Route not found' }, 404);
   },
