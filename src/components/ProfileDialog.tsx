@@ -315,7 +315,21 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
               {renderAvatar('lg')}
               <div>
                 <div className="profile-email">{user?.email}</div>
-                {profile?.username && <div className="profile-username">@{profile.username}</div>}
+                {profile?.username && (
+                  <button
+                    type="button"
+                    className="profile-username profile-username-link"
+                    title="View your public profile"
+                    onClick={() => {
+                      const name = profile.username;
+                      onClose();
+                      window.history.pushState({}, '', `/@${name}`);
+                      window.dispatchEvent(new PopStateEvent('popstate'));
+                    }}
+                  >
+                    @{profile.username}
+                  </button>
+                )}
               </div>
             </div>
 

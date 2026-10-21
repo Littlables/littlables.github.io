@@ -1639,6 +1639,19 @@ body.story-modal-open {
   font-weight: 600;
 }
 
+.profile-username-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.profile-username-link:hover {
+  text-decoration: underline;
+}
+
 .username-hint {
   font-size: 0.8rem;
   margin-top: -0.4rem;
