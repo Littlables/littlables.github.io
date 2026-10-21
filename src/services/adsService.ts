@@ -38,7 +38,6 @@ const FRONT_PAGE_ADS_PER_CATEGORY = 5;
 const FRONT_PAGE_TIKTOK_ADS = 5;
 
 const ALL_AD_JSON_FILES = [
-  'ads/all.json',
   'ads/childcare.json',
   'ads/animals.json',
   'ads/arts.json',
@@ -243,7 +242,7 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
       adCache[category] = mixed;
       return mixed;
     }
-    // Fall through to the legacy all.json path if sampling produced nothing.
+    // Fall through to the category file lookup if sampling produced nothing.
   }
 
   const lookupPaths = [
