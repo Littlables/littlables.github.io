@@ -1367,6 +1367,42 @@ body.story-modal-open {
   margin-bottom: 1rem;
 }
 
+/* App-level toast popover: floats above everything, doesn't affect layout */
+.toast-popover {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3000;
+  padding: 0.7rem 1.2rem;
+  border-radius: 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 92vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  animation: toast-pop-in 0.22s ease;
+}
+
+.toast-success {
+  background: rgba(22, 101, 52, 0.96);
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  color: #bbf7d0;
+}
+
+.toast-error {
+  background: rgba(127, 29, 29, 0.96);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  color: #fecaca;
+}
+
+@keyframes toast-pop-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* Sticky save/error banner pinned to the top of the profile dialog */
 .dialog-banner {
   position: sticky;
@@ -1589,6 +1625,29 @@ body.story-modal-open {
   color: var(--news-text-secondary, #94a3b8);
   font-size: 0.9rem;
   word-break: break-all;
+}
+
+/* Clickable avatar + email in the profile header → opens the public page */
+.profile-avatar-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 9999px;
+  line-height: 0;
+}
+
+.profile-email-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.profile-email-link:hover {
+  text-decoration: underline;
 }
 
 /* Expanded Profile Dialog */

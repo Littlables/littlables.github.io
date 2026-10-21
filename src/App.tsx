@@ -82,6 +82,16 @@ export const App: React.FC = () => {
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
   const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
 
+  // App-level toast popover: floats above everything, unaffected by layout,
+  // and persists even if the dialog that triggered it is closed
+  const [toast, setToast] = useState<{ key: number; message: string; kind: 'success' | 'error' } | null>(null);
+  const toastTimer = React.useRef<number | null>(null);
+  const notify = useCallback((message: string, kind: 'success' | 'error' = 'success') => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ key: Date.now(), message, kind });
+    toastTimer.current = window.setTimeout(() => setToast(null), 3500);
+  }, []);
+
   // Set document title and lang from current locale and active story/topic
   useEffect(() => {
     const locale = getDetectedLocale();
@@ -489,7 +499,14 @@ export const App: React.FC = () => {
       <ProfileDialog
         isOpen={activeDialog === 'profile'}
         onClose={() => setActiveDialog(null)}
+        notify={notify}
       />
+
+      {toast && (
+        <div key={toast.key} className={`toast-popover toast-${toast.kind}`} role="status">
+          {toast.message}
+        </div>
+      )}
     </>
   );
 };

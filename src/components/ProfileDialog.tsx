@@ -9,6 +9,7 @@ import { useTheme } from '../hooks/useTheme';
 interface ProfileDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  notify: (message: string, kind?: 'success' | 'error') => void;
 }
 
 type Tab = 'profile' | 'avatar' | 'pills' | 'theme';
@@ -41,7 +42,7 @@ function normalizeSocialLink(key: string, value: string): string {
   return build ? build(username) : v;
 }
 
-export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
+export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const { user, profile, updateProfile, uploadAvatarFile, checkUsernameAvailable, signOut } = useAuth();
   const { theme: localTheme, setTheme: setLocalTheme } = useTheme();
 
@@ -58,8 +59,10 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   // theme when no custom color is picked
   const [themeBg, setThemeBg] = useState('');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  // Save/error feedback goes through the app-level toast popover, so it
+  // floats above the layout and survives the dialog being closed
+  const setError = (msg: string) => { if (msg) notify(msg, 'error'); };
+  const setSaved = (v: boolean) => { if (v) notify('Saved!'); };
   const [newPillLabel, setNewPillLabel] = useState('');
   const [newPillKeywords, setNewPillKeywords] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -224,6 +227,15 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
   const handleInitialAvatar = () => {
     setError('');
     setPending({ type: 'initial', characterId: null, url: null, file: null });
+  };
+
+  // Open the user's public profile page (only possible once a username is set)
+  const openPublicProfile = () => {
+    if (!profile?.username) return;
+    const name = profile.username;
+    onClose();
+    window.history.pushState({}, '', `/@${name}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   const googlePicUrl = user?.user_metadata?.picture || user?.user_metadata?.avatar_url || null;
@@ -400,12 +412,6 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
       <div className="dialog profile-dialog-expanded" onClick={(e) => e.stopPropagation()}>
         <button className="dialog-close" onClick={onClose} aria-label="Close">×</button>
 
-        {(error || saved) && (
-          <div className={`dialog-banner ${error ? 'dialog-error' : 'dialog-success'}`}>
-            {error || 'Saved!'}
-          </div>
-        )}
-
         <div className="profile-tabs">
           {tabs.map((tabItem) => (
             <button
@@ -422,20 +428,37 @@ export function ProfileDialog({ isOpen, onClose }: ProfileDialogProps) {
         {tab === 'profile' && (
           <div className="profile-tab-content">
             <div className="profile-avatar-row">
-              {renderAvatar('lg')}
+              {profile?.username ? (
+                <button
+                  type="button"
+                  className="profile-avatar-link"
+                  title="View your public profile"
+                  onClick={openPublicProfile}
+                >
+                  {renderAvatar('lg')}
+                </button>
+              ) : (
+                renderAvatar('lg')
+              )}
               <div>
-                <div className="profile-email">{user?.email}</div>
+                {profile?.username ? (
+                  <button
+                    type="button"
+                    className="profile-email profile-email-link"
+                    title="View your public profile"
+                    onClick={openPublicProfile}
+                  >
+                    {user?.email}
+                  </button>
+                ) : (
+                  <div className="profile-email">{user?.email}</div>
+                )}
                 {profile?.username && (
                   <button
                     type="button"
                     className="profile-username profile-username-link"
                     title="View your public profile"
-                    onClick={() => {
-                      const name = profile.username;
-                      onClose();
-                      window.history.pushState({}, '', `/@${name}`);
-                      window.dispatchEvent(new PopStateEvent('popstate'));
-                    }}
+                    onClick={openPublicProfile}
                   >
                     @{profile.username}
                   </button>
