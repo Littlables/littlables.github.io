@@ -206,7 +206,7 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.providers[0].status, 'succeeded');
     assert.equal(snapshot.providers[0].stories_saved, 7);
     assert.equal(snapshot.providers[0].total_stories_saved, 17);
-    assert.equal(requests.length, 6);
+    assert.equal(requests.length, 14);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
     assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), null);
     assert.ok(requests.some(({ url }) =>
@@ -488,4 +488,57 @@ test('provider sync reset leaves a non-running provider untouched', async () => 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('titleSimilarity detects near-duplicate titles', async () => {
+  const { titleSimilarity, findNearDuplicates, hashUrl } = await import('./news-storage.mjs');
+
+  // Identical titles
+  assert.equal(titleSimilarity('Breaking: New Study Shows Coffee Is Great', 'Breaking: New Study Shows Coffee Is Great'), 1);
+
+  // Near-duplicates (same story, slightly different headline)
+  const sim1 = titleSimilarity(
+    'Scientists Discover New Species of Frog in Amazon Rainforest',
+    'New Frog Species Discovered by Scientists in the Amazon'
+  );
+  assert.ok(sim1 >= 0.5, `Expected high similarity, got ${sim1}`);
+
+  // Different stories
+  const sim2 = titleSimilarity(
+    'Local Bakery Wins Award for Best Sourdough',
+    'NASA Launches New Mars Rover Mission'
+  );
+  assert.ok(sim2 < 0.3, `Expected low similarity, got ${sim2}`);
+
+  // Empty titles
+  assert.equal(titleSimilarity('', ''), 0);
+  assert.equal(titleSimilarity('Hello World Test', ''), 0);
+});
+
+test('findNearDuplicates filters duplicate stories', async () => {
+  const { findNearDuplicates } = await import('./news-storage.mjs');
+
+  const existing = [
+    { id: 1, title: 'Scientists Discover New Species of Frog in Amazon Rainforest', link: 'https://example.com/frog' },
+  ];
+  const candidates = [
+    { id: 2, title: 'Scientists Discover New Frog Species in Amazon Rainforest', link: 'https://other.com/frog2' },
+    { id: 3, title: 'Local Bakery Wins Award for Best Sourdough', link: 'https://example.com/bakery' },
+    { id: 4, title: 'Exact Same Story', link: 'https://example.com/frog' }, // same URL
+  ];
+
+  const dups = findNearDuplicates(candidates, existing, 0.7);
+  assert.equal(dups.length, 2); // id 2 (similar title) and id 4 (same URL)
+  assert.ok(dups.some(d => d.candidate.id === 2 && d.reason === 'similar-title'));
+  assert.ok(dups.some(d => d.candidate.id === 4 && d.reason === 'same-url'));
+});
+
+test('hashUrl produces consistent hashes', async () => {
+  const { hashUrl } = await import('./news-storage.mjs');
+  const h1 = hashUrl('https://example.com/story');
+  const h2 = hashUrl('https://example.com/story');
+  const h3 = hashUrl('https://example.com/other');
+  assert.equal(h1, h2);
+  assert.notEqual(h1, h3);
+  assert.ok(h1.startsWith('h'));
 });

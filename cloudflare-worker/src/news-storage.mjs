@@ -1147,7 +1147,7 @@ export function updateAiCurationConfig(updates = {}, updatedBy = 'admin') {
   return getAiCurationState();
 }
 
-function scoreCandidateStory(story, signals, tasteProfile) {
+function scoreCandidateStory(story, signals, tasteProfile, engagementSignals = {}) {
   let score = 62;
   const reasons = [];
   const textBlob = `${story.title || ''} ${story.description || ''} ${story.content || ''}`.toLowerCase();
@@ -1223,6 +1223,24 @@ function scoreCandidateStory(story, signals, tasteProfile) {
     }
   }
 
+  // 6. Reader engagement signals (from story_engagement table)
+  // Stories from sources/topics with high CTR get boosted
+  const storyHash = hashUrl(story.link || story.article_url || '');
+  const engagement = engagementSignals[storyHash];
+  if (engagement && engagement.views >= 10) {
+    // CTR-based boost: high CTR = readers love this
+    if (engagement.ctr >= 0.05) {
+      score += 8;
+      if (reasons.length < 2) reasons.push(`high reader engagement (${Math.round(engagement.ctr * 100)}% click rate)`);
+    } else if (engagement.ctr >= 0.02) {
+      score += 4;
+    }
+    // High absolute clicks also signal quality
+    if (engagement.clicks >= 50) {
+      score += 4;
+    }
+  }
+
   const clampedScore = Math.max(15, Math.min(99, Math.round(score)));
   const categoryLabelMap = {
     all: 'Top Currents',
@@ -1245,10 +1263,10 @@ function scoreCandidateStory(story, signals, tasteProfile) {
   };
 }
 
-async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile) {
+async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}) {
   // First pre-score all candidates deterministically
   const scoredCandidates = candidates.map(story => {
-    const { score, reason } = scoreCandidateStory(story, signals, tasteProfile);
+    const { score, reason } = scoreCandidateStory(story, signals, tasteProfile, engagementSignals);
     return {
       story,
       heuristicScore: score,
@@ -1474,16 +1492,30 @@ export async function runAiStoryCuration(env, {
   const stagedByCategory = {};
   let totalStagedInRun = 0;
 
+  // Fetch reader engagement signals for CTR-based scoring
+  const engagementSignals = await getEngagementSignals(env);
+
   for (const category of NEWS_CATEGORIES) {
     const rawCandidates = (candidatesByCategory.get(category) || []).filter(
       c => !usedStoryIdsInRun.has(Number(c.id)) && !dismissedOrDecidedStoryIds.has(Number(c.id))
     );
+
+    // Filter out near-duplicates within this batch
+    const seenInBatch = [];
+    const dedupedCandidates = rawCandidates.filter(candidate => {
+      const dups = findNearDuplicates([candidate], seenInBatch, 0.7);
+      if (dups.length > 0) return false;
+      seenInBatch.push(candidate);
+      return true;
+    });
+
     const pickedForCategory = await selectCategoryPicksWithAi(
       env,
       category,
-      rawCandidates,
+      dedupedCandidates,
       learnedSignalsCache,
-      aiTasteProfileMemory
+      aiTasteProfileMemory,
+      engagementSignals
     );
 
     stagedByCategory[category] = pickedForCategory.length;
@@ -1645,3 +1677,96 @@ export async function bulkDecideNewsStories(env, storyIds = [], action = 'approv
 }
 
 
+
+// ── Story engagement tracking (recommendation feedback loop) ──
+
+function hashUrl(url) {
+  let hash = 0;
+  const str = String(url || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'h' + Math.abs(hash).toString(36);
+}
+
+export async function recordEngagementEvent(env, { url: storyUrl, title, category, eventType, sessionId }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  if (!storyUrl || !['view', 'click'].includes(eventType)) return { ok: false, reason: 'invalid' };
+
+  try {
+    const res = await fetch(supabaseUrl(env, 'story_engagement'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        story_url_hash: hashUrl(storyUrl),
+        story_url: String(storyUrl).slice(0, 2000),
+        story_title: String(title || '').slice(0, 500),
+        category: String(category || 'all').slice(0, 50),
+        event_type: eventType,
+        session_id: String(sessionId || '').slice(0, 64) || null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// Returns { urlHash: { views, clicks, ctr } } for recent engagement
+export async function getEngagementSignals(env, limit = 500) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return {};
+  try {
+    const res = await fetch(
+      supabaseUrl(env, 'story_engagement_stats', 'select=story_url_hash,views,clicks,ctr&order=views.desc&limit=' + limit),
+      { headers: supabaseHeaders(env) }
+    );
+    if (!res.ok) return {};
+    const rows = await res.json();
+    const signals = {};
+    for (const row of rows) {
+      signals[row.story_url_hash] = {
+        views: Number(row.views) || 0,
+        clicks: Number(row.clicks) || 0,
+        ctr: Number(row.ctr) || 0,
+      };
+    }
+    return signals;
+  } catch {
+    return {};
+  }
+}
+
+// ── Near-duplicate detection ──
+
+export function titleSimilarity(titleA, titleB) {
+  const termsA = new Set(extractMeaningfulTerms(titleA));
+  const termsB = new Set(extractMeaningfulTerms(titleB));
+  if (termsA.size === 0 || termsB.size === 0) return 0;
+  let intersection = 0;
+  for (const term of termsA) {
+    if (termsB.has(term)) intersection++;
+  }
+  const union = termsA.size + termsB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+export function findNearDuplicates(candidates, existingStories, threshold = 0.7) {
+  const duplicates = [];
+  for (const candidate of candidates) {
+    for (const existing of existingStories) {
+      if (candidate.link && existing.link && candidate.link === existing.link) {
+        duplicates.push({ candidate, existing, reason: 'same-url', similarity: 1 });
+        break;
+      }
+      const sim = titleSimilarity(candidate.title || '', existing.title || '');
+      if (sim >= threshold) {
+        duplicates.push({ candidate, existing, reason: 'similar-title', similarity: Math.round(sim * 100) / 100 });
+        break;
+      }
+    }
+  }
+  return duplicates;
+}
+
+export { hashUrl };

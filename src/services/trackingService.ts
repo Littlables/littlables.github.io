@@ -122,3 +122,69 @@ export function trackHomeLogoRefresh() {
     }
   }
 }
+
+// ── Engagement tracking for recommendation engine ──
+// Sends anonymous view/click events to the worker for CTR-based scoring.
+// Fire-and-forget: never blocks UI, never throws.
+
+const WORKER_URL = 'https://hello-ai.cryptokatiee.workers.dev';
+
+function getSessionId(): string {
+  try {
+    let sid = sessionStorage.getItem('littlables_sid');
+    if (!sid) {
+      sid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem('littlables_sid', sid);
+    }
+    return sid;
+  } catch {
+    return '';
+  }
+}
+
+function sendEngagementEvent(
+  eventType: 'view' | 'click',
+  item: NewsItem,
+  category?: string
+) {
+  if (typeof window === 'undefined' || !item.link || item.link === '#') return;
+  try {
+    const payload = {
+      url: item.link,
+      title: item.title,
+      category: category || item.category || 'all',
+      eventType,
+      sessionId: getSessionId(),
+    };
+    // Use sendBeacon when available (survives page unload), fallback to fetch
+    if (navigator.sendBeacon) {
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      navigator.sendBeacon(`${WORKER_URL}/api/engagement`, blob);
+    } else {
+      fetch(`${WORKER_URL}/api/engagement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Silently ignore — tracking must never break the site
+  }
+}
+
+/**
+ * Record a story view (card became visible in viewport).
+ * Callers should debounce/dedupe — this sends every time it's called.
+ */
+export function trackStoryView(item: NewsItem, category?: string) {
+  sendEngagementEvent('view', item, category);
+}
+
+/**
+ * Record a story click (user opened the story).
+ * Call alongside the existing Umami tracking.
+ */
+export function trackStoryEngagementClick(item: NewsItem, category?: string) {
+  sendEngagementEvent('click', item, category);
+}

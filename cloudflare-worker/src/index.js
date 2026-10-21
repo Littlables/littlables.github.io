@@ -38,7 +38,8 @@ import {
   getAiCurationState,
   updateAiCurationConfig,
   runAiStoryCuration,
-  bulkDecideNewsStories
+  bulkDecideNewsStories,
+  recordEngagementEvent
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
@@ -67,6 +68,22 @@ function jsonResponse(body, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
   });
+}
+
+async function handleEngagementEvent(request, env) {
+  try {
+    const body = await request.json();
+    const result = await recordEngagementEvent(env, {
+      url: body.url,
+      title: body.title,
+      category: body.category,
+      eventType: body.eventType,
+      sessionId: body.sessionId,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
 }
 
 async function serveNewsFeed(request, env) {
@@ -1764,6 +1781,9 @@ export default {
         }
       }
       return serveNewsFeed(request, env);
+    }
+    if (request.method === 'POST' && pathname === '/api/engagement') {
+      return handleEngagementEvent(request, env);
     }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();
