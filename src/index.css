@@ -2062,8 +2062,8 @@ body.story-modal-open {
 }
 
 .profile-footer {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
+  margin: 1rem -1.5rem -1.5rem;
+  padding: 1rem 1.5rem;
   border-top: 1px solid var(--news-border, #334155);
 }
 
