@@ -376,11 +376,11 @@ body {
 }
 
 .refresh-news-button {
-  background: var(--news-card-bg);
-  color: var(--news-text-muted);
-  border: 1px solid var(--news-card-border);
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
   padding: 0.4rem 0.85rem;
-  border-radius: 9999px;
+  border-radius: 999px;
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 600;
@@ -409,7 +409,12 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-.refresh-news-button:hover:not(:disabled),
+.refresh-news-button:hover:not(:disabled) {
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
+  color: var(--news-text);
+  transform: translateY(-1px);
+}
+
 .header-icon-button:hover:not(:disabled) {
   background: var(--news-hover-bg, #334155);
   color: var(--news-text);
@@ -1457,22 +1462,25 @@ body.story-modal-open {
 }
 
 .email-button {
-  background: transparent;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
   color: var(--news-text, #f1f5f9);
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  border-radius: 999px;
 }
 
 .email-button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
 }
 
 .primary-button {
-  background: #4f46e5;
-  color: #fff;
-  border-color: #4f46e5;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  border-radius: 999px;
 }
 
 .primary-button:hover:not(:disabled) {
-  background: #4338ca;
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
 }
 
 .primary-button:disabled {
@@ -1562,11 +1570,10 @@ body.story-modal-open {
 
 .header-signin-button {
   padding: 0.45rem 0.9rem;
-  border-radius: 9999px;
-  border: 1px solid var(--news-border, #334155);
-  background: #4f46e5;
-  border-color: #4f46e5;
-  color: #fff;
+  border-radius: 999px;
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -1574,7 +1581,7 @@ body.story-modal-open {
 }
 
 .header-signin-button:hover {
-  background: #4338ca;
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
 }
 
 .header-avatar-button {
@@ -1713,8 +1720,9 @@ body.story-modal-open {
 }
 
 .profile-tab.active {
-  color: #fff;
-  background: #4f46e5;
+  color: var(--news-text, #f1f5f9);
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
 }
 
 .profile-tab-content {
