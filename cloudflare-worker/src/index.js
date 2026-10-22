@@ -1172,6 +1172,7 @@ async function serveAdmin(request, env) {
 
       let totalValidated = 0;
       let totalStored = 0;
+      let firstError = null;
       const allMismatches = [];
       let offset = 0;
 
@@ -1209,7 +1210,13 @@ async function serveAdmin(request, env) {
               }),
             }
           );
-          if (updateRes.ok) totalStored++;
+          if (updateRes.ok) {
+            totalStored++;
+          } else {
+            const errText = await updateRes.text().catch(() => 'unknown');
+            console.error(`Failed to store embedding for story ${r.id}: ${updateRes.status} ${errText}`);
+            if (!firstError) firstError = `Story ${r.id}: ${updateRes.status} ${errText}`;
+          }
         }
 
         totalValidated += results.length;
@@ -1223,6 +1230,7 @@ async function serveAdmin(request, env) {
       return jsonResponse({
         validated: totalValidated,
         stored: totalStored,
+        storeError: firstError,
         mismatches: allMismatches.map((m) => ({
           id: m.id,
           queryCategory: m.queryCategory,

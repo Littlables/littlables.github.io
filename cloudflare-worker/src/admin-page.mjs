@@ -4993,6 +4993,8 @@ export function getAdminPage() {
         let totalValidated = 0;
         let allMismatches = [];
         try {
+          let totalStored = 0;
+          let storeError = null;
           while (totalValidated < totalRequested) {
             const remaining = totalRequested - totalValidated;
             if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
@@ -5004,11 +5006,16 @@ export function getAdminPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Validation failed');
             totalValidated += data.validated;
+            totalStored += data.stored || 0;
+            if (data.storeError && !storeError) storeError = data.storeError;
             allMismatches = allMismatches.concat(data.mismatches || []);
             if (data.validated === 0) break;
           }
           if (validateStatus) {
-            validateStatus.textContent = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
+            let msg = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
+            msg += ' (' + totalStored + ' stored)';
+            if (storeError) msg += ' Error: ' + storeError;
+            validateStatus.textContent = msg;
           }
           if (validateResults) {
             if (allMismatches.length === 0) {
