@@ -64,6 +64,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Get initial session
     client.auth.getSession().then(({ data: { session } }) => {
+      // TEMPORARY DEBUG: ?debug_user=1 fakes a signed-in user for testing (remove before prod)
+      if (!session && typeof window !== 'undefined' && window.location.search.includes('debug_user=1')) {
+        const fakeUser = {
+          id: 'debug-user-123',
+          email: 'debug@example.com',
+          user_metadata: {},
+          app_metadata: {},
+        } as any;
+        setSession({ user: fakeUser } as any);
+        setLoading(false);
+        return;
+      }
       setSession(session);
       setLoading(false);
     });
