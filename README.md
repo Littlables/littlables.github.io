@@ -22,6 +22,33 @@ npm run dev
 ```
 The dev server runs at `http://0.0.0.0:3000`.
 
+
+## AI / LLM usage (Cloudflare Workers AI)
+
+All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three distinct uses:
+
+### 1. Story curation (editorial picks)
+- **Model:** `@cf/meta/llama-3.1-8b-instruct`
+- **Location:** `cloudflare-worker/src/news-storage.mjs` → `runAiStoryCuration()`
+- **Trigger:** 3× daily (morning / afternoon / evening slots) + manual "Curate" button in admin panel
+- **Calls per run:** 1 per category (up to 7 — one for each of childcare, animals, arts, tech, world, uplifting, all)
+- **What it does:** Receives the top heuristic-scored candidates per category plus the editor's taste profile, recent approvals, and recent rejections. Returns a JSON array of up to 5 picks per category: `[{id, score (75–99), reason}]`. These are recommendations for the editor to approve — not shown to visitors.
+- **Config:** `max_tokens: 450`, `temperature: 0.25`
+
+### 2. Admin story summaries
+- **Model:** `@cf/meta/llama-3.2-3b-instruct`
+- **Location:** `cloudflare-worker/src/index.js` → `generateAdminSummary()`
+- **Trigger:** On-demand from the admin panel (rate-limited per GitHub user via `SUMMARY_RATE_LIMITER`)
+- **What it does:** Generates a concise summary of a story for the admin's review workflow.
+
+### 3. Ad image generation
+- **Models:** `@cf/meta/llama-3.2-3b-instruct` (scene description) → `@cf/black-forest-labs/flux-1-schnell` (image, fallback: `@cf/bytedance/stable-diffusion-xl-lightning`)
+- **Location:** `cloudflare-worker/src/index.js` (admin image generation endpoint)
+- **Trigger:** On-demand from the admin panel when creating ad creatives
+- **What it does:** Generates a scene description from the story/article text, then renders an AI image for use as ad creative.
+
+> **Note for contributors:** If you add a new LLM call, document it in this section (model, location, trigger, purpose).
+
 ## Cloudflare Worker news providers
 
 The Worker serves saved stories from Supabase; it does not call news providers on public feed requests. Provider metadata, category mappings, required credentials, and update pacing are centralized in `cloudflare-worker/src/news-provider-config.mjs`. Each adapter in `cloudflare-worker/src/feeds/` owns its provider request and response parsing. Shared timeouts, bounded retries, response-size limits, URL validation, and story normalization are in `cloudflare-worker/src/feed-utils.mjs`.
