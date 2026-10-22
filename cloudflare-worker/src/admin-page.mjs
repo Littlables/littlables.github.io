@@ -5064,7 +5064,7 @@ export function getAdminPage() {
                 row.className = 'story';
                 row.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
 
-                var fallbackImg = 'img/' + (m.queryCategory || 'all') + '_1.jpg';
+                var fallbackImg = 'https://littlables.com/img/' + (m.queryCategory || 'all') + '_1.jpg';
                 var image = document.createElement('img');
                 image.src = m.imageUrl || fallbackImg;
                 image.alt = '';
@@ -5134,6 +5134,29 @@ export function getAdminPage() {
                   rowBtns.push(b);
                   return b;
                 };
+                var approveBtn = mkBtn('Approve', 'small-btn');
+                var banBtn = mkBtn('Ban', 'secondary small-btn');
+                var actionDone = function () {
+                  row.style.transition = 'opacity 0.3s';
+                  row.style.opacity = '0';
+                  setTimeout(function () { row.remove(); }, 320);
+                };
+                approveBtn.addEventListener('click', function () {
+                  approveBtn.disabled = true;
+                  banBtn.disabled = true;
+                  approveStory(m.id).then(actionDone).catch(function () {
+                    approveBtn.disabled = false;
+                    banBtn.disabled = false;
+                  });
+                });
+                banBtn.addEventListener('click', function () {
+                  approveBtn.disabled = true;
+                  banBtn.disabled = true;
+                  banStory(m.id).then(actionDone).catch(function () {
+                    approveBtn.disabled = false;
+                    banBtn.disabled = false;
+                  });
+                });
                 var hasAi = m._isMismatch && m.embeddingCategory && OVERRIDABLE_IDS.indexOf(m.embeddingCategory) !== -1;
                 if (!override) {
                   if (hasAi) {
@@ -5149,13 +5172,13 @@ export function getAdminPage() {
                       });
                     }
                   }
-                  var pickBtn = mkBtn('Pick…', 'secondary small-btn');
+                  var pickBtn = mkBtn('Interests', 'secondary small-btn');
                   pickBtn.addEventListener('click', function () { togglePicker(row, m, actions, pickBtn, rowBtns); });
                 } else {
                   mkBtn('Undo', 'secondary small-btn').addEventListener('click', function () {
                     applyDisplayCategories(m.id, null, row, m, rowBtns);
                   });
-                  var changeBtn = mkBtn('Change…', 'secondary small-btn');
+                  var changeBtn = mkBtn('Interests', 'secondary small-btn');
                   changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
                 }
                 row.appendChild(actions);
