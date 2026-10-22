@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { NewsCategory, NewsItem, AdItem, ReactionType, ReactionCounts } from './types';
 import { SAVED_CATEGORY_KEY, CATEGORIES } from './constants/config';
 import { useTheme } from './hooks/useTheme';
+import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
 import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
@@ -92,6 +93,10 @@ export const App: React.FC = () => {
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
   const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
+
+  // Lock background scrolling whenever any dialog/modal window is open,
+  // so scrolling inside the window can't chain out to the page behind it
+  useLockBodyScroll(activeDialog !== null || selectedStory !== null);
 
   // App-level toast popover: floats above everything, unaffected by layout,
   // and persists even if the dialog that triggered it is closed
