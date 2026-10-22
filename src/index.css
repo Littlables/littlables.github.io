@@ -1665,6 +1665,24 @@ body.story-modal-open {
   max-height: 80vh;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
+}
+
+/* Keep the scrollbar inside the dialog's rounded corners */
+.profile-dialog-expanded::-webkit-scrollbar {
+  width: 8px;
+}
+.profile-dialog-expanded::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 0.8rem 0;
+}
+.profile-dialog-expanded::-webkit-scrollbar-thumb {
+  background: rgba(127, 127, 127, 0.45);
+  border-radius: 9999px;
+}
+.profile-dialog-expanded::-webkit-scrollbar-thumb:hover {
+  background: rgba(127, 127, 127, 0.65);
 }
 
 .profile-tabs {
