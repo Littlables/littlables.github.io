@@ -85,6 +85,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   // The active theme's background color, so the wheel reflects the current
   // theme when no custom color is picked
   const [themeBg, setThemeBg] = useState('');
+  const [useViewerThemeForBoards, setUseViewerThemeForBoards] = useState(false);
   const [saving, setSaving] = useState(false);
   // Save/error feedback goes through the app-level toast popover, so it
   // floats above the layout and survives the dialog being closed
@@ -140,6 +141,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       setPills(profile.pills || CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })));
       setBgColor(profile.background_color || '');
       setBgHex(profile.background_color || '');
+      setUseViewerThemeForBoards(profile.use_viewer_theme_for_boards || false);
       setTab('profile');
       setError('');
       setSaved(false);
@@ -913,6 +915,26 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
             <button type="button" className="sign-in-button primary-button" onClick={handleSaveTheme} disabled={saving} style={{ marginTop: '1rem' }}>
               {saving ? 'Saving…' : 'Save Theme'}
             </button>
+
+            <label className="profile-section-label" style={{ marginTop: '1.5rem' }}>Viewing others' boards</label>
+            <label className="board-pill-option" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={useViewerThemeForBoards}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setUseViewerThemeForBoards(next);
+                  // Save immediately
+                  updateProfile({ use_viewer_theme_for_boards: next })
+                    .then(() => notify('Preference saved', 'success'))
+                    .catch((err) => notify(err instanceof Error ? err.message : 'Failed to save', 'error'));
+                }}
+              />
+              <span>Always use my theme when viewing others' boards</span>
+            </label>
+            <p className="profile-hint profile-hint-compact">
+              Off by default. When on, boards you visit will appear in your theme instead of the owner's.
+            </p>
           </div>
         )}
 

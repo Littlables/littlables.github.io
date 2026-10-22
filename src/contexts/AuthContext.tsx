@@ -29,6 +29,7 @@ export interface Profile {
   theme: string | null;
   background_color: string | null;
   pills: PillConfig[] | null;
+  use_viewer_theme_for_boards: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -29,7 +29,7 @@ export const BoardPage: React.FC<BoardPageProps> = ({
   onOpenProfile,
   onBrand,
 }) => {
-  const { user } = useAuth();
+  const { user, profile: viewerProfile } = useAuth();
   const [board, setBoard] = useState<Board | null>(null);
   const [owner, setOwner] = useState<Profile | null>(null);
   const [stories, setStories] = useState<NewsItem[]>([]);
@@ -77,13 +77,15 @@ export const BoardPage: React.FC<BoardPageProps> = ({
 
   // Apply the board's theme + background (falling back to the owner's), restore on unmount.
   // A board theme of 'none' means: use whatever theme the viewer has selected.
+  // If the viewer has enabled "always use my theme", skip board/owner theming entirely.
   useEffect(() => {
     if (!board) return;
     const root = document.documentElement;
     const prevTheme = root.getAttribute('data-theme');
     const prevBg = root.style.getPropertyValue('--news-bg');
-    const theme = board.theme === 'none' ? null : (board.theme || owner?.theme);
-    const bg = board.background_color || owner?.background_color;
+    const useViewerTheme = viewerProfile?.use_viewer_theme_for_boards === true;
+    const theme = useViewerTheme ? null : (board.theme === 'none' ? null : (board.theme || owner?.theme));
+    const bg = useViewerTheme ? null : (board.background_color || owner?.background_color);
     if (theme && VALID_THEMES.includes(theme)) root.setAttribute('data-theme', theme);
     if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) root.style.setProperty('--news-bg', bg);
     return () => {
@@ -91,7 +93,7 @@ export const BoardPage: React.FC<BoardPageProps> = ({
       if (prevBg) root.style.setProperty('--news-bg', prevBg);
       else root.style.removeProperty('--news-bg');
     };
-  }, [board, owner]);
+  }, [board, owner, viewerProfile?.use_viewer_theme_for_boards]);
 
   // Fetch stories for the board's pills, merged + deduped
   useEffect(() => {
