@@ -11,6 +11,8 @@
   --news-text: #f8fafc;
   --news-text-muted: #94a3b8;
   --news-accent: #6366f1;
+  --pill-bg: rgba(99, 102, 241, 0.12);
+  --pill-border: rgba(99, 102, 241, 0.35);
   --news-link-color: #818cf8;
   --news-link-hover: #c7d2fe;
   --news-title-hover: #a5b4fc;
@@ -49,6 +51,8 @@
   --news-text: #fbf7ff;
   --news-text-muted: #c084fc;
   --news-accent: #c084fc;
+  --pill-bg: rgba(192, 132, 252, 0.12);
+  --pill-border: rgba(192, 132, 252, 0.35);
   --news-link-color: #c084fc;
   --news-link-hover: #f0abfc;
   --news-title-hover: #e879f9;
@@ -87,6 +91,8 @@
   --news-text: #0f172a;
   --news-text-muted: #64748b;
   --news-accent: #4f46e5;
+  --pill-bg: rgba(79, 70, 229, 0.1);
+  --pill-border: rgba(79, 70, 229, 0.35);
   --news-link-color: #4338ca;
   --news-link-hover: #1e1b4b;
   --news-title-hover: #4f46e5;
@@ -125,6 +131,8 @@
   --news-text: #ffffff;
   --news-text-muted: #cbd5e1;
   --news-accent: #38bdf8;
+  --pill-bg: rgba(56, 189, 248, 0.12);
+  --pill-border: rgba(56, 189, 248, 0.35);
   --news-link-color: #38bdf8;
   --news-link-hover: #f43f5e;
   --news-title-hover: #38bdf8;
@@ -163,6 +171,8 @@
   --news-text: #2e1045;
   --news-text-muted: #7c3aed;
   --news-accent: #ec4899;
+  --pill-bg: rgba(236, 72, 153, 0.1);
+  --pill-border: rgba(236, 72, 153, 0.35);
   --news-link-color: #db2777;
   --news-link-hover: #7c3aed;
   --news-title-hover: #db2777;
@@ -201,6 +211,8 @@
   --news-text: #fff1f2;
   --news-text-muted: #f472b6;
   --news-accent: #fb7185;
+  --pill-bg: rgba(251, 113, 133, 0.12);
+  --pill-border: rgba(251, 113, 133, 0.35);
   --news-link-color: #fb7185;
   --news-link-hover: #fecdd3;
   --news-title-hover: #fda4af;
