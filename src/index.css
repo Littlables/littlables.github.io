@@ -297,8 +297,15 @@ body {
 }
 
 .news-widget-title:hover {
-  color: var(--news-title-hover, var(--news-link-color));
   text-decoration: none;
+}
+
+/* Only tint on hover where a real hover exists — on touch screens a tap
+   would otherwise leave the hover color stuck on the title text */
+@media (hover: hover) {
+  .news-widget-title:hover {
+    color: var(--news-title-hover, var(--news-link-color));
+  }
 }
 
 .news-widget-title:focus-visible {
