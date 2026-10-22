@@ -1662,7 +1662,7 @@ body.story-modal-open {
 /* Expanded Profile Dialog */
 .profile-dialog-expanded {
   width: min(94vw, 32rem);
-  max-height: 88vh;
+  max-height: 80vh;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
