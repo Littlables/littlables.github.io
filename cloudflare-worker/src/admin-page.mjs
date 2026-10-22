@@ -1120,6 +1120,28 @@ export function getAdminPage() {
       </div>
     </section>
 
+    <!-- 1b. EMBEDDING VALIDATION SECTION -->
+    <section aria-labelledby="embedding-validation-title" class="admin-card-section" data-section-id="embedding-validation">
+      <div class="section-header">
+        <h2 id="embedding-validation-title">
+          <button id="embedding-validation-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="embedding-validation-body" data-section-toggle="embedding-validation">
+            <span id="embedding-validation-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Embedding Category Validation <span id="embedding-validation-count"></span></span>
+          </button>
+        </h2>
+      </div>
+      <div id="embedding-validation-body" class="section-body">
+        <p class="admin-hint">Validates story categories using semantic embeddings. Flags stories where the AI-predicted category disagrees with the query-assigned category.</p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0;">
+          <button id="validate-categories-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
+            Validate Categories
+          </button>
+          <span id="validate-categories-status" class="admin-hint"></span>
+        </div>
+        <div id="validate-categories-results" aria-live="polite"></div>
+      </div>
+    </section>
+
     <!-- 2. PENDING STORIES SECTION -->
     <section aria-labelledby="pending-title" class="admin-card-section" data-section-id="pending">
       <div class="section-header">
@@ -1560,6 +1582,7 @@ export function getAdminPage() {
     const sectionTargets = {
       summary: { toggle: 'summary-toggle', arrow: 'summary-arrow', body: 'summary-body', defaultOpen: true },
       'ai-staging': { toggle: 'ai-staging-toggle', arrow: 'ai-staging-arrow', body: 'ai-staging-body', defaultOpen: true },
+      'embedding-validation': { toggle: 'embedding-validation-toggle', arrow: 'embedding-validation-arrow', body: 'embedding-validation-body', defaultOpen: true },
       pending: { toggle: 'pending-toggle', arrow: 'pending-arrow', body: 'pending-body', defaultOpen: true },
       search: { toggle: 'search-toggle', arrow: 'search-arrow', body: 'search-body', defaultOpen: true },
       ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
@@ -4952,6 +4975,59 @@ export function getAdminPage() {
           }
         }
       } catch {}
+    }
+
+    /* Embedding category validation */
+    const validateBtn = document.getElementById('validate-categories-btn');
+    const validateStatus = document.getElementById('validate-categories-status');
+    const validateResults = document.getElementById('validate-categories-results');
+    if (validateBtn) {
+      validateBtn.addEventListener('click', async () => {
+        validateBtn.disabled = true;
+        validateBtn.textContent = 'Validating…';
+        if (validateStatus) validateStatus.textContent = 'Classifying stories via embeddings…';
+        if (validateResults) validateResults.replaceChildren();
+        try {
+          const res = await fetch('/admin/api/stories/validate-categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ limit: 200 }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Validation failed');
+          if (validateStatus) {
+            validateStatus.textContent = 'Validated ' + data.validated + ' stories, ' + data.mismatches.length + ' mismatches found.';
+          }
+          if (validateResults) {
+            if (data.mismatches.length === 0) {
+              const p = document.createElement('p');
+              p.className = 'admin-hint';
+              p.textContent = 'No mismatches — all validated stories match their query-assigned categories.';
+              validateResults.appendChild(p);
+            } else {
+              const list = document.createElement('div');
+              list.style.display = 'flex';
+              list.style.flexDirection = 'column';
+              list.style.gap = '0.5rem';
+              for (const m of data.mismatches) {
+                const item = document.createElement('div');
+                item.className = 'admin-card';
+                item.style.padding = '0.75rem';
+                item.innerHTML = '<strong>Story ' + m.id + '</strong>: query=<code>' + m.queryCategory + '</code> → embedding=<code>' + m.embeddingCategory + '</code> <span class="admin-hint">(confidence ' + m.confidence + ')</span>';
+                list.appendChild(item);
+              }
+              validateResults.appendChild(list);
+            }
+          }
+          const countEl = document.getElementById('embedding-validation-count');
+          if (countEl) countEl.textContent = data.mismatches.length ? '(' + data.mismatches.length + ' mismatches)' : '';
+        } catch (err) {
+          if (validateStatus) validateStatus.textContent = 'Error: ' + (err.message || 'Validation failed');
+        } finally {
+          validateBtn.disabled = false;
+          validateBtn.textContent = 'Validate Categories';
+        }
+      });
     }
 
     restoreSectionLayout();

@@ -38,10 +38,15 @@ import {
   getAiCurationState,
   updateAiCurationConfig,
   runAiStoryCuration,
-  bulkDecideNewsStories
+  bulkDecideNewsStories,
+  recordEngagementEvent,
+  STORIES_TABLE,
+  supabaseHeaders,
+  supabaseUrl
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
+import { validateStoryCategories } from './embedding-classifier.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -67,6 +72,22 @@ function jsonResponse(body, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
   });
+}
+
+async function handleEngagementEvent(request, env) {
+  try {
+    const body = await request.json();
+    const result = await recordEngagementEvent(env, {
+      url: body.url,
+      title: body.title,
+      category: body.category,
+      eventType: body.eventType,
+      sessionId: body.sessionId,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
 }
 
 async function serveNewsFeed(request, env) {
@@ -1066,6 +1087,89 @@ async function serveAdmin(request, env) {
     }
   }
 
+  // Validate story categories via embedding classifier (prototype).
+  // Classifies unapproved stories and flags mismatches for review.
+  if (url.pathname === '/admin/api/stories/validate-categories' && request.method === 'POST') {
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    try {
+      // Parse optional limit (default: process all unvalidated)
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        // empty body is fine
+      }
+      const maxStories = Math.min(Math.max(Number(body.limit) || 500, 1), 2000);
+      const BATCH = 50;
+
+      let totalValidated = 0;
+      let totalStored = 0;
+      const allMismatches = [];
+      let offset = 0;
+
+      while (totalValidated < maxStories) {
+        // Fetch next batch of unapproved stories that haven't been validated yet
+        const query = new URLSearchParams({
+          select: 'id,title,description,category',
+          approved: 'eq.false',
+          removed: 'eq.false',
+          'embedding_category': 'is.null',
+          order: 'fetched_at.desc',
+          limit: String(Math.min(BATCH, maxStories - totalValidated)),
+          offset: String(offset),
+        });
+        const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+          headers: supabaseHeaders(env),
+        });
+        if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+        const stories = await res.json();
+        if (!stories.length) break;
+
+        const results = await validateStoryCategories(env, stories);
+
+        // Store the embedding predictions
+        for (const r of results) {
+          if (!r.embeddingCategory) continue;
+          const updateRes = await fetch(
+            supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${r.id}` })),
+            {
+              method: 'PATCH',
+              headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                embedding_category: r.embeddingCategory,
+                embedding_confidence: r.confidence,
+              }),
+            }
+          );
+          if (updateRes.ok) totalStored++;
+        }
+
+        totalValidated += results.length;
+        allMismatches.push(...results.filter((r) => r.mismatch));
+        offset += stories.length;
+
+        // If we got fewer than requested, we've reached the end
+        if (stories.length < BATCH) break;
+      }
+
+      return jsonResponse({
+        validated: totalValidated,
+        stored: totalStored,
+        mismatches: allMismatches.map((m) => ({
+          id: m.id,
+          queryCategory: m.queryCategory,
+          embeddingCategory: m.embeddingCategory,
+          confidence: m.confidence,
+        })),
+      });
+    } catch (err) {
+      console.error('Category validation failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Validation failed' }, 502);
+    }
+  }
+
   if (url.pathname === '/admin/api/ads' && request.method === 'GET') {
     const category = url.searchParams.get('category') || 'all';
     const network = url.searchParams.get('network') || 'all';
@@ -1764,6 +1868,9 @@ export default {
         }
       }
       return serveNewsFeed(request, env);
+    }
+    if (request.method === 'POST' && pathname === '/api/engagement') {
+      return handleEngagementEvent(request, env);
     }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();

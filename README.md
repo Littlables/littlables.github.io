@@ -49,6 +49,12 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 
 > **Note for contributors:** If you add a new LLM call, document it in this section (model, location, trigger, purpose).
 
+### 4. Embedding-based category validation
+- **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
+- **Location:** `cloudflare-worker/src/embedding-classifier.mjs`
+- **Trigger:** Manual via admin panel ("Validate Categories" button) → `POST /admin/api/stories/validate-categories`
+- **What it does:** Classifies unapproved stories into categories via cosine similarity against pre-computed category description vectors. Flags mismatches where the embedding-predicted category disagrees with the query-assigned category (confidence ≥ 0.35). Results stored in `embedding_category` / `embedding_confidence` columns for review. Used to validate (not override) the query-based categorization.
+
 ## Cloudflare Worker news providers
 
 The Worker serves saved stories from Supabase; it does not call news providers on public feed requests. Provider metadata, category mappings, required credentials, and update pacing are centralized in `cloudflare-worker/src/news-provider-config.mjs`. Each adapter in `cloudflare-worker/src/feeds/` owns its provider request and response parsing. Shared timeouts, bounded retries, response-size limits, URL validation, and story normalization are in `cloudflare-worker/src/feed-utils.mjs`.
