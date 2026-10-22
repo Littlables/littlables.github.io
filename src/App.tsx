@@ -385,7 +385,7 @@ export const App: React.FC = () => {
 
   return (
     <>
-      <div className={`news-widget-wrapper${(profileRoute || boardRoute) ? ' has-static-page' : ''}`}>
+      <div className="news-widget-wrapper">
         <Header
           onHomeClick={handleHomeRefresh}
           onRefresh={() => loadFeed(category)}

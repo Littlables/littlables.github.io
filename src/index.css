@@ -1678,31 +1678,47 @@ body.story-modal-open {
 }
 
 /* Expanded Profile Dialog */
+/* ---------- Profile dialog: fixed tab bar, scrolling content ----------
+   The tab bar stays put; each tab's content scrolls in its own container
+   below it. */
 .profile-dialog-expanded {
   width: min(94vw, 32rem);
   max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.profile-tabs {
+  flex-shrink: 0;
+}
+
+.profile-tab-content {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
 }
 
-/* Keep the scrollbar inside the dialog's rounded corners */
-.profile-dialog-expanded::-webkit-scrollbar {
+/* Keep the scrollbar inside the tab content's rounded corners */
+.profile-tab-content::-webkit-scrollbar {
   width: 8px;
 }
-.profile-dialog-expanded::-webkit-scrollbar-track {
+.profile-tab-content::-webkit-scrollbar-track {
   background: transparent;
-  margin: 2rem 0;
+  margin: 0.5rem 0;
   border-radius: 9999px;
 }
-.profile-dialog-expanded::-webkit-scrollbar-thumb {
+.profile-tab-content::-webkit-scrollbar-thumb {
   background: rgba(127, 127, 127, 0.45);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.profile-dialog-expanded::-webkit-scrollbar-thumb:hover {
+.profile-tab-content::-webkit-scrollbar-thumb:hover {
   background: rgba(127, 127, 127, 0.65);
 }
 
@@ -2652,25 +2668,4 @@ body.story-modal-open {
   text-align: center;
 }
 
-/* ---------- Static page layout (profile / board routes) ----------
-   The page chrome stays fixed; content scrolls in its own container
-   below the navigation bar. */
-.news-widget-wrapper.has-static-page {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.has-static-page .news-widget-header,
-.has-static-page .news-category-container {
-  flex-shrink: 0;
-}
-
-.has-static-page .space-page,
-.has-static-page main.news-grid {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
