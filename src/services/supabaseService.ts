@@ -17,6 +17,10 @@ if (
   }
 }
 
+export function getSupabaseClient(): SupabaseClient | null {
+  return supabaseClient;
+}
+
 export function getStoryId(title: string, link: string): string {
   const str = ((link || '') + (title || '')).toLowerCase().trim();
   let hash = 0;
