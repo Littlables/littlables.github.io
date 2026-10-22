@@ -5028,6 +5028,7 @@ export function getAdminPage() {
         try {
           let totalStored = 0;
           let storeError = null;
+          let warmupStatus = null;
           while (totalValidated < totalRequested) {
             const remaining = totalRequested - totalValidated;
             if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
@@ -5041,6 +5042,10 @@ export function getAdminPage() {
             totalValidated += data.validated;
             totalStored += data.stored || 0;
             if (data.storeError && !storeError) storeError = data.storeError;
+            if (data.status) {
+              warmupStatus = data.status;
+              break;
+            }
             allMismatches = allMismatches.concat(data.mismatches || []);
             allValidatedStories = allValidatedStories.concat(data.results || []);
             if (data.validated === 0) break;
@@ -5049,6 +5054,7 @@ export function getAdminPage() {
             let msg = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
             msg += ' (' + totalStored + ' stored)';
             if (storeError) msg += ' Error: ' + storeError;
+            if (warmupStatus) msg = warmupStatus;
             validateStatus.textContent = msg;
           }
           if (validateResults) {

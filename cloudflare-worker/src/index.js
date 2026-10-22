@@ -1238,8 +1238,21 @@ async function serveAdmin(request, env) {
 
       // Interest keyword vectors are loaded from Supabase (embedded once and
       // persisted) and reused for every story — no per-story AI cost.
-      // Returns null until all 100 are backfilled; keyword tagging waits.
-      const keywordVectors = await getPersistedKeywordEmbeddings(env);
+      // While the backfill is warming up, this runs as a standalone step and
+      // returns early so its AI calls never share an invocation budget with
+      // story validation (which would exceed the subrequest limit).
+      const kwStatus = await getPersistedKeywordEmbeddings(env);
+      if (!kwStatus.complete) {
+        return jsonResponse({
+          validated: 0,
+          stored: 0,
+          storeError: null,
+          mismatches: [],
+          results: [],
+          status: `Warming up keyword vectors (${kwStatus.done}/${kwStatus.total}) — run validation again to continue.`,
+        });
+      }
+      const keywordVectors = kwStatus.vectors;
 
       while (totalValidated < maxStories) {
         // Fetch next batch of unapproved stories missing category validation

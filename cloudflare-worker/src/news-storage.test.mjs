@@ -603,10 +603,11 @@ test('getStoriesByKeyword queries the interest_keywords array column', async () 
   }
 });
 
-test('getPersistedKeywordEmbeddings returns null without an AI binding', async () => {
+test('getPersistedKeywordEmbeddings returns incomplete status without an AI binding', async () => {
   clearKeywordVectorCache();
   const result = await getPersistedKeywordEmbeddings(env);
-  assert.equal(result, null);
+  assert.equal(result.vectors, null);
+  assert.equal(result.complete, false);
   clearKeywordVectorCache();
 });
 
@@ -633,7 +634,9 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
     AI: { run: async () => { aiCalls++; return { data: [[0.1]] }; } },
   };
   try {
-    const map = await getPersistedKeywordEmbeddings(aiEnv);
+    const result = await getPersistedKeywordEmbeddings(aiEnv);
+    assert.equal(result.complete, true);
+    const map = result.vectors;
     assert.ok(map instanceof Map);
     assert.equal(map.size, 100);
     assert.deepEqual(map.get('space'), [0.1, 0.2, 0.3]);
@@ -642,7 +645,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
     let fetches = 0;
     globalThis.fetch = async () => { fetches++; return Response.json([]); };
     const cached = await getPersistedKeywordEmbeddings(aiEnv);
-    assert.equal(cached, map);
+    assert.equal(cached.vectors, map);
     assert.equal(fetches, 0);
   } finally {
     globalThis.fetch = originalFetch;
@@ -675,7 +678,10 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
   };
   try {
     const result = await getPersistedKeywordEmbeddings(failingAiEnv);
-    assert.equal(result, null, 'partial backfill must not enable tagging');
+    assert.equal(result.vectors, null, 'partial backfill must not enable tagging');
+    assert.equal(result.complete, false);
+    assert.equal(result.done, 99);
+    assert.equal(result.total, 100);
   } finally {
     globalThis.fetch = originalFetch;
     clearKeywordVectorCache();

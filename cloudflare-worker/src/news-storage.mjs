@@ -109,9 +109,10 @@ export async function getStoredNewsFeed(env, category) {
 }
 
 const KEYWORD_EMBEDDINGS_TABLE = 'keyword_embeddings';
-// Max keyword descriptions to embed per invocation — keeps cold-start
-// backfills safely under subrequest budgets.
-const KEYWORD_EMBED_CHUNK = 40;
+// Max keyword descriptions to embed per invocation — the backfill runs as a
+// standalone step (never alongside story validation), so this stays safely
+// under subrequest budgets.
+const KEYWORD_EMBED_CHUNK = 25;
 // In-memory cache for the full keyword vector map (per worker isolate).
 let cachedKeywordVectors = null;
 
@@ -120,17 +121,21 @@ let cachedKeywordVectors = null;
  *
  * Vectors are persisted to the `keyword_embeddings` Supabase table so the
  * 100 descriptions are embedded once, not on every cold start. Missing
- * vectors are backfilled in chunks (KEYWORD_EMBED_CHUNK per invocation).
+ * vectors are backfilled ONE CHUNK per call — the caller (validate endpoint)
+ * runs this as a standalone step and returns early while warming up, so the
+ * backfill's AI calls never share an invocation budget with story validation.
  *
- * All-or-nothing: returns null until EVERY keyword has a vector, so stories
- * are never tagged against a partial keyword set (they stay unprocessed and
- * get fully tagged once the backfill completes).
+ * All-or-nothing: `vectors` is null until EVERY keyword has a vector, so
+ * stories are never tagged against a partial keyword set.
  *
- * @returns {Promise<Map<string, number[]>|null>} keyword id -> 768-dim vector
+ * @returns {Promise<{vectors: Map<string,number[]>|null, complete: boolean, done: number, total: number}>}
  */
 export async function getPersistedKeywordEmbeddings(env) {
-  if (cachedKeywordVectors) return cachedKeywordVectors;
-  if (!env?.AI) return null;
+  const total = INTEREST_KEYWORDS.length;
+  if (cachedKeywordVectors) {
+    return { vectors: cachedKeywordVectors, complete: true, done: total, total };
+  }
+  if (!env?.AI) return { vectors: null, complete: false, done: 0, total };
 
   // 1. Load whatever is already stored.
   const map = new Map();
@@ -153,10 +158,10 @@ export async function getPersistedKeywordEmbeddings(env) {
     console.warn('Keyword embeddings lookup failed:', err?.message || err);
   }
 
-  // 2. Backfill missing vectors in chunks.
+  // 2. Backfill ONE chunk of missing vectors per call.
   const missing = INTEREST_KEYWORDS.filter((kw) => !map.has(kw.id));
-  for (let i = 0; i < missing.length; i += KEYWORD_EMBED_CHUNK) {
-    const chunk = missing.slice(i, i + KEYWORD_EMBED_CHUNK);
+  const chunk = missing.slice(0, KEYWORD_EMBED_CHUNK);
+  if (chunk.length > 0) {
     const vectors = await Promise.all(chunk.map((kw) => embedText(env, kw.description)));
     const upserts = [];
     chunk.forEach((kw, j) => {
@@ -179,14 +184,15 @@ export async function getPersistedKeywordEmbeddings(env) {
     }
   }
 
-  if (map.size !== INTEREST_KEYWORDS.length) {
+  const done = map.size;
+  if (done !== total) {
     console.warn(
-      `Keyword embeddings incomplete (${map.size}/${INTEREST_KEYWORDS.length}); skipping keyword tagging this run.`
+      `Keyword embeddings incomplete (${done}/${total}); backfilled ${chunk.length} this run, skipping keyword tagging.`
     );
-    return null;
+    return { vectors: null, complete: false, done, total };
   }
   cachedKeywordVectors = map;
-  return map;
+  return { vectors: map, complete: true, done, total };
 }
 
 /** Clear the in-memory keyword vector cache (useful for tests). */
