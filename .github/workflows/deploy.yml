@@ -112,7 +112,7 @@ jobs:
 
       - name: Run Cloudflare Worker unit tests
         if: steps.check_changes.outputs.should_deploy == 'true'
-        run: node --test cloudflare-worker/src/index.test.mjs cloudflare-worker/src/news-storage.test.mjs cloudflare-worker/src/embedding-classifier.test.mjs cloudflare-worker/src/staggered-sync.test.mjs
+        run: bash cloudflare-worker/run-tests.sh
 
       - name: Prepare Wrangler configuration
         if: steps.check_changes.outputs.should_deploy == 'true'
