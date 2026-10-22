@@ -1174,6 +1174,7 @@ async function serveAdmin(request, env) {
       let totalStored = 0;
       let firstError = null;
       const allMismatches = [];
+      const allResults = [];
       let offset = 0;
 
       while (totalValidated < maxStories) {
@@ -1221,6 +1222,14 @@ async function serveAdmin(request, env) {
 
         totalValidated += results.length;
         allMismatches.push(...results.filter((r) => r.mismatch));
+        allResults.push(...results.map((r) => ({
+          id: r.id,
+          title: r.title,
+          queryCategory: r.queryCategory,
+          embeddingCategory: r.embeddingCategory,
+          confidence: r.confidence,
+          mismatch: r.mismatch,
+        })));
         offset += stories.length;
 
         // If we got fewer than requested, we've reached the end
@@ -1237,6 +1246,7 @@ async function serveAdmin(request, env) {
           embeddingCategory: m.embeddingCategory,
           confidence: m.confidence,
         })),
+        results: allResults,
       });
     } catch (err) {
       console.error('Category validation failed:', err);

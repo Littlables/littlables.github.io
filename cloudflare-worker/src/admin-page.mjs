@@ -4992,6 +4992,7 @@ export function getAdminPage() {
         const totalRequested = parseInt(document.getElementById('validate-categories-limit').value, 10) || 200;
         let totalValidated = 0;
         let allMismatches = [];
+        let allValidatedStories = [];
         try {
           let totalStored = 0;
           let storeError = null;
@@ -5009,6 +5010,7 @@ export function getAdminPage() {
             totalStored += data.stored || 0;
             if (data.storeError && !storeError) storeError = data.storeError;
             allMismatches = allMismatches.concat(data.mismatches || []);
+            allValidatedStories = allValidatedStories.concat(data.results || []);
             if (data.validated === 0) break;
           }
           if (validateStatus) {
@@ -5018,21 +5020,26 @@ export function getAdminPage() {
             validateStatus.textContent = msg;
           }
           if (validateResults) {
-            if (allMismatches.length === 0) {
+            // Collect from batch loop (we'll accumulate in the loop above)
+            if (allValidatedStories.length === 0) {
               const p = document.createElement('p');
               p.className = 'admin-hint';
-              p.textContent = 'No mismatches — all validated stories match their query-assigned categories.';
+              p.textContent = 'No stories were validated in this run.';
               validateResults.appendChild(p);
             } else {
               const list = document.createElement('div');
               list.style.display = 'flex';
               list.style.flexDirection = 'column';
               list.style.gap = '0.5rem';
-              for (const m of allMismatches) {
+              // Show mismatches first, then matches
+              const sorted = [...allMismatches.map(m => ({...m, _isMismatch: true})), ...allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}))];
+              for (const m of sorted) {
                 const item = document.createElement('div');
                 item.className = 'admin-card';
                 item.style.padding = '0.75rem';
-                item.innerHTML = '<strong>Story ' + m.id + '</strong>: query=<code>' + m.queryCategory + '</code> → embedding=<code>' + m.embeddingCategory + '</code> <span class="admin-hint">(confidence ' + m.confidence + ')</span>';
+                item.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
+                const title = m.title ? '<div style="font-weight: 600; margin-bottom: 0.25rem;">' + m.title + '</div>' : '';
+                item.innerHTML = title + '<span class="admin-hint">query=</span><code>' + m.queryCategory + '</code> <span class="admin-hint">→ AI=</span><code>' + m.embeddingCategory + '</code> <span class="admin-hint">(confidence ' + (m.confidence != null ? Number(m.confidence).toFixed(2) : 'n/a') + ')' + (m._isMismatch ? ' <strong style="color: #ef4444;">MISMATCH</strong>' : ' <span style="color: #22c55e;">✓</span>') + '</span>';
                 list.appendChild(item);
               }
               validateResults.appendChild(list);
