@@ -10,6 +10,7 @@ import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
+import { AboutPage } from './components/AboutPage';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
 import { ProfileDialog } from './components/ProfileDialog';
@@ -50,6 +51,12 @@ function parseBoardFromUrl(): { username: string; slug: string } | null {
   return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
 }
 
+/** True when on the standalone `/about` landing page. */
+function parseAboutFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^\/about\/?$/i.test(window.location.pathname);
+}
+
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { profile } = useAuth();
@@ -87,6 +94,7 @@ export const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
   const [boardRoute, setBoardRoute] = useState<{ username: string; slug: string } | null>(() => parseBoardFromUrl());
+  const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
   // Board branding shown in the header while viewing a board page
   const [boardBrand, setBoardBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
 
@@ -138,6 +146,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
+      const urlAbout = parseAboutFromUrl();
+      setAboutRoute(urlAbout);
+      if (urlAbout) {
+        setBoardRoute(null);
+        setProfileRoute(null);
+        return;
+      }
       const urlBoard = parseBoardFromUrl();
       setBoardRoute(urlBoard);
       if (urlBoard) {
@@ -387,7 +402,14 @@ export const App: React.FC = () => {
           onSelectCategory={handleSelectCategory}
         />
 
-        {boardRoute ? (
+        {aboutRoute ? (
+          <main className="news-grid">
+            <AboutPage
+              onExplore={handleHomeRefresh}
+              onSignIn={() => setActiveDialog('signin')}
+            />
+          </main>
+        ) : boardRoute ? (
           <BoardPage
             username={boardRoute.username}
             slug={boardRoute.slug}
@@ -511,6 +533,7 @@ export const App: React.FC = () => {
         id="about"
         isOpen={activeDialog === 'about'}
         onClose={() => setActiveDialog(null)}
+        onSignIn={() => setActiveDialog('signin')}
       />
 
       <InfoDialog
