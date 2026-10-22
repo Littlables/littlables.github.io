@@ -153,6 +153,7 @@ export async function validateStoryCategories(env, stories) {
   const categoryVectors = await getCategoryEmbeddings(env);
   if (!categoryVectors) return stories.map((s) => ({
     id: s.id,
+    title: s.title,
     queryCategory: s.category,
     embeddingCategory: null,
     confidence: 0,
@@ -172,6 +173,7 @@ export async function validateStoryCategories(env, stories) {
         if (!storyVector) {
           return {
             id: story.id,
+            title: story.title,
             queryCategory: story.category,
             embeddingCategory: null,
             confidence: 0,
@@ -197,6 +199,7 @@ export async function validateStoryCategories(env, stories) {
           && bestScore >= 0.35;
         return {
           id: story.id,
+          title: story.title,
           queryCategory: story.category,
           embeddingCategory: bestCategory,
           confidence: Math.round(bestScore * 10000) / 10000,
