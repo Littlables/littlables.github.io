@@ -1712,7 +1712,7 @@ body.story-modal-open {
 }
 .profile-tab-content::-webkit-scrollbar-track {
   background: transparent;
-  margin: 0.5rem 0;
+  margin: 0 0 0.5rem;
   border-radius: 9999px;
 }
 .profile-tab-content::-webkit-scrollbar-thumb {
