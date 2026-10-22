@@ -3,8 +3,6 @@ import { getSupabaseClient } from '../services/supabaseService';
 import { Profile, useAuth } from '../contexts/AuthContext';
 import { Board, getUserBoards } from '../services/boardService';
 import { getCharacterAvatar } from '../constants/avatars';
-import { CATEGORIES } from '../constants/config';
-import { t } from '../constants/translations';
 
 interface PublicProfilePageProps {
   username: string;
@@ -25,17 +23,6 @@ const SOCIAL_META: { key: keyof Profile['social_links']; label: string; icon: st
 function normalizeUrl(url: string): string {
   if (/^https?:\/\//i.test(url)) return url;
   return `https://${url}`;
-}
-
-function pillLabel(pill: NonNullable<Profile['pills']>[number]): { icon: string; label: string } {
-  if (pill.type === 'custom') {
-    return { icon: '🏷️', label: pill.label || pill.id };
-  }
-  const cat = CATEGORIES.find((c) => c.id === pill.id);
-  return {
-    icon: cat?.icon || '📰',
-    label: cat ? t(cat.i18nKey as keyof typeof t) || pill.id : pill.id,
-  };
 }
 
 export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
@@ -116,7 +103,6 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
 
   const isOwner = !!user && !!profile && user.id === profile.id;
   const character = getCharacterAvatar(profile?.avatar_character);
-  const pills = profile?.pills && profile.pills.length > 0 ? profile.pills : null;
   const socials = SOCIAL_META.filter(
     (s) => profile?.social_links?.[s.key]?.trim()
   );
@@ -206,22 +192,6 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
               </button>
             )}
           </div>
-
-          {pills && (
-            <div className="space-pills-section">
-              <h2 className="space-section-title">📌 {(profile.display_name || `@${profile.username}`)}'s board</h2>
-              <div className="space-pills">
-                {pills.map((pill) => {
-                  const { icon, label } = pillLabel(pill);
-                  return (
-                    <span key={pill.id} className="space-pill">
-                      <span aria-hidden="true">{icon}</span> {label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {boards.length > 0 && (
             <div className="space-boards-section">
