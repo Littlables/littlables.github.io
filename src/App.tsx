@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { NewsCategory, NewsItem, AdItem, ReactionType, ReactionCounts } from './types';
 import { SAVED_CATEGORY_KEY, CATEGORIES } from './constants/config';
 import { useTheme } from './hooks/useTheme';
-import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
 import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
@@ -11,11 +10,6 @@ import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { SettingsDialog } from './components/SettingsDialog';
-import { SignInDialog } from './components/SignInDialog';
-import { ProfileDialog } from './components/ProfileDialog';
-import { PublicProfilePage } from './components/PublicProfilePage';
-import { BoardPage } from './components/BoardPage';
-import { useAuth } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
 import {
@@ -36,35 +30,8 @@ import {
 } from './services/urlService';
 import { t, getDetectedLocale } from './constants/translations';
 
-/** Extracts a `@username` profile route from the URL path, e.g. `/@katie`. */
-function parseProfileFromUrl(): string | null {
-  if (typeof window === 'undefined') return null;
-  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/?$/i);
-  return match ? match[1].toLowerCase() : null;
-}
-
-/** Extracts a `@username/boardslug` board route, e.g. `/@katie/cozy-reads`. */
-function parseBoardFromUrl(): { username: string; slug: string } | null {
-  if (typeof window === 'undefined') return null;
-  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/?$/i);
-  return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
-}
-
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
-  const { profile } = useAuth();
-
-  // Apply custom background color from profile (overrides theme).
-  // Setting --news-bg on :root flows into body, header, and footer,
-  // which all use var(--news-bg).
-  useEffect(() => {
-    const bg = profile?.background_color;
-    if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
-      document.documentElement.style.setProperty('--news-bg', bg);
-    } else {
-      document.documentElement.style.removeProperty('--news-bg');
-    }
-  }, [profile?.background_color]);
 
   const [category, setCategoryState] = useState<NewsCategory>(() => {
     const urlTopic = parseTopicFromUrl();
@@ -85,28 +52,10 @@ export const App: React.FC = () => {
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
-  const [boardRoute, setBoardRoute] = useState<{ username: string; slug: string } | null>(() => parseBoardFromUrl());
-  // Board branding shown in the header while viewing a board page
-  const [boardBrand, setBoardBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
-  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
-
-  // Lock background scrolling whenever any dialog/modal window is open,
-  // so scrolling inside the window can't chain out to the page behind it
-  useLockBodyScroll(activeDialog !== null || selectedStory !== null);
-
-  // App-level toast popover: floats above everything, unaffected by layout,
-  // and persists even if the dialog that triggered it is closed
-  const [toast, setToast] = useState<{ key: number; message: string; kind: 'success' | 'error' } | null>(null);
-  const toastTimer = React.useRef<number | null>(null);
-  const notify = useCallback((message: string, kind: 'success' | 'error' = 'success') => {
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    setToast({ key: Date.now(), message, kind });
-    toastTimer.current = window.setTimeout(() => setToast(null), 3500);
-  }, []);
+  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | null>(null);
 
   // Set document title and lang from current locale and active story/topic
   useEffect(() => {
@@ -138,16 +87,6 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
-      const urlBoard = parseBoardFromUrl();
-      setBoardRoute(urlBoard);
-      if (urlBoard) {
-        setProfileRoute(null);
-        return;
-      }
-      setBoardBrand(null);
-      const urlProfile = parseProfileFromUrl();
-      setProfileRoute(urlProfile);
-      if (urlProfile) return;
       const urlTopic = parseTopicFromUrl() || 'all';
       const urlStory = parseStoryFromUrl();
       if (urlTopic !== category) {
@@ -268,15 +207,11 @@ export const App: React.FC = () => {
   const handleHomeRefresh = () => {
     setSelectedStory(null);
     setActiveStoryParam(null);
-    setProfileRoute(null);
-    setBoardRoute(null);
-    setBoardBrand(null);
     try {
       localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
     } catch {}
     if (typeof window !== 'undefined') {
-      // Always return to the site root (clears any /@username profile path)
-      const homeHref = `/?topic=${encodeURIComponent('all')}`;
+      const homeHref = getTopicHref('all');
       if (window.location.pathname + window.location.search !== homeHref) {
         window.history.pushState({ topic: 'all', story: null }, '', homeHref);
       }
@@ -375,11 +310,7 @@ export const App: React.FC = () => {
           onHomeClick={handleHomeRefresh}
           onRefresh={() => loadFeed(category)}
           onOpenSettings={() => setActiveDialog('settings')}
-          onOpenSignIn={() => setActiveDialog('signin')}
-          onOpenProfile={() => setActiveDialog('profile')}
           isLoading={isLoading}
-          brandName={boardBrand?.name}
-          brandLogoUrl={boardBrand?.logoUrl}
         />
 
         <CategoryNav
@@ -387,21 +318,6 @@ export const App: React.FC = () => {
           onSelectCategory={handleSelectCategory}
         />
 
-        {boardRoute ? (
-          <BoardPage
-            username={boardRoute.username}
-            slug={boardRoute.slug}
-            onHome={handleHomeRefresh}
-            onOpenProfile={() => setActiveDialog('profile')}
-            onBrand={setBoardBrand}
-          />
-        ) : profileRoute ? (
-          <PublicProfilePage
-            username={profileRoute}
-            onHome={handleHomeRefresh}
-            onOpenProfile={() => setActiveDialog('profile')}
-          />
-        ) : (
         <main id="news-grid-container" className="news-grid">
           {isLoading && stories.length === 0 && ads.length === 0 ? (
             <>
@@ -488,7 +404,6 @@ export const App: React.FC = () => {
             </>
           )}
         </main>
-        )}
       </div>
 
       <StoryModal
@@ -525,23 +440,6 @@ export const App: React.FC = () => {
         theme={theme}
         onThemeChange={setTheme}
       />
-
-      <SignInDialog
-        isOpen={activeDialog === 'signin'}
-        onClose={() => setActiveDialog(null)}
-      />
-
-      <ProfileDialog
-        isOpen={activeDialog === 'profile'}
-        onClose={() => setActiveDialog(null)}
-        notify={notify}
-      />
-
-      {toast && (
-        <div key={toast.key} className={`toast-popover toast-${toast.kind}`} role="status">
-          {toast.message}
-        </div>
-      )}
     </>
   );
 };

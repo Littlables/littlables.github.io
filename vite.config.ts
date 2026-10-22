@@ -9,15 +9,13 @@ export default defineConfig({
     outDir: 'dist',
     rollupOptions: {
       output: {
-        // Hashed filenames = automatic cache busting: browsers fetch the new
-        // bundle on every deploy instead of serving a stale cached copy.
-        entryFileNames: 'assets/bundle-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/bundle.js',
+        chunkFileNames: 'assets/[name].js',
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.endsWith('.css')) {
-            return 'assets/bundle-[hash].css';
+            return 'assets/bundle.css';
           }
-          return 'assets/[name]-[hash].[ext]';
+          return 'assets/[name].[ext]';
         }
       }
     }

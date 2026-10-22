@@ -1,37 +1,19 @@
 import React from 'react';
 import { t } from '../constants/translations';
-import { useAuth } from '../contexts/AuthContext';
-import { CHARACTER_AVATARS } from '../constants/avatars';
 
 interface HeaderProps {
   onHomeClick: () => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
-  onOpenSignIn: () => void;
-  onOpenProfile: () => void;
   isLoading: boolean;
-  /** Board branding override: shown instead of the Littlables logo on board pages */
-  brandName?: string;
-  brandLogoUrl?: string | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onHomeClick,
   onRefresh,
   onOpenSettings,
-  onOpenSignIn,
-  onOpenProfile,
-  isLoading,
-  brandName,
-  brandLogoUrl
+  isLoading
 }) => {
-  const { user, profile } = useAuth();
-
-  const character =
-    profile?.avatar_type === 'character'
-      ? CHARACTER_AVATARS.find((c) => c.id === profile.avatar_character) || null
-      : null;
-
   const handleBrandClick = () => {
     if (isLoading) return;
     try {
@@ -49,33 +31,20 @@ export const Header: React.FC<HeaderProps> = ({
         className="news-widget-title"
         id="widget-main-title"
         title="Refresh Stories"
-        aria-label={`${brandName || t('headerTitle') || 'Littlables'} — Refresh Stories`}
+        aria-label={`${t('headerTitle') || 'Littlables'} — Refresh Stories`}
         onClick={handleBrandClick}
       >
-        {brandLogoUrl ? (
-          <img
-            className="widget-brand-icon board-brand-logo"
-            src={brandLogoUrl}
-            width="28"
-            height="28"
-            alt={`${brandName || 'Board'} logo`}
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        ) : (
-          <img
-            className="widget-brand-icon"
-            src="/favicon-48x48.png"
-            width="28"
-            height="28"
-            alt="Littlables logo"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        )}
-        <span id="widget-title-text">{brandName || t('headerTitle') || 'Littlables'}</span>
+        <img
+          className="widget-brand-icon"
+          src="/favicon-48x48.png"
+          width="28"
+          height="28"
+          alt="Littlables logo"
+          onError={(e) => {
+            (e.target as HTMLElement).style.display = 'none';
+          }}
+        />
+        <span id="widget-title-text">{t('headerTitle') || 'Littlables'}</span>
       </button>
 
       <div className="news-header-controls">
@@ -129,39 +98,6 @@ export const Header: React.FC<HeaderProps> = ({
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
-
-        {user ? (
-          <button
-            type="button"
-            className="header-auth-button header-avatar-button"
-            title="Your profile"
-            aria-label="Open your profile"
-            onClick={onOpenProfile}
-          >
-            {profile?.avatar_url ? (
-              <img src={profile.avatar_url} alt="" className="header-avatar" />
-            ) : character ? (
-              <span
-                className="header-avatar"
-                style={{ background: character.bg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}
-              >
-                <span className="avatar-emoji-glyph">{character.emoji}</span>
-              </span>
-            ) : (
-              <span className="header-avatar-fallback">
-                {(profile?.display_name || user.email || '?')[0].toUpperCase()}
-              </span>
-            )}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="header-auth-button header-signin-button"
-            onClick={onOpenSignIn}
-          >
-            Sign in
-          </button>
-        )}
       </div>
     </header>
   );
