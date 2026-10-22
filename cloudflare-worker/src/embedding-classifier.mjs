@@ -54,8 +54,12 @@ export async function embedText(env, text, retries = 3) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const result = await env.AI.run(EMBEDDING_MODEL, { text: input });
-      // Workers AI returns { shape, data } for embedding models
-      const vector = result?.data || result?.embedding;
+      // Workers AI returns { shape, data } for embedding models.
+      // BGE models return a 2D array [[...]] even for single strings — flatten to 1D.
+      let vector = result?.data || result?.embedding;
+      if (Array.isArray(vector) && vector.length > 0 && Array.isArray(vector[0])) {
+        vector = vector[0];
+      }
       if (Array.isArray(vector) && vector.length > 0) return vector;
       lastError = new Error('Empty embedding vector returned');
     } catch (err) {
