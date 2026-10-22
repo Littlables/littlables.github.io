@@ -39,9 +39,17 @@ let cachedCategoryEmbeddings = null;
  * @returns {Promise<number[]|null>} 768-dim vector, or null on failure.
  */
 export async function embedText(env, text, retries = 3) {
-  if (!env?.AI) return null;
+  console.log('[embed] embedText called, env.AI exists:', !!env?.AI);
+  if (!env?.AI) {
+    console.log('[embed] No AI binding, returning null');
+    return null;
+  }
   const input = (text || '').trim().slice(0, 2000);
-  if (!input) return null;
+  console.log('[embed] Input length:', input.length);
+  if (!input) {
+    console.log('[embed] Empty input, returning null');
+    return null;
+  }
   let lastError = null;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -150,7 +158,9 @@ export function clearEmbeddingCache() {
  * @returns {Promise<Array<{id: number, queryCategory: string, embeddingCategory: string|null, confidence: number, mismatch: boolean}>>}
  */
 export async function validateStoryCategories(env, stories) {
+  console.log('[embed] validateStoryCategories called with', stories.length, 'stories');
   const categoryVectors = await getCategoryEmbeddings(env);
+  console.log('[embed] categoryVectors:', categoryVectors ? `${categoryVectors.size} categories` : 'null');
   if (!categoryVectors) return stories.map((s) => ({
     id: s.id,
     title: s.title,
