@@ -1243,13 +1243,17 @@ async function serveAdmin(request, env) {
       // story validation (which would exceed the subrequest limit).
       const kwStatus = await getPersistedKeywordEmbeddings(env);
       if (!kwStatus.complete) {
+        const debugBits = [];
+        if (kwStatus.lookupError) debugBits.push(`lookup: ${kwStatus.lookupError}`);
+        if (kwStatus.upsertError) debugBits.push(`upsert: ${kwStatus.upsertError}`);
+        if (kwStatus.upserted) debugBits.push(`saved ${kwStatus.upserted} this run`);
         return jsonResponse({
           validated: 0,
           stored: 0,
           storeError: null,
           mismatches: [],
           results: [],
-          status: `Warming up keyword vectors (${kwStatus.done}/${kwStatus.total}) — run validation again to continue.`,
+          status: `Warming up keyword vectors (${kwStatus.done}/${kwStatus.total}) — run validation again to continue.${debugBits.length ? ' [' + debugBits.join('; ') + ']' : ''}`,
         });
       }
       const keywordVectors = kwStatus.vectors;

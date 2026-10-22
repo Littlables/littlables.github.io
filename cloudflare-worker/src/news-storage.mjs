@@ -139,6 +139,7 @@ export async function getPersistedKeywordEmbeddings(env) {
 
   // 1. Load whatever is already stored.
   const map = new Map();
+  let lookupError = null;
   try {
     const params = new URLSearchParams({ select: 'keyword_id,embedding,model' });
     const res = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, params), {
@@ -155,12 +156,15 @@ export async function getPersistedKeywordEmbeddings(env) {
       }
     }
   } catch (err) {
-    console.warn('Keyword embeddings lookup failed:', err?.message || err);
+    lookupError = err?.message || String(err);
+    console.warn('Keyword embeddings lookup failed:', lookupError);
   }
 
   // 2. Backfill ONE chunk of missing vectors per call.
   const missing = INTEREST_KEYWORDS.filter((kw) => !map.has(kw.id));
   const chunk = missing.slice(0, KEYWORD_EMBED_CHUNK);
+  let upsertError = null;
+  let upserted = 0;
   if (chunk.length > 0) {
     const vectors = await Promise.all(chunk.map((kw) => embedText(env, kw.description)));
     const upserts = [];
@@ -173,13 +177,19 @@ export async function getPersistedKeywordEmbeddings(env) {
     if (upserts.length > 0) {
       try {
         const upsertParams = new URLSearchParams({ on_conflict: 'keyword_id' });
-        await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, upsertParams), {
+        const upsertRes = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, upsertParams), {
           method: 'POST',
           headers: supabaseHeaders(env, { Prefer: 'resolution=merge-duplicates' }),
           body: JSON.stringify(upserts),
         });
+        if (!upsertRes.ok) {
+          const errText = await upsertRes.text().catch(() => 'unknown');
+          throw new Error(`HTTP ${upsertRes.status}: ${errText.slice(0, 200)}`);
+        }
+        upserted = upserts.length;
       } catch (err) {
-        console.warn('Keyword embeddings upsert failed:', err?.message || err);
+        upsertError = err?.message || String(err);
+        console.warn('Keyword embeddings upsert failed:', upsertError);
       }
     }
   }
@@ -189,7 +199,7 @@ export async function getPersistedKeywordEmbeddings(env) {
     console.warn(
       `Keyword embeddings incomplete (${done}/${total}); backfilled ${chunk.length} this run, skipping keyword tagging.`
     );
-    return { vectors: null, complete: false, done, total };
+    return { vectors: null, complete: false, done, total, lookupError, upsertError, upserted };
   }
   cachedKeywordVectors = map;
   return { vectors: map, complete: true, done, total };
