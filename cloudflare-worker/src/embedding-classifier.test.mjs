@@ -1,0 +1,90 @@
+/**
+ * Tests for the embedding-based content classifier.
+ * The cosine similarity math is tested directly; the Workers AI calls
+ * (embedText, classifyStoryByEmbedding) are tested with a mocked env.
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  cosineSimilarity,
+  classifyStoryByEmbedding,
+  getCategoryEmbeddings,
+  clearEmbeddingCache,
+  CATEGORY_DESCRIPTIONS,
+  EMBEDDING_MODEL,
+} from './embedding-classifier.mjs';
+
+describe('embedding-classifier', () => {
+  it('exposes descriptions for all six content categories', () => {
+    const cats = Object.keys(CATEGORY_DESCRIPTIONS).sort();
+    assert.deepEqual(cats, ['animals', 'arts', 'childcare', 'tech', 'uplifting', 'world']);
+    for (const desc of Object.values(CATEGORY_DESCRIPTIONS)) {
+      assert.ok(desc.length > 20, 'descriptions should be phrases, not bare IDs');
+    }
+  });
+
+  it('cosineSimilarity: identical vectors score 1', () => {
+    assert.equal(cosineSimilarity([1, 2, 3], [1, 2, 3]), 1);
+  });
+
+  it('cosineSimilarity: orthogonal vectors score 0', () => {
+    assert.equal(cosineSimilarity([1, 0], [0, 1]), 0);
+  });
+
+  it('cosineSimilarity: opposite vectors score -1', () => {
+    assert.ok(Math.abs(cosineSimilarity([1, 1], [-1, -1]) - -1) < 1e-9);
+  });
+
+  it('cosineSimilarity: handles mismatched/empty vectors', () => {
+    assert.equal(cosineSimilarity([1, 2], [1, 2, 3]), 0);
+    assert.equal(cosineSimilarity([], []), 0);
+    assert.equal(cosineSimilarity(null, [1]), 0);
+  });
+
+  it('classifyStoryByEmbedding returns null without an AI binding', async () => {
+    clearEmbeddingCache();
+    const result = await classifyStoryByEmbedding({}, { title: 'Cute puppy', description: 'A dog' });
+    assert.equal(result, null);
+  });
+
+  it('classifyStoryByEmbedding picks the closest category with a mocked AI', async () => {
+    clearEmbeddingCache();
+    // Mock env.AI.run: return a fixed vector per input text.
+    // "animals…" description and the puppy story share a vector; others differ.
+    const animalVec = [1, 0, 0];
+    const otherVec = [0, 1, 0];
+    const storyVec = [0.9, 0.1, 0]; // closest to animalVec
+    const mockEnv = {
+      AI: {
+        run: async (model, { text }) => {
+          assert.equal(model, EMBEDDING_MODEL);
+          if (text.includes('Cute puppy')) return { data: storyVec };
+          if (text.startsWith('animals,')) return { data: animalVec };
+          return { data: otherVec };
+        },
+      },
+    };
+    const result = await classifyStoryByEmbedding(mockEnv, {
+      title: 'Cute puppy learns to swim',
+      description: 'A golden retriever puppy takes its first swimming lesson',
+    });
+    assert.ok(result);
+    assert.equal(result.category, 'animals');
+    assert.ok(result.confidence > 0.9, `expected high confidence, got ${result.confidence}`);
+    assert.ok(result.scores.animals > result.scores.tech, 'animals should outscore tech');
+    clearEmbeddingCache();
+  });
+
+  it('getCategoryEmbeddings caches across calls', async () => {
+    clearEmbeddingCache();
+    let calls = 0;
+    const mockEnv = {
+      AI: { run: async () => { calls++; return { data: [0.1, 0.2] }; } },
+    };
+    await getCategoryEmbeddings(mockEnv);
+    await getCategoryEmbeddings(mockEnv);
+    // 6 categories embedded once, second call served from cache
+    assert.equal(calls, 6);
+    clearEmbeddingCache();
+  });
+});
