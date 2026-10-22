@@ -35,22 +35,32 @@ let cachedCategoryEmbeddings = null;
 
 /**
  * Generate an embedding vector for a text string via Workers AI.
+ * Retries up to 3 times with exponential backoff on failure.
  * @returns {Promise<number[]|null>} 768-dim vector, or null on failure.
  */
-export async function embedText(env, text) {
+export async function embedText(env, text, retries = 3) {
   if (!env?.AI) return null;
   const input = (text || '').trim().slice(0, 2000);
   if (!input) return null;
-  try {
-    const result = await env.AI.run(EMBEDDING_MODEL, { text: input });
-    // Workers AI returns { shape, data } for embedding models
-    const vector = result?.data || result?.embedding;
-    if (Array.isArray(vector) && vector.length > 0) return vector;
-    return null;
-  } catch (err) {
-    console.warn('Embedding generation failed:', err?.message || err);
-    return null;
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const result = await env.AI.run(EMBEDDING_MODEL, { text: input });
+      // Workers AI returns { shape, data } for embedding models
+      const vector = result?.data || result?.embedding;
+      if (Array.isArray(vector) && vector.length > 0) return vector;
+      lastError = new Error('Empty embedding vector returned');
+    } catch (err) {
+      lastError = err;
+      console.warn(`Embedding attempt ${attempt + 1}/${retries} failed:`, err?.message || err);
+    }
+    // Exponential backoff: 500ms, 1s, 2s
+    if (attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+    }
   }
+  console.warn('Embedding generation failed after retries:', lastError?.message || lastError);
+  return null;
 }
 
 /**

@@ -1094,46 +1094,70 @@ async function serveAdmin(request, env) {
       return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
     }
     try {
-      // Fetch unapproved stories that haven't been validated yet
-      const query = new URLSearchParams({
-        select: 'id,title,description,category',
-        approved: 'eq.false',
-        removed: 'eq.false',
-        'embedding_category': 'is.null',
-        order: 'fetched_at.desc',
-        limit: '50',
-      });
-      const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
-        headers: supabaseHeaders(env),
-      });
-      if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
-      const stories = await res.json();
+      // Parse optional limit (default: process all unvalidated)
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        // empty body is fine
+      }
+      const maxStories = Math.min(Math.max(Number(body.limit) || 500, 1), 2000);
+      const BATCH = 50;
 
-      const results = await validateStoryCategories(env, stories);
+      let totalValidated = 0;
+      let totalStored = 0;
+      const allMismatches = [];
+      let offset = 0;
 
-      // Store the embedding predictions
-      let stored = 0;
-      for (const r of results) {
-        if (!r.embeddingCategory) continue;
-        const updateRes = await fetch(
-          supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${r.id}` })),
-          {
-            method: 'PATCH',
-            headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              embedding_category: r.embeddingCategory,
-              embedding_confidence: r.confidence,
-            }),
-          }
-        );
-        if (updateRes.ok) stored++;
+      while (totalValidated < maxStories) {
+        // Fetch next batch of unapproved stories that haven't been validated yet
+        const query = new URLSearchParams({
+          select: 'id,title,description,category',
+          approved: 'eq.false',
+          removed: 'eq.false',
+          'embedding_category': 'is.null',
+          order: 'fetched_at.desc',
+          limit: String(Math.min(BATCH, maxStories - totalValidated)),
+          offset: String(offset),
+        });
+        const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+          headers: supabaseHeaders(env),
+        });
+        if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+        const stories = await res.json();
+        if (!stories.length) break;
+
+        const results = await validateStoryCategories(env, stories);
+
+        // Store the embedding predictions
+        for (const r of results) {
+          if (!r.embeddingCategory) continue;
+          const updateRes = await fetch(
+            supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${r.id}` })),
+            {
+              method: 'PATCH',
+              headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                embedding_category: r.embeddingCategory,
+                embedding_confidence: r.confidence,
+              }),
+            }
+          );
+          if (updateRes.ok) totalStored++;
+        }
+
+        totalValidated += results.length;
+        allMismatches.push(...results.filter((r) => r.mismatch));
+        offset += stories.length;
+
+        // If we got fewer than requested, we've reached the end
+        if (stories.length < BATCH) break;
       }
 
-      const mismatches = results.filter((r) => r.mismatch);
       return jsonResponse({
-        validated: results.length,
-        stored,
-        mismatches: mismatches.map((m) => ({
+        validated: totalValidated,
+        stored: totalStored,
+        mismatches: allMismatches.map((m) => ({
           id: m.id,
           queryCategory: m.queryCategory,
           embeddingCategory: m.embeddingCategory,
