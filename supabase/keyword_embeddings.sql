@@ -8,3 +8,7 @@ CREATE TABLE IF NOT EXISTS keyword_embeddings (
   model TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Tables created via psql don't get Supabase's default privileges; the
+-- worker's service role needs explicit grants (RLS bypass alone isn't enough).
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.keyword_embeddings TO service_role;
