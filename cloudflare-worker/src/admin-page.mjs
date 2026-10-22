@@ -5211,7 +5211,16 @@ export function getAdminPage() {
                 if (kws) {
                   var kwBadge = document.createElement('span');
                   kwBadge.className = 'meta-badge-status meta-approved';
-                  kwBadge.textContent = '🔖 ' + kws.map(kwLabel).join(', ');
+                  // Prefer keywordMatches (carries confidence from the tagging run);
+                  // fall back to plain stored ids (e.g. hand-tagged keywords).
+                  var kwConf = {};
+                  (Array.isArray(m.keywordMatches) ? m.keywordMatches : []).forEach(function (km) {
+                    kwConf[km.id] = km.confidence;
+                  });
+                  kwBadge.textContent = '🔖 ' + kws.map(function (id) {
+                    var label = kwLabel(id);
+                    return kwConf[id] != null ? label + ' (' + Number(kwConf[id]).toFixed(2) + ')' : label;
+                  }).join(', ');
                   meta.appendChild(kwBadge);
                 }
                 details.appendChild(meta);
