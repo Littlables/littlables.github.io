@@ -1208,6 +1208,7 @@ async function serveAdmin(request, env) {
           approved: 'eq.false',
           removed: 'eq.false',
           'embedding_category': 'is.null',
+          'display_categories': 'is.null',
           order: 'fetched_at.desc',
           limit: String(Math.min(BATCH, maxStories - totalValidated)),
           offset: String(offset),
@@ -1221,7 +1222,9 @@ async function serveAdmin(request, env) {
 
         const results = await validateStoryCategories(env, stories);
 
-        // Store the embedding predictions
+        // Store the embedding predictions. For mismatches, auto-apply the AI's
+        // pick as the display override — Katie reviews them in the validation
+        // list and can revert any with Undo.
         for (const r of results) {
           if (!r.embeddingCategory) continue;
           const updateRes = await fetch(
@@ -1232,11 +1235,13 @@ async function serveAdmin(request, env) {
               body: JSON.stringify({
                 embedding_category: r.embeddingCategory,
                 embedding_confidence: r.confidence,
+                ...(r.mismatch ? { display_categories: [r.embeddingCategory] } : {}),
               }),
             }
           );
           if (updateRes.ok) {
             totalStored++;
+            if (r.mismatch) r.displayCategories = [r.embeddingCategory];
           } else {
             const errText = await updateRes.text().catch(() => 'unknown');
             console.error(`Failed to store embedding for story ${r.id}: ${updateRes.status} ${errText}`);

@@ -5193,7 +5193,9 @@ export function getAdminPage() {
                     mkBtn('Use AI', 'small-btn').addEventListener('click', function () {
                       applyDisplayCategories(m.id, [m.embeddingCategory], row, m, rowBtns);
                     });
-                    if (m.embeddingCategory !== m.queryCategory) {
+                    // "Use both" is redundant when the query category is 'all'
+                    // (it would resolve to just the AI category after filtering).
+                    if (m.embeddingCategory !== m.queryCategory && m.queryCategory !== 'all') {
                       mkBtn('Use both', 'small-btn').addEventListener('click', function () {
                         var both = [m.queryCategory, m.embeddingCategory].filter(function (c, i, a) {
                           return c && OVERRIDABLE_IDS.indexOf(c) !== -1 && a.indexOf(c) === i;

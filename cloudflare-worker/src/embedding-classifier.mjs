@@ -220,11 +220,9 @@ export async function validateStoryCategories(env, stories) {
             bestCategory = cat;
           }
         }
-        // 'all' is a catch-all; only flag mismatch if embedding is confident
-        // about a specific category different from the query category
-        const mismatch = bestCategory !== story.category
-          && story.category !== 'all'
-          && bestScore >= 0.35;
+        // 'all' is a catch-all with no real category signal — treat it as null, so a
+        // confident AI prediction for an 'all' story flags as a mismatch.
+        const mismatch = bestCategory !== story.category && bestScore >= 0.35;
         return {
           id: story.id,
           title: story.title,

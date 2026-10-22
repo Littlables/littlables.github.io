@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   cosineSimilarity,
   classifyStoryByEmbedding,
+  validateStoryCategories,
   getCategoryEmbeddings,
   clearEmbeddingCache,
   CATEGORY_DESCRIPTIONS,
@@ -85,6 +86,32 @@ describe('embedding-classifier', () => {
     await getCategoryEmbeddings(mockEnv);
     // 6 categories embedded once, second call served from cache
     assert.equal(calls, 6);
+    clearEmbeddingCache();
+  });
+
+  it('validateStoryCategories treats "all" as null — confident AI picks flag as mismatches', async () => {
+    clearEmbeddingCache();
+    const animalVec = [1, 0];
+    const otherVec = [0, 1];
+    const mockEnv = {
+      AI: {
+        run: async (model, { text }) => {
+          if (text.startsWith('animals,')) return { data: [animalVec] };
+          if (text.includes('Cute puppy')) return { data: [animalVec] };
+          return { data: [otherVec] };
+        },
+      },
+    };
+    const results = await validateStoryCategories(mockEnv, [
+      { id: 1, title: 'Cute puppy plays', description: '', category: 'all' },
+      { id: 2, title: 'Cute puppy plays', description: '', category: 'animals' },
+    ]);
+    const allStory = results.find(r => r.id === 1);
+    assert.equal(allStory.embeddingCategory, 'animals');
+    assert.equal(allStory.mismatch, true, '"all" with a confident AI pick should flag as mismatch');
+    const matchStory = results.find(r => r.id === 2);
+    assert.equal(matchStory.embeddingCategory, 'animals');
+    assert.equal(matchStory.mismatch, false);
     clearEmbeddingCache();
   });
 });
