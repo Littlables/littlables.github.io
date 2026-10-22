@@ -1652,6 +1652,7 @@ body.story-modal-open {
   cursor: pointer;
   font: inherit;
   text-align: left;
+  display: block;
 }
 
 .profile-email-link:hover {
