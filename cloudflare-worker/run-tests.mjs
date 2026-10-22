@@ -30,6 +30,15 @@ const failures = [];
 
 for (const testFile of TEST_FILES) {
   const fullPath = path.join(__dirname, testFile);
+  // Skip test files that don't exist on this branch (e.g. unmerged feature branches)
+  try {
+    await import('node:fs/promises').then((fs) => fs.access(fullPath));
+  } catch {
+    console.log(`\n▶ ${testFile}`);
+    console.log('─'.repeat(60));
+    console.log('  ⊘ SKIPPED: file not present on this branch');
+    continue;
+  }
   console.log(`\n▶ ${testFile}`);
   console.log('─'.repeat(60));
 
