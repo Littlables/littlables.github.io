@@ -5094,7 +5094,7 @@ export function getAdminPage() {
                   });
                 };
                 row.addEventListener('click', function (event) {
-                  if (event.target.closest('button')) return;
+                  if (event.target.closest('button, input, label, select, textarea')) return;
                   openValidationPreview();
                 });
                 row.addEventListener('keydown', function (event) {
