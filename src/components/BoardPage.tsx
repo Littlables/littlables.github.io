@@ -9,7 +9,6 @@ import {
   getStoryId,
 } from '../services/supabaseService';
 import { NewsCard } from './NewsCard';
-import { CATEGORIES } from '../constants/config';
 import { t } from '../constants/translations';
 import type { NewsItem, NewsCategory, ReactionCounts, ReactionType } from '../types';
 
@@ -22,17 +21,6 @@ interface BoardPageProps {
 }
 
 const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
-
-function pillLabel(pill: NonNullable<Profile['pills']>[number]): { icon: string; label: string } {
-  if (pill.type === 'custom') {
-    return { icon: '🏷️', label: pill.label || pill.id };
-  }
-  const cat = CATEGORIES.find((c) => c.id === pill.id);
-  return {
-    icon: cat?.icon || '📰',
-    label: cat ? t(cat.i18nKey as keyof typeof t) || pill.id : pill.id,
-  };
-}
 
 export const BoardPage: React.FC<BoardPageProps> = ({
   username,
@@ -238,19 +226,6 @@ export const BoardPage: React.FC<BoardPageProps> = ({
           </button>
         )}
       </div>
-
-      {pills.length > 0 && (
-        <div className="board-pills">
-          {pills.map((pill) => {
-            const { icon, label } = pillLabel(pill);
-            return (
-              <span key={`${pill.type}-${pill.id}`} className="space-pill">
-                <span aria-hidden="true">{icon}</span> {label}
-              </span>
-            );
-          })}
-        </div>
-      )}
 
       {stories.length === 0 ? (
         <div className="board-empty">
