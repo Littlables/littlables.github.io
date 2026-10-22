@@ -49,7 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
         className="news-widget-title"
         id="widget-main-title"
         title="Refresh Stories"
-        aria-label={`${brandName || t('headerTitle') || 'Littlables'} — Refresh Stories`}
+        aria-label={`${brandName || t('headerTitle') || 'littlables'} — Refresh Stories`}
         onClick={handleBrandClick}
       >
         {brandLogoUrl ? (
@@ -75,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
           />
         )}
-        <span id="widget-title-text">{brandName || t('headerTitle') || 'Littlables'}</span>
+        <span id="widget-title-text">{brandName || t('headerTitle') || 'littlables'}</span>
       </button>
 
       <div className="news-header-controls">

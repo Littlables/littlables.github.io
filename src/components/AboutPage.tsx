@@ -80,7 +80,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn }) => 
             (e.target as HTMLElement).style.display = 'none';
           }}
         />
-        <h1 className="about-hero-title">Littlables</h1>
+        <h1 className="about-hero-title">littlables</h1>
         <p className="about-hero-tagline">A Little Scoop of the World</p>
         <p className="about-hero-sub">
           Your cozy corner of the internet — curated news for curious families,

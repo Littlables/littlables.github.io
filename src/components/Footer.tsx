@@ -10,8 +10,8 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAbout, onOpenDisclaimer })
 
   return (
     <footer className="site-footer">
-      <span>© <span id="copyright-year">{currentYear}</span> Littlables</span>
-      <nav aria-label="About Littlables">
+      <span>© <span id="copyright-year">{currentYear}</span> littlables</span>
+      <nav aria-label="About littlables">
         <a
           href="#about-us"
           data-umami-event="Open-About"

@@ -30,7 +30,7 @@ export interface TranslationStrings {
 export const I18N_TRANSLATIONS: Record<string, TranslationStrings> = {
   en: {
     pageTitle: "Littlables — A Little Scoop of the World",
-    headerTitle: "Littlables",
+    headerTitle: "littlables",
     refreshBtn: "🔄 Refresh Feed",
     loading: "Fetching the freshest stories...",
     breaking: "Breaking",
