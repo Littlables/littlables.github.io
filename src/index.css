@@ -1477,7 +1477,6 @@ body.story-modal-open {
   background: var(--pill-bg, rgba(79, 70, 229, 0.12));
   color: var(--news-text, #f1f5f9);
   border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
-  border-radius: 999px;
 }
 
 .email-button:hover {
