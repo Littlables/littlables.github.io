@@ -5062,7 +5062,34 @@ export function getAdminPage() {
               var createValidationRow = function (m) {
                 var row = document.createElement('article');
                 row.className = 'story';
+                row.tabIndex = 0;
                 row.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
+                row.setAttribute('aria-label', 'Preview story: ' + decodeHtmlEntities(m.title || 'Untitled'));
+                var openValidationPreview = function () {
+                  openStoryPreview({
+                    id: m.id,
+                    title: m.title,
+                    link: m.articleUrl,
+                    image: m.imageUrl,
+                    description: m.description,
+                    category: m.queryCategory,
+                    provider: m.provider,
+                    source: m.provider,
+                    pubDate: m.publishedAt,
+                    approved: false,
+                    removed: false
+                  });
+                };
+                row.addEventListener('click', function (event) {
+                  if (event.target.closest('button')) return;
+                  openValidationPreview();
+                });
+                row.addEventListener('keydown', function (event) {
+                  if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    openValidationPreview();
+                  }
+                });
 
                 var fallbackImg = 'https://littlables.com/img/' + (m.queryCategory || 'all') + '_1.jpg';
                 var image = document.createElement('img');
@@ -5077,9 +5104,12 @@ export function getAdminPage() {
                 var title = document.createElement('h3');
                 var link = document.createElement('a');
                 link.href = m.articleUrl || '#';
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
                 link.textContent = decodeHtmlEntities(m.title || 'Untitled');
+                link.addEventListener('click', function (event) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openValidationPreview();
+                });
                 title.appendChild(link);
                 details.appendChild(title);
 

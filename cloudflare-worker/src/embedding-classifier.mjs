@@ -168,6 +168,7 @@ export async function validateStoryCategories(env, stories) {
     imageUrl: s.image_url || null,
     provider: s.provider || null,
     articleUrl: s.article_url || null,
+    description: s.description || null,
     publishedAt: s.published_at || null,
     fetchedAt: s.fetched_at || null,
     displayCategories: Array.isArray(s.display_categories) && s.display_categories.length > 0
