@@ -181,17 +181,28 @@ export const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
 
+    let fetchedStories: NewsItem[] = [];
     try {
       // Parallel fetch news and category/keyword-based ads
-      const [fetchedStories, categoryAds] = await Promise.all([
+      const [stories, categoryAds] = await Promise.all([
         fetchNewsFeed(cat),
         fetchAdsForCategory(cat)
       ]);
 
-      setStories(fetchedStories);
+      fetchedStories = stories;
+      setStories(stories);
       setAds(categoryAds);
+    } catch (err: any) {
+      console.error('Error loading stories:', err);
+      setError(err?.message || 'Unable to load stories.');
+    } finally {
+      // Stories are showing — release the loading state immediately.
+      // Reactions load afterward and must not hold the button.
+      setIsLoading(false);
+    }
 
-      // Fetch reactions for stories
+    // Fetch reactions for stories (non-blocking for the refresh button)
+    try {
       if (fetchedStories.length > 0) {
         const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
         const reactionData = await fetchReactionsForStories(storyIds);
@@ -199,11 +210,8 @@ export const App: React.FC = () => {
       } else {
         setReactions({});
       }
-    } catch (err: any) {
-      console.error('Error loading stories:', err);
-      setError(err?.message || 'Unable to load stories.');
-    } finally {
-      setIsLoading(false);
+    } catch {
+      setReactions({});
     }
   }, []);
 
