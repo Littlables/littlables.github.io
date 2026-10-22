@@ -2651,3 +2651,26 @@ body.story-modal-open {
   color: var(--news-text-muted, #94a3b8);
   text-align: center;
 }
+
+/* ---------- Static page layout (profile / board routes) ----------
+   The page chrome stays fixed; content scrolls in its own container
+   below the navigation bar. */
+.news-widget-wrapper.has-static-page {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.has-static-page .news-widget-header,
+.has-static-page .news-category-container {
+  flex-shrink: 0;
+}
+
+.has-static-page .space-page,
+.has-static-page main.news-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
