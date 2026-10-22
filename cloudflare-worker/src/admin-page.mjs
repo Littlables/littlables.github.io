@@ -4755,7 +4755,17 @@ export function getAdminPage() {
             updatedAt: new Date().toISOString(),
             ...(approve ? { approved: true, removed: false, decisionAction: 'approve' } : {})
           });
-          if (approve) updateValidationRowApproval(existingId, true);
+          // Keep the validation list row in sync with preview edits.
+          patchValidationRow(existingId, {
+            title: draft.title,
+            articleUrl: draft.link,
+            imageUrl: draft.image,
+            description: draft.description,
+            provider: draft.source,
+            publishedAt: draft.pubDate,
+            queryCategory: draft.category,
+            ...(approve ? { approved: true } : {})
+          });
         }
         previewDialog.close();
         await refreshData();
@@ -4981,16 +4991,19 @@ export function getAdminPage() {
     }
 
     /* Embedding category validation */
-    // Registry of rendered validation rows by story id, so approval/badge state
-    // can update live when a story is approved from its row or its preview.
+    // Registry of rendered validation rows by story id, so row content can
+    // update live when a story is edited/approved from its row or its preview.
     var validationRowRegistry = new Map();
-    var updateValidationRowApproval = function (storyId, approved) {
+    var patchValidationRow = function (storyId, patch) {
       var entry = validationRowRegistry.get(Number(storyId));
-      if (!entry) return;
-      entry.m.approved = approved === true;
+      if (!entry || !patch) return;
+      Object.assign(entry.m, patch);
       var fresh = entry.render(entry.m);
       entry.row.replaceWith(fresh);
       validationRowRegistry.set(Number(storyId), { m: entry.m, row: fresh, render: entry.render });
+    };
+    var updateValidationRowApproval = function (storyId, approved) {
+      patchValidationRow(storyId, { approved: approved === true });
     };
     const validateBtn = document.getElementById('validate-categories-btn');
     const validateStatus = document.getElementById('validate-categories-status');
