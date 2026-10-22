@@ -24,6 +24,9 @@ import {
   getStoredKeywordNewsFeed,
   undoNewsStoryDecision,
   updateNewsStory,
+  setStoryDisplayCategories,
+  OVERRIDABLE_CATEGORIES,
+  effectiveDisplayCategories,
   upsertNewsStories,
   searchNewsStories,
   getProviderCooldownState,
@@ -952,6 +955,27 @@ async function serveAdmin(request, env) {
     }
   }
 
+  const displayCatsMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/display-categories$/);
+  if (displayCatsMatch && request.method === 'PATCH') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story category updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      let body = {};
+      try { body = await request.json(); } catch { /* empty body clears the override */ }
+      const result = await setStoryDisplayCategories(env, displayCatsMatch[1], body.display_categories);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not update story categories' }, result.error === 'Story was not found' ? 404 : 400);
+      return jsonResponse({
+        id: Number(displayCatsMatch[1]),
+        display_categories: result.displayCategories,
+        overrridable_categories: OVERRIDABLE_CATEGORIES,
+      });
+    } catch (err) {
+      console.error('News story display-categories update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story categories' }, 502);
+    }
+  }
+
   const updateMatch = url.pathname.match(/^\/admin\/api\/providers\/([a-z0-9-]+)\/update$/);
   if (updateMatch && request.method === 'POST') {
     try {
@@ -1180,7 +1204,7 @@ async function serveAdmin(request, env) {
       while (totalValidated < maxStories) {
         // Fetch next batch of unapproved stories that haven't been validated yet
         const query = new URLSearchParams({
-          select: 'id,title,description,category',
+          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories',
           approved: 'eq.false',
           removed: 'eq.false',
           'embedding_category': 'is.null',
@@ -1229,6 +1253,12 @@ async function serveAdmin(request, env) {
           embeddingCategory: r.embeddingCategory,
           confidence: r.confidence,
           mismatch: r.mismatch,
+          imageUrl: r.imageUrl || null,
+          provider: r.provider || null,
+          articleUrl: r.articleUrl || null,
+          publishedAt: r.publishedAt || null,
+          fetchedAt: r.fetchedAt || null,
+          displayCategories: r.displayCategories || null,
         })));
         offset += stories.length;
 
@@ -1242,9 +1272,16 @@ async function serveAdmin(request, env) {
         storeError: firstError,
         mismatches: allMismatches.map((m) => ({
           id: m.id,
+          title: m.title,
           queryCategory: m.queryCategory,
           embeddingCategory: m.embeddingCategory,
           confidence: m.confidence,
+          imageUrl: m.imageUrl || null,
+          provider: m.provider || null,
+          articleUrl: m.articleUrl || null,
+          publishedAt: m.publishedAt || null,
+          fetchedAt: m.fetchedAt || null,
+          displayCategories: m.displayCategories || null,
         })),
         results: allResults,
       });

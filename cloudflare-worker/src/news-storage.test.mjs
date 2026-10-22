@@ -5,11 +5,13 @@ import {
   banNewsStory,
   claimNewsProviderSync,
   createApprovedCustomNewsStory,
+  effectiveDisplayCategories,
   finishNewsProviderSync,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
   disapproveNewsStory,
   resetNewsProviderSync,
+  setStoryDisplayCategories,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories
@@ -55,12 +57,13 @@ test('stored feed query returns normalized publisher story shape', async () => {
     const feed = await getStoredNewsFeed(env, 'childcare');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('category') === 'eq.childcare'));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === '(and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare})'));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
     assert.equal(feed.provider, 'supabase');
     assert.deepEqual(feed.items[0], {
       provider: 'gnews',
       category: 'childcare',
+      displayCategories: null,
       title: 'Family story',
       link: 'https://publisher.example/family',
       image: 'https://images.example/family.jpg',
@@ -488,4 +491,61 @@ test('provider sync reset leaves a non-running provider untouched', async () => 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('setStoryDisplayCategories validates, dedupes, and clears overrides', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (input, options) => {
+    requestBody = JSON.parse(options.body);
+    return Response.json([{ id: 99 }]);
+  };
+  try {
+    // Valid multi-category override, with duplicates and casing normalized
+    let result = await setStoryDisplayCategories(env, 99, ['Animals', 'childcare', 'animals']);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.displayCategories, ['animals', 'childcare']);
+    assert.deepEqual(requestBody, { display_categories: ['animals', 'childcare'] });
+
+    // Empty list clears the override (NULL, not empty array)
+    result = await setStoryDisplayCategories(env, 99, []);
+    assert.equal(result.ok, true);
+    assert.equal(result.displayCategories, null);
+    assert.deepEqual(requestBody, { display_categories: null });
+
+    // null clears too
+    result = await setStoryDisplayCategories(env, 99, null);
+    assert.equal(result.ok, true);
+    assert.equal(result.displayCategories, null);
+
+    // Unknown categories are rejected, nothing is written
+    result = await setStoryDisplayCategories(env, 99, ['childcare', 'nonsense']);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'Unknown category in override list');
+
+    // 'all' is not an overridable display category
+    result = await setStoryDisplayCategories(env, 99, ['all']);
+    assert.equal(result.ok, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('effectiveDisplayCategories prefers the override list', () => {
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', display_categories: ['childcare', 'animals'] }),
+    ['childcare', 'animals']
+  );
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', display_categories: [] }),
+    ['tech']
+  );
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', display_categories: null }),
+    ['tech']
+  );
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', displayCategories: ['arts'] }),
+    ['arts']
+  );
 });

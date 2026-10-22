@@ -23,6 +23,8 @@ export interface NewsItem {
   fetchedAt?: string;
   approved?: boolean;
   category?: NewsCategory;
+  /** Admin-curated frontend category override. When set, the story displays under these categories instead of `category`. */
+  displayCategories?: string[] | null;
   provider?: string;
   source?: string;
 }

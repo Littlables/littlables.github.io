@@ -411,7 +411,7 @@ export const App: React.FC = () => {
     const active = CATEGORIES.find(c => c.id === targetCat);
     if (active) {
       const icon = active.icon || '⚡';
-      if (targetCat === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
+      if (targetCat === 'all') return `${icon} ${t('breaking') || 'All'}`;
       return `${icon} ${t((active.i18nKey || 'catAll') as any)}`;
     }
     return `🔍 ${formatCustomTopicLabel(targetCat)}`;
@@ -513,7 +513,7 @@ export const App: React.FC = () => {
                 onClick={() => handleSelectCategory('all')}
                 style={{ marginTop: '0.75rem' }}
               >
-                ⚡ View Top Currents
+                ⚡ View All
               </button>
             </div>
           ) : (

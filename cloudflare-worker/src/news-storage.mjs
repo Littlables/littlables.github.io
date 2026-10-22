@@ -36,21 +36,44 @@ function normalizeStory(row) {
     fetchedAt: row.fetched_at || '',
     source: row.source_name || '',
     provider: row.provider,
-    category: row.category
+    category: row.category,
+    // Admin-curated frontend category override. Null/empty = use `category`.
+    displayCategories: Array.isArray(row.display_categories) && row.display_categories.length > 0
+      ? row.display_categories.filter(c => typeof c === 'string')
+      : null
   };
+}
+
+/**
+ * Effective frontend categories for a story row: the override list when set,
+ * otherwise the query-assigned category.
+ */
+export function effectiveDisplayCategories(row) {
+  if (Array.isArray(row.display_categories) && row.display_categories.length > 0) {
+    return row.display_categories.filter(c => typeof c === 'string');
+  }
+  if (Array.isArray(row.displayCategories) && row.displayCategories.length > 0) {
+    return row.displayCategories.filter(c => typeof c === 'string');
+  }
+  const fallback = row.category || 'all';
+  return [fallback];
 }
 
 export async function getStoredNewsFeed(env, category) {
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       order: 'published_at.desc.nullslast,fetched_at.desc',
       limit: '50'
     });
     if (category && category !== 'all') {
-      params.set('category', `eq.${category}`);
+      // Include admin-overridden stories: a story shows under this category when
+      // it has no override (NULL display_categories) and its assigned category
+      // matches, or when its display_categories list contains this category.
+      // (The PATCH endpoint normalizes empty lists to NULL, so is.null is enough.)
+      params.set('or', `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`);
     }
     return params;
   };
@@ -464,6 +487,43 @@ export async function updateNewsStory(env, storyId, story) {
     syncAiStagedPickDetails(Number(storyId), story);
   }
   return rows.length === 1;
+}
+
+// Categories a story may be overridden into for frontend display.
+// 'all' is excluded — it is the catch-all feed, not a display section.
+export const OVERRIDABLE_CATEGORIES = Object.freeze(
+  NEWS_CATEGORIES.filter(c => c !== 'all')
+);
+
+/**
+ * Set the frontend category override for a story.
+ * @param {string[]|null} categories - desired display categories; null/empty clears the override.
+ * @returns {{ ok: boolean, displayCategories: string[]|null, error?: string }}
+ */
+export async function setStoryDisplayCategories(env, storyId, categories) {
+  const clean = [...new Set(
+    (Array.isArray(categories) ? categories : [])
+      .map(c => String(c || '').trim().toLowerCase())
+      .filter(c => OVERRIDABLE_CATEGORIES.includes(c))
+  )];
+  // Reject unknown values rather than silently dropping them, so the admin UI
+  // can surface typos instead of applying a partial override.
+  const requested = (Array.isArray(categories) ? categories : [])
+    .map(c => String(c || '').trim().toLowerCase())
+    .filter(c => c.length > 0);
+  if (requested.some(c => !OVERRIDABLE_CATEGORIES.includes(c))) {
+    return { ok: false, displayCategories: null, error: 'Unknown category in override list' };
+  }
+  const value = clean.length > 0 ? clean : null;
+  const query = new URLSearchParams({ id: `eq.${storyId}`, select: 'id' });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({ display_categories: value })
+  });
+  const rows = await readRows(response, 'Story display-categories update');
+  if (rows.length !== 1) return { ok: false, displayCategories: null, error: 'Story was not found' };
+  return { ok: true, displayCategories: value };
 }
 
 export async function createApprovedCustomNewsStory(env, story, approvedBy) {
@@ -1243,7 +1303,7 @@ function scoreCandidateStory(story, signals, tasteProfile, engagementSignals = {
 
   const clampedScore = Math.max(15, Math.min(99, Math.round(score)));
   const categoryLabelMap = {
-    all: 'Top Currents',
+    all: 'All',
     childcare: 'Childcare & Family',
     animals: 'Animals & Nature',
     arts: 'Creative Arts',
@@ -1251,7 +1311,7 @@ function scoreCandidateStory(story, signals, tasteProfile, engagementSignals = {
     world: 'Global Currents',
     uplifting: 'Uplifting News'
   };
-  const catLabel = categoryLabelMap[story.category] || story.category || 'Top Currents';
+  const catLabel = categoryLabelMap[story.category] || story.category || 'All';
   const defaultReason = `High-signal ${catLabel} pick from ${sourceName || story.provider || 'curated feed'} fitting your editorial profile.`;
   const reasonText = reasons.length > 0
     ? `AI Pick (${clampedScore}% match): ${reasons.slice(0, 2).join(' · ')}.`

@@ -163,6 +163,17 @@ export function clearEmbeddingCache() {
  */
 export async function validateStoryCategories(env, stories) {
   console.log('[embed] validateStoryCategories called with', stories.length, 'stories');
+  // Fields the admin panel needs to render full story rows.
+  const storyDisplayFields = (s) => ({
+    imageUrl: s.image_url || null,
+    provider: s.provider || null,
+    articleUrl: s.article_url || null,
+    publishedAt: s.published_at || null,
+    fetchedAt: s.fetched_at || null,
+    displayCategories: Array.isArray(s.display_categories) && s.display_categories.length > 0
+      ? s.display_categories.filter(c => typeof c === 'string')
+      : null,
+  });
   const categoryVectors = await getCategoryEmbeddings(env);
   console.log('[embed] categoryVectors:', categoryVectors ? `${categoryVectors.size} categories` : 'null');
   if (!categoryVectors) return stories.map((s) => ({
@@ -173,6 +184,7 @@ export async function validateStoryCategories(env, stories) {
     confidence: 0,
     mismatch: false,
     error: 'embedding unavailable',
+    ...storyDisplayFields(s),
   }));
 
   // Embed all stories in parallel (bounded to avoid overwhelming the API)
@@ -193,6 +205,7 @@ export async function validateStoryCategories(env, stories) {
             confidence: 0,
             mismatch: false,
             error: 'embedding failed',
+            ...storyDisplayFields(story),
           };
         }
         let bestCategory = null;
@@ -219,6 +232,7 @@ export async function validateStoryCategories(env, stories) {
           confidence: Math.round(bestScore * 10000) / 10000,
           scores,
           mismatch,
+          ...storyDisplayFields(story),
         };
       })
     );

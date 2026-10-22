@@ -1411,7 +1411,7 @@ export function getAdminPage() {
     const STORAGE_PAGE_SIZES_KEY = 'littlables_admin_page_sizes_v1';
 
     const categories = [
-      { id: 'all', label: 'Top Currents', icon: '⚡' },
+      { id: 'all', label: 'All', icon: '⚡' },
       { id: 'childcare', label: 'Childcare & Family', icon: '👨‍👩‍👧' },
       { id: 'animals', label: 'Animals & Nature', icon: '🐾' },
       { id: 'arts', label: 'Creative Arts', icon: '🎨' },
@@ -5027,20 +5027,187 @@ export function getAdminPage() {
               p.textContent = 'No stories were validated in this run.';
               validateResults.appendChild(p);
             } else {
-              const list = document.createElement('div');
+              var OVERRIDABLE_IDS = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
+              var catLabel = function (id) {
+                var found = categories.find(function (c) { return c.id === id; });
+                return found ? found.label : id;
+              };
+              var fmtValDate = function (m) {
+                var raw = m.publishedAt || m.fetchedAt;
+                if (!raw) return '';
+                var d = new Date(raw);
+                return isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+              };
+              var refreshValidationRow = function (row, m) {
+                var fresh = createValidationRow(m);
+                row.replaceWith(fresh);
+              };
+              var applyDisplayCategories = function (storyId, cats, row, m, btns) {
+                btns.forEach(function (b) { b.disabled = true; });
+                fetch('/admin/api/stories/' + storyId + '/display-categories', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ display_categories: cats }),
+                }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                  .then(function (out) {
+                    if (!out.ok) throw new Error(out.data.error || 'Update failed');
+                    m.displayCategories = out.data.display_categories;
+                    refreshValidationRow(row, m);
+                  })
+                  .catch(function (err) {
+                    if (validateStatus) validateStatus.textContent = 'Category update failed: ' + (err.message || 'unknown error');
+                    btns.forEach(function (b) { b.disabled = false; });
+                  });
+              };
+              var createValidationRow = function (m) {
+                var row = document.createElement('article');
+                row.className = 'story';
+                row.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
+
+                var fallbackImg = 'img/' + (m.queryCategory || 'all') + '_1.jpg';
+                var image = document.createElement('img');
+                image.src = m.imageUrl || fallbackImg;
+                image.alt = '';
+                image.loading = 'lazy';
+                if (typeof attachSmoothImageLoader === 'function') attachSmoothImageLoader(image, null, fallbackImg);
+                row.appendChild(image);
+
+                var details = document.createElement('div');
+                details.className = 'story-details';
+                var title = document.createElement('h3');
+                var link = document.createElement('a');
+                link.href = m.articleUrl || '#';
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = decodeHtmlEntities(m.title || 'Untitled');
+                title.appendChild(link);
+                details.appendChild(title);
+
+                var meta = document.createElement('p');
+                meta.className = 'story-meta';
+                var addMeta = function (text, cls) {
+                  if (!text) return;
+                  var s = document.createElement('span');
+                  if (cls) s.className = cls;
+                  s.textContent = text;
+                  meta.appendChild(s);
+                };
+                addMeta(m.provider || 'unknown', 'meta-provider');
+                if (m.articleUrl) addMeta(getStoryDomain(m.articleUrl), 'meta-domain');
+                var dateStr = fmtValDate(m);
+                if (dateStr) addMeta(dateStr, 'meta-date');
+
+                var catLine = document.createElement('span');
+                catLine.className = 'meta-category';
+                catLine.textContent = 'query=' + catLabel(m.queryCategory) + ' → AI=' + catLabel(m.embeddingCategory) +
+                  ' (' + (m.confidence != null ? Number(m.confidence).toFixed(2) : 'n/a') + ')';
+                meta.appendChild(catLine);
+
+                var badge = document.createElement('span');
+                badge.className = 'meta-badge-status ' + (m._isMismatch ? 'meta-banned' : 'meta-approved');
+                badge.textContent = m._isMismatch ? 'MISMATCH' : '✓ match';
+                meta.appendChild(badge);
+
+                var override = Array.isArray(m.displayCategories) && m.displayCategories.length > 0 ? m.displayCategories : null;
+                if (override) {
+                  var ovBadge = document.createElement('span');
+                  ovBadge.className = 'meta-badge-status meta-approved';
+                  ovBadge.textContent = 'Showing in: ' + override.map(catLabel).join(', ');
+                  meta.appendChild(ovBadge);
+                }
+                details.appendChild(meta);
+
+                var main = document.createElement('div');
+                main.className = 'story-main';
+                main.appendChild(details);
+                row.appendChild(main);
+
+                var actions = document.createElement('div');
+                actions.className = 'story-actions';
+                var rowBtns = [];
+                var mkBtn = function (label, cls) {
+                  var b = document.createElement('button');
+                  b.type = 'button';
+                  b.className = cls || 'secondary small-btn';
+                  b.textContent = label;
+                  actions.appendChild(b);
+                  rowBtns.push(b);
+                  return b;
+                };
+                var hasAi = m._isMismatch && m.embeddingCategory && OVERRIDABLE_IDS.indexOf(m.embeddingCategory) !== -1;
+                if (!override) {
+                  if (hasAi) {
+                    mkBtn('Use AI', 'small-btn').addEventListener('click', function () {
+                      applyDisplayCategories(m.id, [m.embeddingCategory], row, m, rowBtns);
+                    });
+                    if (m.embeddingCategory !== m.queryCategory) {
+                      mkBtn('Use both', 'small-btn').addEventListener('click', function () {
+                        var both = [m.queryCategory, m.embeddingCategory].filter(function (c, i, a) {
+                          return c && OVERRIDABLE_IDS.indexOf(c) !== -1 && a.indexOf(c) === i;
+                        });
+                        applyDisplayCategories(m.id, both, row, m, rowBtns);
+                      });
+                    }
+                  }
+                  var pickBtn = mkBtn('Pick…', 'secondary small-btn');
+                  pickBtn.addEventListener('click', function () { togglePicker(row, m, actions, pickBtn, rowBtns); });
+                } else {
+                  mkBtn('Undo', 'secondary small-btn').addEventListener('click', function () {
+                    applyDisplayCategories(m.id, null, row, m, rowBtns);
+                  });
+                  var changeBtn = mkBtn('Change…', 'secondary small-btn');
+                  changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
+                }
+                row.appendChild(actions);
+                return row;
+              };
+              var togglePicker = function (row, m, actions, anchorBtn, rowBtns) {
+                var existing = actions.querySelector('.cat-picker');
+                if (existing) { existing.remove(); return; }
+                var picker = document.createElement('div');
+                picker.className = 'cat-picker';
+                picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem;flex-basis:100%;';
+                var current = Array.isArray(m.displayCategories) && m.displayCategories.length > 0
+                  ? m.displayCategories
+                  : (m._isMismatch && m.embeddingCategory ? [m.queryCategory, m.embeddingCategory] : [m.queryCategory]);
+                var boxes = [];
+                OVERRIDABLE_IDS.forEach(function (id) {
+                  var lab = document.createElement('label');
+                  lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+                  var cb = document.createElement('input');
+                  cb.type = 'checkbox';
+                  cb.value = id;
+                  cb.checked = current.indexOf(id) !== -1;
+                  lab.appendChild(cb);
+                  lab.appendChild(document.createTextNode(catLabel(id)));
+                  picker.appendChild(lab);
+                  boxes.push(cb);
+                });
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'small-btn';
+                applyBtn.textContent = 'Apply';
+                applyBtn.addEventListener('click', function () {
+                  var chosen = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+                  applyDisplayCategories(m.id, chosen.length > 0 ? chosen : null, row, m, rowBtns.concat([applyBtn]));
+                });
+                var cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'secondary small-btn';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', function () { picker.remove(); });
+                picker.appendChild(applyBtn);
+                picker.appendChild(cancelBtn);
+                actions.appendChild(picker);
+              };
+              var list = document.createElement('div');
               list.style.display = 'flex';
               list.style.flexDirection = 'column';
               list.style.gap = '0.5rem';
               // Show mismatches first, then matches
-              const sorted = [...allMismatches.map(m => ({...m, _isMismatch: true})), ...allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}))];
+              var sorted = [...allMismatches.map(m => ({...m, _isMismatch: true})), ...allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}))];
               for (const m of sorted) {
-                const item = document.createElement('div');
-                item.className = 'admin-card';
-                item.style.padding = '0.75rem';
-                item.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
-                const title = m.title ? '<div style="font-weight: 600; margin-bottom: 0.25rem;">' + m.title + '</div>' : '';
-                item.innerHTML = title + '<span class="admin-hint">query=</span><code>' + m.queryCategory + '</code> <span class="admin-hint">→ AI=</span><code>' + m.embeddingCategory + '</code> <span class="admin-hint">(confidence ' + (m.confidence != null ? Number(m.confidence).toFixed(2) : 'n/a') + ')' + (m._isMismatch ? ' <strong style="color: #ef4444;">MISMATCH</strong>' : ' <span style="color: #22c55e;">✓</span>') + '</span>';
-                list.appendChild(item);
+                list.appendChild(createValidationRow(m));
               }
               validateResults.appendChild(list);
             }

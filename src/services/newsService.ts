@@ -66,6 +66,13 @@ export function resolveImageUrl(item: NewsItem, index: number, category: NewsCat
 }
 
 function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsItem {
+  // Admin-curated override: when displayCategories is set, the story shows under
+  // those categories instead of its query-assigned one. The first entry is the
+  // primary display category (card label, bucketing, interest matching).
+  const displayCategories = Array.isArray(item.displayCategories) && item.displayCategories.length > 0
+    ? item.displayCategories.filter((c: any) => typeof c === 'string' && isValidCategory(c))
+    : null;
+  const primaryCategory = displayCategories && displayCategories.length > 0 ? displayCategories[0] : null;
   return {
     ...item,
     title: decodeHtmlEntities(item.title),
@@ -76,7 +83,8 @@ function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsIte
     aiSummary: decodeHtmlEntities(item.aiSummary || item.ai_summary),
     source: decodeHtmlEntities(item.source || item.source_name),
     provider: item.provider,
-    category: item.category || defaultCategory
+    category: primaryCategory || item.category || defaultCategory,
+    displayCategories,
   };
 }
 
@@ -104,7 +112,19 @@ async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> 
 
   return data.items
     .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
-    .map((item: any) => normalizeFetchedItem(item, category))
+    .map((item: any) => {
+      const normalized = normalizeFetchedItem(item, category);
+      // When viewing a specific category feed, label the card with the viewed
+      // category if the story's override list includes it.
+      if (
+        isValidCategory(category) &&
+        Array.isArray(normalized.displayCategories) &&
+        normalized.displayCategories.includes(category)
+      ) {
+        normalized.category = category;
+      }
+      return normalized;
+    })
     .filter(isValidStoryItem);
 }
 
@@ -134,7 +154,7 @@ const byPublicationDate = (first: NewsItem, second: NewsItem) => {
 };
 
 /**
- * Homepage ('all' / Top Currents) ordering.
+ * Homepage ('all') ordering.
  *
  * A first-time visitor (and anyone reviewing the site, e.g. an advertiser
  * brand manager) judges Littlables from the first cards they see with zero
