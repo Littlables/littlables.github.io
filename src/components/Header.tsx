@@ -95,13 +95,15 @@ export const Header: React.FC<HeaderProps> = ({
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.2"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <polyline points="21 3 21 9 15 9" />
+            <ellipse cx="12" cy="8.5" rx="5.5" ry="6.5" />
+            <path d="M11 15 L13 15 L12 17.2 Z" fill="currentColor" stroke="none" />
+            <path d="M12 17.2 C 12 19.5, 9.5 19.8, 9.5 22" />
+            <path d="M9.3 6.2 C 8.3 7.2, 7.8 8.8, 8 10.3" opacity="0.45" />
           </svg>
         </button>
 
@@ -120,13 +122,17 @@ export const Header: React.FC<HeaderProps> = ({
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.2"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            <circle cx="7.5" cy="7.5" r="2.5" />
+            <circle cx="16.5" cy="7.5" r="2.5" />
+            <circle cx="12" cy="13" r="6" />
+            <circle cx="10" cy="12" r="0.9" fill="currentColor" stroke="none" />
+            <circle cx="14" cy="12" r="0.9" fill="currentColor" stroke="none" />
+            <ellipse cx="12" cy="15.2" rx="1.8" ry="1.2" />
           </svg>
         </button>
 

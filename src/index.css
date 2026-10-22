@@ -441,15 +441,15 @@ body {
 }
 
 .refresh-news-button.is-loading svg {
-  animation: headerRefreshSpin 0.8s linear infinite;
+  animation: headerBalloonFloat 0.9s ease-in-out infinite;
 }
 
-@keyframes headerRefreshSpin {
-  from {
-    transform: rotate(0deg);
+@keyframes headerBalloonFloat {
+  0%, 100% {
+    transform: translateY(0);
   }
-  to {
-    transform: rotate(360deg);
+  50% {
+    transform: translateY(-3px);
   }
 }
 
