@@ -17,6 +17,7 @@ import { ProfileDialog } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
 import { BoardPage } from './components/BoardPage';
 import { useAuth } from './contexts/AuthContext';
+import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
 import {
@@ -55,6 +56,40 @@ function parseBoardFromUrl(): { username: string; slug: string } | null {
 function parseAboutFromUrl(): boolean {
   if (typeof window === 'undefined') return false;
   return /^\/about\/?$/i.test(window.location.pathname);
+}
+
+/**
+ * Prioritizes stories matching the user's interests (from their profile).
+ * Stories matching an interest come first (preserving their relative order),
+ * followed by non-matching stories. Used on the homepage for signed-in users.
+ */
+function prioritizeByInterests(stories: NewsItem[], interests: PillConfig[]): NewsItem[] {
+  if (!interests.length) return stories;
+
+  const matchesInterest = (story: NewsItem): boolean => {
+    const haystack = `${story.title || ''} ${story.description || ''}`.toLowerCase();
+    return interests.some((pill) => {
+      if (pill.type === 'category') {
+        return story.category === pill.id;
+      }
+      // Custom interest: match keywords or label in title/description
+      const terms: string[] = [];
+      if (pill.keywords) {
+        terms.push(...pill.keywords.split(',').map((k) => k.trim().toLowerCase()).filter(Boolean));
+      }
+      if (pill.label) {
+        terms.push(pill.label.toLowerCase());
+      }
+      return terms.some((term) => term.length > 1 && haystack.includes(term));
+    });
+  };
+
+  const matching: NewsItem[] = [];
+  const rest: NewsItem[] = [];
+  for (const story of stories) {
+    (matchesInterest(story) ? matching : rest).push(story);
+  }
+  return [...matching, ...rest];
 }
 
 export const App: React.FC = () => {
@@ -189,8 +224,14 @@ export const App: React.FC = () => {
         fetchAdsForCategory(cat)
       ]);
 
-      fetchedStories = stories;
-      setStories(stories);
+      // On the homepage, prioritize stories matching the user's interests
+      let displayStories = stories;
+      if (cat === 'all' && profile?.pills && profile.pills.length > 0) {
+        displayStories = prioritizeByInterests(stories, profile.pills);
+      }
+
+      fetchedStories = displayStories;
+      setStories(displayStories);
       setAds(categoryAds);
     } catch (err: any) {
       console.error('Error loading stories:', err);

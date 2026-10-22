@@ -75,13 +75,14 @@ export const BoardPage: React.FC<BoardPageProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, slug]);
 
-  // Apply the board's theme + background (falling back to the owner's), restore on unmount
+  // Apply the board's theme + background (falling back to the owner's), restore on unmount.
+  // A board theme of 'none' means: use whatever theme the viewer has selected.
   useEffect(() => {
     if (!board) return;
     const root = document.documentElement;
     const prevTheme = root.getAttribute('data-theme');
     const prevBg = root.style.getPropertyValue('--news-bg');
-    const theme = board.theme || owner?.theme;
+    const theme = board.theme === 'none' ? null : (board.theme || owner?.theme);
     const bg = board.background_color || owner?.background_color;
     if (theme && VALID_THEMES.includes(theme)) root.setAttribute('data-theme', theme);
     if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) root.style.setProperty('--news-bg', bg);

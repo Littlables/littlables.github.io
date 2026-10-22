@@ -23,7 +23,7 @@ interface ProfileDialogProps {
   notify: (message: string, kind?: 'success' | 'error') => void;
 }
 
-type Tab = 'profile' | 'avatar' | 'theme' | 'boards';
+type Tab = 'profile' | 'avatar' | 'interests' | 'theme' | 'boards';
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
   { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
@@ -361,6 +361,56 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     }
   };
 
+  // ---- Interests (pills) ----
+  const togglePill = (pillId: string) => {
+    setPills((prev) => {
+      const exists = prev.find((p) => p.id === pillId);
+      if (exists) {
+        return prev.filter((p) => p.id !== pillId);
+      }
+      const allPills: PillConfig[] = [
+        ...CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })),
+        ...prev.filter((p) => p.type === 'custom'),
+      ];
+      const ordered = allPills.filter((p) => prev.some((pp) => pp.id === p.id) || p.id === pillId);
+      return ordered;
+    });
+  };
+
+  const addCustomPill = () => {
+    if (!newPillLabel.trim()) return;
+    const id = `custom-${Date.now()}`;
+    setPills((prev) => [...prev, { id, type: 'custom', label: newPillLabel.trim(), keywords: newPillKeywords.trim() || undefined }]);
+    setNewPillLabel('');
+    setNewPillKeywords('');
+  };
+
+  const removeCustomPill = (pillId: string) => {
+    setPills((prev) => prev.filter((p) => p.id !== pillId));
+  };
+
+  const movePill = (index: number, direction: -1 | 1) => {
+    setPills((prev) => {
+      const next = [...prev];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const handleSaveInterests = async () => {
+    setSaving(true);
+    try {
+      await updateProfile({ pills });
+      notify('Interests saved', 'success');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Failed to save', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // ---- Boards ----
   const loadBoards = async () => {
     if (!user) return;
@@ -561,6 +611,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'profile', label: 'Profile' },
     { id: 'avatar', label: 'Avatar' },
+    { id: 'interests', label: 'Interests' },
     { id: 'theme', label: 'Theme' },
     { id: 'boards', label: 'Boards' },
   ];
@@ -731,6 +782,89 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
             >
               {saving ? 'Saving…' : 'Save Avatar'}
             </button>
+          </div>
+        )}
+
+        {tab === 'interests' && (
+          <div className="profile-tab-content">
+            <p className="profile-hint">Choose your interests — they shape what appears on your homepage. Add your own custom topics too.</p>
+
+            <label className="profile-section-label">Your interests (in order)</label>
+            <div className="pill-list">
+              {pills.map((pill, index) => {
+                const cat = CATEGORIES.find((c) => c.id === pill.id);
+                const label = pill.type === 'custom' ? pill.label : (cat ? t(cat.i18nKey as keyof TranslationStrings) || cat.id : pill.id);
+                const icon = pill.type === 'custom' ? '📌' : (cat?.icon || '');
+                return (
+                  <div key={pill.id} className="pill-row">
+                    <span className="pill-icon">{icon}</span>
+                    <span className="pill-label">{label}</span>
+                    {pill.type === 'custom' && (
+                      <button type="button" className="pill-remove" onClick={() => removeCustomPill(pill.id)} aria-label="Remove">×</button>
+                    )}
+                    <div className="pill-reorder">
+                      <button type="button" onClick={() => movePill(index, -1)} disabled={index === 0} aria-label="Move up">↑</button>
+                      <button type="button" onClick={() => movePill(index, 1)} disabled={index === pills.length - 1} aria-label="Move down">↓</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {pills.length === 0 && <p className="profile-hint">No interests selected — add some below.</p>}
+            </div>
+
+            <label className="profile-section-label">Available categories</label>
+            <div className="pill-toggle-grid">
+              {CATEGORIES.map((cat) => {
+                const active = pills.some((p) => p.id === cat.id);
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    className={`pill-toggle ${active ? 'active' : ''}`}
+                    onClick={() => togglePill(cat.id)}
+                  >
+                    <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
+                  </button>
+                );
+              })}
+            </div>
+
+            <label className="profile-section-label">Add a custom interest</label>
+            <div className="board-custom-pill-row">
+              <input
+                type="text"
+                className="board-input"
+                value={newPillLabel}
+                onChange={(e) => setNewPillLabel(e.target.value)}
+                placeholder="e.g. Baking, Dinosaurs…"
+                maxLength={40}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addCustomPill();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="sign-in-button secondary-button"
+                onClick={addCustomPill}
+                disabled={!newPillLabel.trim()}
+              >
+                Add
+              </button>
+            </div>
+
+            <div className="board-editor-actions">
+              <button
+                type="button"
+                className="sign-in-button primary-button"
+                onClick={handleSaveInterests}
+                disabled={saving}
+              >
+                {saving ? 'Saving…' : 'Save interests'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -959,6 +1093,13 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                       <span className="theme-name">{themeOption.name}</span>
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className={`theme-option ${editingBoard.theme === 'none' ? 'selected' : ''}`}
+                    onClick={() => setEditingBoard({ ...editingBoard, theme: 'none' })}
+                  >
+                    <span className="theme-name">No theme</span>
+                  </button>
                 </div>
 
                 <label className="profile-field-label">Background color (optional)</label>
@@ -995,7 +1136,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   )}
                 </div>
 
-                <label className="profile-field-label">Topics on this board</label>
+                <label className="profile-field-label">Interests on this board</label>
                 <p className="profile-hint profile-hint-compact">
                   Pick categories or add your own custom topics.
                 </p>
