@@ -1,5 +1,6 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS } from './interest-keywords.mjs';
+import { embedText, EMBEDDING_MODEL } from './embedding-classifier.mjs';
 
 export const STORIES_TABLE = 'news_stories';
 const SYNC_TABLE = 'news_provider_sync';
@@ -24,6 +25,9 @@ async function readRows(response, context) {
   if (!Array.isArray(rows)) throw new Error(`${context} returned an invalid response`);
   return rows;
 }
+
+// Exported for modules that need raw Supabase row reads (e.g. keyword embeddings).
+export { readRows };
 
 function normalizeStory(row) {
   return {
@@ -102,6 +106,92 @@ export async function getStoredNewsFeed(env, category) {
     items.push({ ...normalizeStory(row), approved: row.approved });
   }
   return { provider: 'supabase', items };
+}
+
+const KEYWORD_EMBEDDINGS_TABLE = 'keyword_embeddings';
+// Max keyword descriptions to embed per invocation — keeps cold-start
+// backfills safely under subrequest budgets.
+const KEYWORD_EMBED_CHUNK = 40;
+// In-memory cache for the full keyword vector map (per worker isolate).
+let cachedKeywordVectors = null;
+
+/**
+ * Get embedding vectors for all interest keyword descriptions.
+ *
+ * Vectors are persisted to the `keyword_embeddings` Supabase table so the
+ * 100 descriptions are embedded once, not on every cold start. Missing
+ * vectors are backfilled in chunks (KEYWORD_EMBED_CHUNK per invocation).
+ *
+ * All-or-nothing: returns null until EVERY keyword has a vector, so stories
+ * are never tagged against a partial keyword set (they stay unprocessed and
+ * get fully tagged once the backfill completes).
+ *
+ * @returns {Promise<Map<string, number[]>|null>} keyword id -> 768-dim vector
+ */
+export async function getPersistedKeywordEmbeddings(env) {
+  if (cachedKeywordVectors) return cachedKeywordVectors;
+  if (!env?.AI) return null;
+
+  // 1. Load whatever is already stored.
+  const map = new Map();
+  try {
+    const params = new URLSearchParams({ select: 'keyword_id,embedding,model' });
+    const res = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, params), {
+      headers: supabaseHeaders(env),
+    });
+    const rows = await readRows(res, 'Keyword embeddings lookup');
+    for (const row of rows) {
+      if (
+        row.model === EMBEDDING_MODEL &&
+        Array.isArray(row.embedding) &&
+        row.embedding.length > 0
+      ) {
+        map.set(row.keyword_id, row.embedding);
+      }
+    }
+  } catch (err) {
+    console.warn('Keyword embeddings lookup failed:', err?.message || err);
+  }
+
+  // 2. Backfill missing vectors in chunks.
+  const missing = INTEREST_KEYWORDS.filter((kw) => !map.has(kw.id));
+  for (let i = 0; i < missing.length; i += KEYWORD_EMBED_CHUNK) {
+    const chunk = missing.slice(i, i + KEYWORD_EMBED_CHUNK);
+    const vectors = await Promise.all(chunk.map((kw) => embedText(env, kw.description)));
+    const upserts = [];
+    chunk.forEach((kw, j) => {
+      if (vectors[j]) {
+        map.set(kw.id, vectors[j]);
+        upserts.push({ keyword_id: kw.id, embedding: vectors[j], model: EMBEDDING_MODEL });
+      }
+    });
+    if (upserts.length > 0) {
+      try {
+        const upsertParams = new URLSearchParams({ on_conflict: 'keyword_id' });
+        await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, upsertParams), {
+          method: 'POST',
+          headers: supabaseHeaders(env, { Prefer: 'resolution=merge-duplicates' }),
+          body: JSON.stringify(upserts),
+        });
+      } catch (err) {
+        console.warn('Keyword embeddings upsert failed:', err?.message || err);
+      }
+    }
+  }
+
+  if (map.size !== INTEREST_KEYWORDS.length) {
+    console.warn(
+      `Keyword embeddings incomplete (${map.size}/${INTEREST_KEYWORDS.length}); skipping keyword tagging this run.`
+    );
+    return null;
+  }
+  cachedKeywordVectors = map;
+  return map;
+}
+
+/** Clear the in-memory keyword vector cache (useful for tests). */
+export function clearKeywordVectorCache() {
+  cachedKeywordVectors = null;
 }
 
 /**

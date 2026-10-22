@@ -110,7 +110,7 @@ export async function getKeywordEmbeddings(env) {
 }
 
 /** Minimum cosine similarity for a keyword to be tagged onto a story. */
-export const KEYWORD_MATCH_THRESHOLD = 0.35;
+export const KEYWORD_MATCH_THRESHOLD = 0.45;
 /** Max keywords auto-tagged per story. */
 export const KEYWORD_MAX_PER_STORY = 3;
 

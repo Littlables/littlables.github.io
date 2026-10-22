@@ -3,33 +3,125 @@
  *
  * A cross-cutting keyword layer SEPARATE from display categories. Keywords are
  * never shown as categories in the nav or homepage sections — they exist for
- * classification and custom boards. Keep in sync with
- * cloudflare-worker/src/interest-keywords.mjs (ids, labels, icons).
+ * classification and custom boards.
+ *
+ * GENERATED from cloudflare-worker/src/interest-keywords.mjs — do not edit by hand.
  */
 export interface InterestKeyword {
   id: string;
   label: string;
   icon: string;
+  group: string;
 }
 
 export const INTEREST_KEYWORDS: InterestKeyword[] = [
-  { id: 'space', label: 'Space', icon: '🚀' },
-  { id: 'dinosaurs', label: 'Dinosaurs', icon: '🦕' },
-  { id: 'science', label: 'Science', icon: '🔬' },
-  { id: 'food', label: 'Food', icon: '🍎' },
-  { id: 'sports', label: 'Sports', icon: '⚽' },
-  { id: 'music', label: 'Music', icon: '🎵' },
-  { id: 'gardening', label: 'Gardening', icon: '🌱' },
-  { id: 'ocean-life', label: 'Ocean Life', icon: '🐋' },
-  { id: 'weather', label: 'Weather', icon: '🌤️' },
-  { id: 'inventions', label: 'Inventions', icon: '💡' },
-  { id: 'travel', label: 'Travel', icon: '✈️' },
-  { id: 'holidays', label: 'Holidays', icon: '🎄' },
+  { id: "ocean-life", label: "Ocean Life", icon: "🐋", group: "Animals & Nature" },
+  { id: "pets", label: "Pets", icon: "🐶", group: "Animals & Nature" },
+  { id: "wildlife", label: "Wildlife", icon: "🦁", group: "Animals & Nature" },
+  { id: "birds", label: "Birds", icon: "🐦", group: "Animals & Nature" },
+  { id: "bugs", label: "Bugs & Insects", icon: "🐛", group: "Animals & Nature" },
+  { id: "farm-animals", label: "Farm Animals", icon: "🐄", group: "Animals & Nature" },
+  { id: "zoos", label: "Zoos & Aquariums", icon: "🦒", group: "Animals & Nature" },
+  { id: "animal-rescues", label: "Animal Rescues", icon: "🐾", group: "Animals & Nature" },
+  { id: "forests", label: "Forests", icon: "🌲", group: "Animals & Nature" },
+  { id: "mountains", label: "Mountains", icon: "⛰️", group: "Animals & Nature" },
+  { id: "beaches", label: "Beaches", icon: "🏖️", group: "Animals & Nature" },
+  { id: "deserts", label: "Deserts", icon: "🏜️", group: "Animals & Nature" },
+  { id: "rainforests", label: "Rainforests", icon: "🌴", group: "Animals & Nature" },
+  { id: "endangered-species", label: "Endangered Species", icon: "🦏", group: "Animals & Nature" },
+  { id: "space", label: "Space", icon: "🚀", group: "Science & Discovery" },
+  { id: "dinosaurs", label: "Dinosaurs", icon: "🦕", group: "Science & Discovery" },
+  { id: "science", label: "Science", icon: "🔬", group: "Science & Discovery" },
+  { id: "robots-ai", label: "Robots & AI", icon: "🤖", group: "Science & Discovery" },
+  { id: "inventions", label: "Inventions", icon: "💡", group: "Science & Discovery" },
+  { id: "volcanoes", label: "Volcanoes", icon: "🌋", group: "Science & Discovery" },
+  { id: "natural-disasters", label: "Natural Disasters", icon: "⛈️", group: "Science & Discovery" },
+  { id: "human-body", label: "Human Body", icon: "🧠", group: "Science & Discovery" },
+  { id: "energy", label: "Energy", icon: "⚡", group: "Science & Discovery" },
+  { id: "experiments", label: "Experiments", icon: "🧪", group: "Science & Discovery" },
+  { id: "moon", label: "The Moon", icon: "🌙", group: "Science & Discovery" },
+  { id: "planets", label: "Planets", icon: "🪐", group: "Science & Discovery" },
+  { id: "parenting", label: "Parenting", icon: "👨‍👩‍👧", group: "Kids & Family" },
+  { id: "education", label: "Education", icon: "🎓", group: "Kids & Family" },
+  { id: "kids-crafts", label: "Kids Crafts", icon: "🎨", group: "Kids & Family" },
+  { id: "books", label: "Books & Reading", icon: "📖", group: "Kids & Family" },
+  { id: "babies", label: "Babies", icon: "👶", group: "Kids & Family" },
+  { id: "toddlers", label: "Toddlers", icon: "🧒", group: "Kids & Family" },
+  { id: "bedtime-stories", label: "Bedtime Stories", icon: "✨", group: "Kids & Family" },
+  { id: "fairy-tales", label: "Fairy Tales", icon: "🏰", group: "Kids & Family" },
+  { id: "superheroes", label: "Superheroes", icon: "🦸", group: "Kids & Family" },
+  { id: "playgrounds", label: "Playgrounds", icon: "🛝", group: "Kids & Family" },
+  { id: "birthday-parties", label: "Birthday Parties", icon: "🎂", group: "Kids & Family" },
+  { id: "summer-camp", label: "Summer Camp", icon: "🔥", group: "Kids & Family" },
+  { id: "food", label: "Food", icon: "🍎", group: "Food" },
+  { id: "baking", label: "Baking", icon: "🧁", group: "Food" },
+  { id: "desserts", label: "Desserts", icon: "🍦", group: "Food" },
+  { id: "fruits-veggies", label: "Fruits & Veggies", icon: "🥦", group: "Food" },
+  { id: "pizza", label: "Pizza", icon: "🍕", group: "Food" },
+  { id: "breakfast", label: "Breakfast", icon: "🥞", group: "Food" },
+  { id: "chocolate", label: "Chocolate", icon: "🍫", group: "Food" },
+  { id: "picnics", label: "Picnics", icon: "🧺", group: "Food" },
+  { id: "sports", label: "Sports", icon: "⚽", group: "Sports & Play" },
+  { id: "swimming", label: "Swimming", icon: "🏊", group: "Sports & Play" },
+  { id: "gymnastics", label: "Gymnastics", icon: "🤸", group: "Sports & Play" },
+  { id: "dance", label: "Dance", icon: "💃", group: "Sports & Play" },
+  { id: "martial-arts", label: "Martial Arts", icon: "🥋", group: "Sports & Play" },
+  { id: "olympics", label: "Olympics", icon: "🏅", group: "Sports & Play" },
+  { id: "biking", label: "Biking", icon: "🚲", group: "Sports & Play" },
+  { id: "skateboarding", label: "Skateboarding", icon: "🛹", group: "Sports & Play" },
+  { id: "hiking", label: "Hiking", icon: "🥾", group: "Sports & Play" },
+  { id: "fishing", label: "Fishing", icon: "🎣", group: "Sports & Play" },
+  { id: "music", label: "Music", icon: "🎵", group: "Arts & Music" },
+  { id: "painting", label: "Painting", icon: "🖌️", group: "Arts & Music" },
+  { id: "drawing", label: "Drawing", icon: "✏️", group: "Arts & Music" },
+  { id: "theater", label: "Theater", icon: "🎭", group: "Arts & Music" },
+  { id: "magic", label: "Magic", icon: "🪄", group: "Arts & Music" },
+  { id: "lego", label: "LEGO & Building", icon: "🧱", group: "Arts & Music" },
+  { id: "photography", label: "Photography", icon: "📸", group: "Arts & Music" },
+  { id: "video-games", label: "Video Games", icon: "🎮", group: "Tech & Games" },
+  { id: "coding", label: "Coding", icon: "💻", group: "Tech & Games" },
+  { id: "apps", label: "Apps", icon: "📱", group: "Tech & Games" },
+  { id: "internet-safety", label: "Internet Safety", icon: "🛡️", group: "Tech & Games" },
+  { id: "virtual-reality", label: "Virtual Reality", icon: "🥽", group: "Tech & Games" },
+  { id: "drones", label: "Drones", icon: "🛸", group: "Tech & Games" },
+  { id: "electric-cars", label: "Electric Cars", icon: "🚗", group: "Tech & Games" },
+  { id: "board-games", label: "Board Games", icon: "🎲", group: "Tech & Games" },
+  { id: "family-movies", label: "Family Movies", icon: "🎬", group: "Shows & Fun" },
+  { id: "tv-shows", label: "TV Shows", icon: "📺", group: "Shows & Fun" },
+  { id: "comics", label: "Comics", icon: "💬", group: "Shows & Fun" },
+  { id: "theme-parks", label: "Theme Parks", icon: "🎢", group: "Shows & Fun" },
+  { id: "circus", label: "Circus", icon: "🎪", group: "Shows & Fun" },
+  { id: "weather", label: "Weather", icon: "🌤️", group: "Planet & Weather" },
+  { id: "environment", label: "Environment", icon: "🌍", group: "Planet & Weather" },
+  { id: "gardening", label: "Gardening", icon: "🌱", group: "Planet & Weather" },
+  { id: "flowers", label: "Flowers", icon: "🌸", group: "Planet & Weather" },
+  { id: "seasons", label: "Seasons", icon: "🍂", group: "Planet & Weather" },
+  { id: "snow", label: "Snow", icon: "❄️", group: "Planet & Weather" },
+  { id: "clouds", label: "Clouds", icon: "☁️", group: "Planet & Weather" },
+  { id: "travel", label: "Travel", icon: "✈️", group: "Travel & Places" },
+  { id: "camping", label: "Camping", icon: "🏕️", group: "Travel & Places" },
+  { id: "road-trips", label: "Road Trips", icon: "🚙", group: "Travel & Places" },
+  { id: "landmarks", label: "Landmarks", icon: "🗽", group: "Travel & Places" },
+  { id: "maps", label: "Maps", icon: "🗺️", group: "Travel & Places" },
+  { id: "languages", label: "Languages", icon: "🗣️", group: "Travel & Places" },
+  { id: "holidays", label: "Holidays", icon: "🎄", group: "Holidays" },
+  { id: "christmas", label: "Christmas", icon: "🎅", group: "Holidays" },
+  { id: "halloween", label: "Halloween", icon: "🎃", group: "Holidays" },
+  { id: "easter", label: "Easter", icon: "🐰", group: "Holidays" },
+  { id: "thanksgiving", label: "Thanksgiving", icon: "🦃", group: "Holidays" },
+  { id: "new-year", label: "New Year", icon: "🎆", group: "Holidays" },
+  { id: "community-heroes", label: "Community Heroes", icon: "🤝", group: "Community & Life" },
+  { id: "health", label: "Health", icon: "🩺", group: "Community & Life" },
+  { id: "money", label: "Money & Saving", icon: "💰", group: "Community & Life" },
+  { id: "history", label: "History", icon: "🏛️", group: "Community & Life" },
+  { id: "volunteering", label: "Volunteering", icon: "💝", group: "Community & Life" },
 ];
+
+export const INTEREST_KEYWORD_GROUPS: string[] = ["Animals & Nature","Science & Discovery","Kids & Family","Food","Sports & Play","Arts & Music","Tech & Games","Shows & Fun","Planet & Weather","Travel & Places","Holidays","Community & Life"];
 
 export const INTEREST_KEYWORD_IDS = new Set(INTEREST_KEYWORDS.map((k) => k.id));
 
 export function getInterestKeywordLabel(id: string): string {
   const found = INTEREST_KEYWORDS.find((k) => k.id === id);
-  return found ? `${found.icon} ${found.label}` : id;
+  return found ? found.icon + " " + found.label : id;
 }

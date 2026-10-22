@@ -25,9 +25,9 @@ export function getAdminLoginPage() {
 }
 
 export function getAdminPage() {
-  // Interest keyword options for the validation list picker (id/label/icon only).
+  // Interest keyword options for the validation list picker (id/label/icon/group only).
   const keywordOptionsJson = JSON.stringify(
-    INTEREST_KEYWORDS.map((k) => ({ id: k.id, label: k.label, icon: k.icon }))
+    INTEREST_KEYWORDS.map((k) => ({ id: k.id, label: k.label, icon: k.icon, group: k.group }))
   );
   return `<!doctype html>
 <html lang="en">
@@ -5353,26 +5353,41 @@ export function getAdminPage() {
                 if (existing) { existing.remove(); return; }
                 var picker = document.createElement('div');
                 picker.className = 'kw-picker';
-                picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem;flex-basis:100%;';
+                picker.style.cssText = 'display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;flex-basis:100%;max-height:22rem;overflow-y:auto;padding:0.5rem;border:1px solid var(--news-border, #334155);border-radius:0.5rem;';
                 var hint = document.createElement('span');
                 hint.className = 'admin-hint';
-                hint.style.flexBasis = '100%';
                 hint.textContent = 'Tag this story with interest keywords. Uncheck all to clear.';
                 picker.appendChild(hint);
                 var current = Array.isArray(m.interestKeywords) && m.interestKeywords.length > 0 ? m.interestKeywords : [];
                 var boxes = [];
-                (window.LITTLABLES_KEYWORDS || []).forEach(function (kw) {
-                  var lab = document.createElement('label');
-                  lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
-                  var cb = document.createElement('input');
-                  cb.type = 'checkbox';
-                  cb.value = kw.id;
-                  cb.checked = current.indexOf(kw.id) !== -1;
-                  lab.appendChild(cb);
-                  lab.appendChild(document.createTextNode((kw.icon ? kw.icon + ' ' : '') + kw.label));
-                  picker.appendChild(lab);
-                  boxes.push(cb);
+                var allKws = window.LITTLABLES_KEYWORDS || [];
+                var groups = [];
+                allKws.forEach(function (kw) {
+                  if (groups.indexOf(kw.group) === -1) groups.push(kw.group);
                 });
+                groups.forEach(function (group) {
+                  var groupTitle = document.createElement('strong');
+                  groupTitle.style.cssText = 'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;opacity:0.8;margin-top:0.25rem;';
+                  groupTitle.textContent = group;
+                  picker.appendChild(groupTitle);
+                  var groupRow = document.createElement('div');
+                  groupRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;';
+                  allKws.filter(function (kw) { return kw.group === group; }).forEach(function (kw) {
+                    var lab = document.createElement('label');
+                    lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+                    var cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = kw.id;
+                    cb.checked = current.indexOf(kw.id) !== -1;
+                    lab.appendChild(cb);
+                    lab.appendChild(document.createTextNode((kw.icon ? kw.icon + ' ' : '') + kw.label));
+                    groupRow.appendChild(lab);
+                    boxes.push(cb);
+                  });
+                  picker.appendChild(groupRow);
+                });
+                var btnRow = document.createElement('div');
+                btnRow.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.25rem;';
                 var applyBtn = document.createElement('button');
                 applyBtn.type = 'button';
                 applyBtn.className = 'small-btn';
@@ -5386,8 +5401,9 @@ export function getAdminPage() {
                 cancelBtn.className = 'secondary small-btn';
                 cancelBtn.textContent = 'Cancel';
                 cancelBtn.addEventListener('click', function () { picker.remove(); });
-                picker.appendChild(applyBtn);
-                picker.appendChild(cancelBtn);
+                btnRow.appendChild(applyBtn);
+                btnRow.appendChild(cancelBtn);
+                picker.appendChild(btnRow);
                 actions.appendChild(picker);
               };
               var list = document.createElement('div');

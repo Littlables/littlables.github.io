@@ -14,6 +14,8 @@ import {
   setStoryDisplayCategories,
   setStoryInterestKeywords,
   getStoriesByKeyword,
+  getPersistedKeywordEmbeddings,
+  clearKeywordVectorCache,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories
@@ -598,5 +600,84 @@ test('getStoriesByKeyword queries the interest_keywords array column', async () 
     assert.ok(requestUrls.every(u => u.searchParams.get('removed') === 'eq.false'));
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('getPersistedKeywordEmbeddings returns null without an AI binding', async () => {
+  clearKeywordVectorCache();
+  const result = await getPersistedKeywordEmbeddings(env);
+  assert.equal(result, null);
+  clearKeywordVectorCache();
+});
+
+test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  let aiCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      return Response.json(
+        INTEREST_KEYWORDS.map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [0.1, 0.2, 0.3],
+          model: '@cf/baai/bge-base-en-v1.5',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => { aiCalls++; return { data: [[0.1]] }; } },
+  };
+  try {
+    const map = await getPersistedKeywordEmbeddings(aiEnv);
+    assert.ok(map instanceof Map);
+    assert.equal(map.size, 100);
+    assert.deepEqual(map.get('space'), [0.1, 0.2, 0.3]);
+    assert.equal(aiCalls, 0, 'no AI calls when all vectors are stored');
+    // Second call served from in-memory cache (no fetches at all)
+    let fetches = 0;
+    globalThis.fetch = async () => { fetches++; return Response.json([]); };
+    const cached = await getPersistedKeywordEmbeddings(aiEnv);
+    assert.equal(cached, map);
+    assert.equal(fetches, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-nothing', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  // 99 of 100 vectors stored; the last one fails to embed -> incomplete -> null
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      if (options && options.method === 'POST') return Response.json([]);
+      return Response.json(
+        INTEREST_KEYWORDS.slice(0, 99).map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [0.1],
+          model: '@cf/baai/bge-base-en-v1.5',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const failingAiEnv = {
+    ...env,
+    AI: { run: async () => { throw new Error('AI down'); } },
+  };
+  try {
+    const result = await getPersistedKeywordEmbeddings(failingAiEnv);
+    assert.equal(result, null, 'partial backfill must not enable tagging');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
   }
 });

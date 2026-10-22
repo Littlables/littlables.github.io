@@ -57,9 +57,10 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 
 ### 5. Interest keyword tagging
 - **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
-- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs`
-- **Trigger:** Same validation run as #4 (no extra AI calls per story — the story embedding is reused; the 12 keyword description vectors are embedded once and cached)
-- **What it does:** Tags stories with up to 3 interest keywords (Space, Dinosaurs, Science, Food, Sports, Music, Gardening, Ocean Life, Weather, Inventions, Travel, Holidays) at cosine similarity ≥ 0.35. Keywords are a cross-cutting layer — never shown as categories. Stored in the `interest_keywords` column; served via `GET /feed?keyword=` for custom boards and hand-editable in the admin panel.
+- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs` (100 keywords in 12 groups)
+- **Trigger:** Same validation run as #4 (no extra AI calls per story — the story embedding is reused)
+- **What it does:** Tags stories with up to 3 interest keywords at cosine similarity ≥ 0.45. Keywords are a cross-cutting layer — never shown as categories. Stored in the `interest_keywords` column; served via `GET /feed?keyword=` for custom boards and hand-editable in the admin panel (grouped picker).
+- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled in chunks of 40 per run. Tagging is all-or-nothing — it waits until all 100 vectors exist, so stories are never tagged against a partial set.
 
 ## Cloudflare Worker news providers
 

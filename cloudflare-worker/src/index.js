@@ -27,6 +27,7 @@ import {
   setStoryDisplayCategories,
   setStoryInterestKeywords,
   getStoriesByKeyword,
+  getPersistedKeywordEmbeddings,
   OVERRIDABLE_CATEGORIES,
   effectiveDisplayCategories,
   upsertNewsStories,
@@ -51,7 +52,7 @@ import {
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
-import { validateStoryCategories, getKeywordEmbeddings } from './embedding-classifier.mjs';
+import { validateStoryCategories } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
@@ -1235,9 +1236,10 @@ async function serveAdmin(request, env) {
       const allResults = [];
       let offset = 0;
 
-      // Interest keyword vectors are embedded once per run and reused for
-      // every story (keyword scoring is pure cosine math — no extra AI calls).
-      const keywordVectors = await getKeywordEmbeddings(env);
+      // Interest keyword vectors are loaded from Supabase (embedded once and
+      // persisted) and reused for every story — no per-story AI cost.
+      // Returns null until all 100 are backfilled; keyword tagging waits.
+      const keywordVectors = await getPersistedKeywordEmbeddings(env);
 
       while (totalValidated < maxStories) {
         // Fetch next batch of unapproved stories missing category validation

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth, PillConfig, SocialLinks } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
 import { THEMES, CATEGORIES } from '../constants/config';
-import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
+import { INTEREST_KEYWORDS, INTEREST_KEYWORD_GROUPS } from '../constants/interestKeywords';
 import {
   Board,
   slugify,
@@ -1185,24 +1185,31 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 <p className="profile-hint profile-hint-compact">
                   Cross-cutting topics for custom boards — never shown as categories.
                 </p>
-                <div className="board-pill-picker">
-                  {INTEREST_KEYWORDS.map((kw) => {
-                    const pill: PillConfig = { id: kw.id, type: 'keyword' };
-                    const checked = editingBoard.pills.some(
-                      (p) => p.type === 'keyword' && p.id === kw.id
-                    );
-                    return (
-                      <button
-                        key={kw.id}
-                        type="button"
-                        className={`pill-toggle ${checked ? 'active' : ''}`}
-                        onClick={() => handleBoardPillToggle(pill)}
-                      >
-                        <span>{kw.icon}</span> {kw.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {INTEREST_KEYWORD_GROUPS.map((group) => (
+                  <div key={group} style={{ marginBottom: '0.5rem' }}>
+                    <div className="profile-hint profile-hint-compact" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
+                      {group}
+                    </div>
+                    <div className="board-pill-picker">
+                      {INTEREST_KEYWORDS.filter((kw) => kw.group === group).map((kw) => {
+                        const pill: PillConfig = { id: kw.id, type: 'keyword' };
+                        const checked = editingBoard.pills.some(
+                          (p) => p.type === 'keyword' && p.id === kw.id
+                        );
+                        return (
+                          <button
+                            key={kw.id}
+                            type="button"
+                            className={`pill-toggle ${checked ? 'active' : ''}`}
+                            onClick={() => handleBoardPillToggle(pill)}
+                          >
+                            <span>{kw.icon}</span> {kw.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
                 {editingBoard.pills.filter((p) => p.type === 'custom').length > 0 && (
                   <div className="board-custom-pills">
                     {editingBoard.pills
