@@ -47,6 +47,7 @@ import {
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories } from './embedding-classifier.mjs';
+import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -470,6 +471,71 @@ async function executeProviderSync(provider, updatedBy, env, {
 async function updateNewsProvider(provider, updatedBy, env, options = {}) {
   const result = await executeProviderSync(provider, updatedBy, env, options);
   return jsonResponse(result.body, result.httpStatus);
+}
+
+/**
+ * Staggered topic sync: processes the next batch of (provider, category) pairs
+ * from the rotation queue. Designed to run every 10 minutes via cron,
+ * spreading the 42 fetches evenly across the hour instead of bursting.
+ */
+async function runStaggeredSync(env, triggerSource = 'cron', updatedBy = 'staggered-scheduler') {
+  const providers = getNewsProviders(env).filter(p => p.configured);
+  if (providers.length === 0) {
+    return { skipped: true, reason: 'No providers configured', pairsSynced: 0 };
+  }
+
+  const batch = getNextSyncBatch(providers, PAIRS_PER_RUN);
+  const results = [];
+  let totalStoriesSaved = 0;
+
+  for (const { provider, category } of batch) {
+    const config = getNewsProviderConfig(provider);
+    if (!config) continue;
+    // Small pause between fetches to avoid hammering APIs
+    if (results.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    try {
+      const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+      });
+      const stories = feed.items.slice(0, 10);
+      const upsertResult = await upsertNewsStories(env, provider, category, stories);
+      const savedCount = upsertResult?.savedCount ?? 0;
+      totalStoriesSaved += savedCount;
+      await recordNewsProviderFetchLog(env, {
+        provider,
+        providerLabel: config.label,
+        category,
+        triggerSource: triggerSource + ':staggered',
+        status: 'succeeded',
+        httpStatus: 200,
+        durationMs: 0,
+        attemptCount: 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: savedCount,
+        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+        errorMessage: null,
+      });
+      results.push({ provider, category, status: 'succeeded', storiesSaved: savedCount });
+    } catch (err) {
+      console.error(`Staggered sync failed for ${provider}/${category}:`, err);
+      results.push({
+        provider,
+        category,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    pairsSynced: results.length,
+    totalStoriesSaved,
+    results,
+    triggerSource,
+  };
 }
 
 async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourly-scheduler', { force = false } = {}) {
@@ -1901,10 +1967,16 @@ export default {
 
   async scheduled(event, env, ctx) {
     if (env?.AUTO_SYNC_ENABLED === 'false') {
-      console.info('Hourly provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
+      console.info('Provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
       return;
     }
-    const task = runHourlyAutoSync(env, 'cron', `cron:${event?.cron || '0 * * * *'}`);
+    const cronPattern = event?.cron || '0 * * * *';
+    // Use staggered sync for frequent crons (every 10 min), hourly burst otherwise.
+    // Staggered spreads the 42 provider/topic fetches evenly across the hour.
+    const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
+    const task = isStaggered
+      ? runStaggeredSync(env, 'cron', `cron:${cronPattern}`)
+      : runHourlyAutoSync(env, 'cron', `cron:${cronPattern}`);
     if (ctx && typeof ctx.waitUntil === 'function') {
       ctx.waitUntil(task);
     } else {
