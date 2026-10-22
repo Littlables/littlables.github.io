@@ -1322,16 +1322,16 @@ body.story-modal-open {
 
 .dialog-close {
   position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
+  top: 0.5rem;
+  right: 0.5rem;
   z-index: 30;
-  width: 2rem;
-  height: 2rem;
+  width: 2.1rem;
+  height: 2.1rem;
   border-radius: 9999px;
   border: none;
   background: transparent;
   color: var(--news-text-secondary, #94a3b8);
-  font-size: 1.25rem;
+  font-size: 1.4rem;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -2010,7 +2010,7 @@ body.story-modal-open {
 .space-page {
   max-width: 720px;
   margin: 0 auto;
-  padding: 0.5rem 1rem 3rem;
+  padding: 1rem 1rem 3rem;
 }
 .space-card {
   background: var(--card-bg, rgba(255, 255, 255, 0.04));
