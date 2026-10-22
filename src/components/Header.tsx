@@ -10,6 +10,9 @@ interface HeaderProps {
   onOpenSignIn: () => void;
   onOpenProfile: () => void;
   isLoading: boolean;
+  /** Board branding override: shown instead of the Littlables logo on board pages */
+  brandName?: string;
+  brandLogoUrl?: string | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,7 +21,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onOpenSignIn,
   onOpenProfile,
-  isLoading
+  isLoading,
+  brandName,
+  brandLogoUrl
 }) => {
   const { user, profile } = useAuth();
 
@@ -44,20 +49,33 @@ export const Header: React.FC<HeaderProps> = ({
         className="news-widget-title"
         id="widget-main-title"
         title="Refresh Stories"
-        aria-label={`${t('headerTitle') || 'Littlables'} — Refresh Stories`}
+        aria-label={`${brandName || t('headerTitle') || 'Littlables'} — Refresh Stories`}
         onClick={handleBrandClick}
       >
-        <img
-          className="widget-brand-icon"
-          src="/favicon-48x48.png"
-          width="28"
-          height="28"
-          alt="Littlables logo"
-          onError={(e) => {
-            (e.target as HTMLElement).style.display = 'none';
-          }}
-        />
-        <span id="widget-title-text">{t('headerTitle') || 'Littlables'}</span>
+        {brandLogoUrl ? (
+          <img
+            className="widget-brand-icon board-brand-logo"
+            src={brandLogoUrl}
+            width="28"
+            height="28"
+            alt={`${brandName || 'Board'} logo`}
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <img
+            className="widget-brand-icon"
+            src="/favicon-48x48.png"
+            width="28"
+            height="28"
+            alt="Littlables logo"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        )}
+        <span id="widget-title-text">{brandName || t('headerTitle') || 'Littlables'}</span>
       </button>
 
       <div className="news-header-controls">

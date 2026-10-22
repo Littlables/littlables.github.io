@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
 import { Profile, useAuth } from '../contexts/AuthContext';
+import { Board, getUserBoards } from '../services/boardService';
 import { getCharacterAvatar } from '../constants/avatars';
 import { CATEGORIES } from '../constants/config';
 import { t } from '../constants/translations';
@@ -44,6 +45,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
 }) => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -69,6 +71,12 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
           setNotFound(true);
         } else {
           setProfile(data as Profile);
+          // Load the user's boards (public, in display order)
+          getUserBoards((data as Profile).id)
+            .then((b) => {
+              if (!cancelled) setBoards(b);
+            })
+            .catch(() => {});
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -211,6 +219,43 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
                     </span>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {boards.length > 0 && (
+            <div className="space-boards-section">
+              <h2 className="space-section-title">🗂️ More boards</h2>
+              <div className="space-boards">
+                {boards.map((board) => (
+                  <button
+                    key={board.id}
+                    type="button"
+                    className="space-board-card"
+                    onClick={() => {
+                      window.history.pushState({}, '', `/@${profile.username}/${board.slug}`);
+                      window.dispatchEvent(new PopStateEvent('popstate'));
+                    }}
+                  >
+                    {board.logo_url ? (
+                      <img src={board.logo_url} alt="" className="space-board-logo" />
+                    ) : (
+                      <span className="space-board-logo-fallback">
+                        {(board.name || '?')[0].toUpperCase()}
+                      </span>
+                    )}
+                    <span className="space-board-info">
+                      <span className="space-board-name">{board.name}</span>
+                      {board.description && (
+                        <span className="space-board-description">{board.description}</span>
+                      )}
+                      <span className="space-board-meta">
+                        {board.pills?.length || 0} topics · /{board.slug}
+                      </span>
+                    </span>
+                    <span className="space-board-arrow" aria-hidden="true">→</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}

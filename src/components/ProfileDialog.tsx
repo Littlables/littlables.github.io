@@ -2,6 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth, PillConfig, SocialLinks } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
 import { THEMES, CATEGORIES } from '../constants/config';
+import {
+  Board,
+  slugify,
+  ensureUniqueSlug,
+  getUserBoards,
+  createBoard,
+  updateBoard,
+  deleteBoard,
+  reorderBoards,
+  uploadBoardLogo,
+} from '../services/boardService';
 import { t } from '../constants/translations';
 import { TranslationStrings } from '../constants/translations';
 import { useTheme } from '../hooks/useTheme';
@@ -12,7 +23,7 @@ interface ProfileDialogProps {
   notify: (message: string, kind?: 'success' | 'error') => void;
 }
 
-type Tab = 'profile' | 'avatar' | 'pills' | 'theme';
+type Tab = 'profile' | 'avatar' | 'pills' | 'theme' | 'boards';
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
   { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
@@ -53,6 +64,22 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const [bio, setBio] = useState('');
   const [socials, setSocials] = useState<SocialLinks>({});
   const [pills, setPills] = useState<PillConfig[]>([]);
+  // Boards
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [boardsLoading, setBoardsLoading] = useState(false);
+  interface EditingBoard {
+    id: string | null; // null = new board
+    name: string;
+    slug: string;
+    description: string;
+    logoUrl: string | null; // existing URL or blob preview
+    logoFile: File | null;
+    theme: string; // '' = inherit profile theme
+    bgColor: string; // '' = inherit
+    pills: PillConfig[];
+  }
+  const [editingBoard, setEditingBoard] = useState<EditingBoard | null>(null);
+  const boardLogoRef = useRef<HTMLInputElement>(null);
   const [bgColor, setBgColor] = useState('');
   const [bgHex, setBgHex] = useState('');
   // The active theme's background color, so the wheel reflects the current
@@ -372,6 +399,176 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     }
   };
 
+  // ---- Boards ----
+  const loadBoards = async () => {
+    if (!user) return;
+    setBoardsLoading(true);
+    try {
+      setBoards(await getUserBoards(user.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load boards');
+    } finally {
+      setBoardsLoading(false);
+    }
+  };
+
+  // Load boards when the dialog opens
+  const boardsLoadedForOpen = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      boardsLoadedForOpen.current = false;
+      setEditingBoard(null);
+      return;
+    }
+    if (user && !boardsLoadedForOpen.current) {
+      boardsLoadedForOpen.current = true;
+      loadBoards();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, user]);
+
+  const handleNewBoard = () => {
+    setEditingBoard({
+      id: null,
+      name: '',
+      slug: '',
+      description: '',
+      logoUrl: null,
+      logoFile: null,
+      theme: '',
+      bgColor: '',
+      pills: [...pills],
+    });
+  };
+
+  const handleEditBoard = (board: Board) => {
+    setEditingBoard({
+      id: board.id,
+      name: board.name,
+      slug: board.slug,
+      description: board.description || '',
+      logoUrl: board.logo_url,
+      logoFile: null,
+      theme: board.theme || '',
+      bgColor: board.background_color || '',
+      pills: [...(board.pills || [])],
+    });
+  };
+
+  const handleBoardLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (boardLogoRef.current) boardLogoRef.current.value = '';
+    if (!file || !editingBoard) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image must be under 2MB');
+      return;
+    }
+    if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
+    setEditingBoard({ ...editingBoard, logoUrl: URL.createObjectURL(file), logoFile: file });
+  };
+
+  const handleBoardPillToggle = (pill: PillConfig) => {
+    if (!editingBoard) return;
+    const exists = editingBoard.pills.some((p) => p.type === pill.type && p.id === pill.id);
+    setEditingBoard({
+      ...editingBoard,
+      pills: exists
+        ? editingBoard.pills.filter((p) => !(p.type === pill.type && p.id === pill.id))
+        : [...editingBoard.pills, pill],
+    });
+  };
+
+  const handleSaveBoard = async () => {
+    if (!editingBoard || !user) return;
+    const name = editingBoard.name.trim();
+    if (!name) {
+      setError('Give your board a name');
+      return;
+    }
+    setError('');
+    setSaved(false);
+    setSaving(true);
+    try {
+      const slug = await ensureUniqueSlug(
+        user.id,
+        slugify(editingBoard.slug.trim() || name),
+        editingBoard.id || undefined
+      );
+      let logoUrl = editingBoard.logoUrl;
+      // New boards: create first (need the id for the logo path), then upload
+      let boardId = editingBoard.id;
+      if (!boardId) {
+        const created = await createBoard(user.id, {
+          name,
+          slug,
+          description: editingBoard.description.trim() || null,
+          logo_url: null,
+          theme: editingBoard.theme || null,
+          background_color: editingBoard.bgColor || null,
+          pills: editingBoard.pills,
+          position: boards.length,
+        });
+        boardId = created.id;
+      }
+      if (editingBoard.logoFile && boardId) {
+        logoUrl = await uploadBoardLogo(user.id, boardId, editingBoard.logoFile);
+      }
+      const updated = await updateBoard(boardId, {
+        name,
+        slug,
+        description: editingBoard.description.trim() || null,
+        logo_url: editingBoard.logoFile ? logoUrl : editingBoard.logoUrl,
+        theme: editingBoard.theme || null,
+        background_color: editingBoard.bgColor || null,
+        pills: editingBoard.pills,
+      });
+      if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
+      setBoards((prev) => {
+        const exists = prev.some((b) => b.id === updated.id);
+        const next = exists ? prev.map((b) => (b.id === updated.id ? updated : b)) : [...prev, updated];
+        return next.sort((a, b) => a.position - b.position);
+      });
+      setEditingBoard(null);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save board');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteBoard = async (boardId: string, boardName: string) => {
+    if (!window.confirm(`Delete the "${boardName}" board? This can't be undone.`)) return;
+    setError('');
+    try {
+      await deleteBoard(boardId);
+      setBoards((prev) => prev.filter((b) => b.id !== boardId));
+      if (editingBoard?.id === boardId) setEditingBoard(null);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete board');
+    }
+  };
+
+  const handleMoveBoard = async (boardId: string, dir: -1 | 1) => {
+    const idx = boards.findIndex((b) => b.id === boardId);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= boards.length) return;
+    const next = [...boards];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    setBoards(next);
+    try {
+      await reorderBoards(next.map((b) => b.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder');
+      loadBoards();
+    }
+  };
+
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -405,6 +602,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     { id: 'avatar', label: 'Avatar' },
     { id: 'pills', label: 'Pills' },
     { id: 'theme', label: 'Theme' },
+    { id: 'boards', label: 'Boards' },
   ];
 
   return (
@@ -692,6 +890,269 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
             <button type="button" className="sign-in-button primary-button" onClick={handleSaveTheme} disabled={saving} style={{ marginTop: '1rem' }}>
               {saving ? 'Saving…' : 'Save Theme'}
             </button>
+          </div>
+        )}
+
+        {tab === 'boards' && (
+          <div className="profile-tab-content">
+            {!editingBoard ? (
+              <>
+                <label className="profile-section-label">Your boards</label>
+                <p className="profile-hint profile-hint-compact">
+                  Boards group your topics into their own pages at @{profile?.username || 'you'}/board-name.
+                </p>
+                {boardsLoading ? (
+                  <p className="profile-hint">Loading boards…</p>
+                ) : boards.length === 0 ? (
+                  <p className="profile-hint">No boards yet — create your first one below.</p>
+                ) : (
+                  <div className="board-list">
+                    {boards.map((board, i) => (
+                      <div key={board.id} className="board-row">
+                        {board.logo_url ? (
+                          <img src={board.logo_url} alt="" className="board-row-logo" />
+                        ) : (
+                          <span className="board-row-logo-fallback">
+                            {(board.name || '?')[0].toUpperCase()}
+                          </span>
+                        )}
+                        <div className="board-row-info">
+                          <div className="board-row-name">{board.name}</div>
+                          <div className="board-row-slug">@{profile?.username}/{board.slug}</div>
+                        </div>
+                        <div className="board-row-actions">
+                          <button
+                            type="button"
+                            className="board-icon-button"
+                            title="Move up"
+                            disabled={i === 0}
+                            onClick={() => handleMoveBoard(board.id, -1)}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="board-icon-button"
+                            title="Move down"
+                            disabled={i === boards.length - 1}
+                            onClick={() => handleMoveBoard(board.id, 1)}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="board-icon-button"
+                            title="Edit board"
+                            onClick={() => handleEditBoard(board)}
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            className="board-icon-button board-delete"
+                            title="Delete board"
+                            onClick={() => handleDeleteBoard(board.id, board.name)}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="sign-in-button primary-button"
+                  onClick={handleNewBoard}
+                  style={{ marginTop: '1rem' }}
+                >
+                  + New board
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="link-button" onClick={() => setEditingBoard(null)}>
+                  ← Back to boards
+                </button>
+                <label className="profile-section-label">
+                  {editingBoard.id ? 'Edit board' : 'New board'}
+                </label>
+
+                <label className="profile-field-label">Name</label>
+                <input
+                  type="text"
+                  className="sign-in-input"
+                  value={editingBoard.name}
+                  onChange={(e) => setEditingBoard({ ...editingBoard, name: e.target.value })}
+                  placeholder="Cozy reads"
+                  maxLength={60}
+                />
+
+                <label className="profile-field-label">URL</label>
+                <div className="board-slug-row">
+                  <span className="board-slug-prefix">@{profile?.username}/</span>
+                  <input
+                    type="text"
+                    className="sign-in-input board-slug-input"
+                    value={editingBoard.slug}
+                    onChange={(e) => setEditingBoard({ ...editingBoard, slug: slugify(e.target.value) })}
+                    placeholder={slugify(editingBoard.name) || 'board-name'}
+                    maxLength={50}
+                  />
+                </div>
+
+                <label className="profile-field-label">Description (optional)</label>
+                <textarea
+                  className="sign-in-input board-description-input"
+                  value={editingBoard.description}
+                  onChange={(e) => setEditingBoard({ ...editingBoard, description: e.target.value })}
+                  placeholder="What is this board about?"
+                  maxLength={280}
+                  rows={2}
+                />
+
+                <label className="profile-field-label">Board logo (optional)</label>
+                <div className="board-logo-row">
+                  {editingBoard.logoUrl ? (
+                    <img src={editingBoard.logoUrl} alt="Board logo preview" className="board-logo-preview" />
+                  ) : (
+                    <span className="board-row-logo-fallback board-logo-preview">
+                      {(editingBoard.name || '?')[0].toUpperCase()}
+                    </span>
+                  )}
+                  <div>
+                    <input
+                      ref={boardLogoRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={handleBoardLogoPick}
+                    />
+                    <button
+                      type="button"
+                      className="sign-in-button secondary-button"
+                      onClick={() => boardLogoRef.current?.click()}
+                    >
+                      {editingBoard.logoUrl && !editingBoard.logoUrl.startsWith('blob:') ? 'Change logo' : 'Upload logo'}
+                    </button>
+                    {(editingBoard.logoUrl || editingBoard.logoFile) && (
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => {
+                          if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
+                          setEditingBoard({ ...editingBoard, logoUrl: null, logoFile: null });
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <label className="profile-field-label">Theme</label>
+                <div className="board-theme-row">
+                  <button
+                    type="button"
+                    className={`theme-option ${editingBoard.theme === '' ? 'selected' : ''}`}
+                    onClick={() => setEditingBoard({ ...editingBoard, theme: '' })}
+                  >
+                    <span className="theme-name">Use profile theme</span>
+                  </button>
+                  {THEMES.map((themeOption) => (
+                    <button
+                      key={themeOption.id}
+                      type="button"
+                      className={`theme-option ${editingBoard.theme === themeOption.id ? 'selected' : ''}`}
+                      onClick={() => setEditingBoard({ ...editingBoard, theme: themeOption.id })}
+                    >
+                      <span className="theme-icon">{themeOption.icon}</span>
+                      <span className="theme-name">{themeOption.name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <label className="profile-field-label">Background color (optional)</label>
+                <div className="color-picker-row">
+                  <input
+                    type="color"
+                    value={editingBoard.bgColor || themeBg || '#1e293b'}
+                    onChange={(e) => setEditingBoard({ ...editingBoard, bgColor: e.target.value })}
+                    className="color-wheel"
+                    aria-label="Pick board background color"
+                  />
+                  <input
+                    type="text"
+                    value={editingBoard.bgColor}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '' || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                        setEditingBoard({ ...editingBoard, bgColor: v });
+                      }
+                    }}
+                    placeholder="Inherit"
+                    maxLength={7}
+                    className="hex-input"
+                    aria-label="Hex color code"
+                  />
+                  {editingBoard.bgColor && (
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => setEditingBoard(editingBoard ? { ...editingBoard, bgColor: '' } : editingBoard)}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <label className="profile-field-label">Topics on this board</label>
+                {pills.length === 0 ? (
+                  <p className="profile-hint profile-hint-compact">
+                    Add pills on the Pills tab first, then pick which ones appear here.
+                  </p>
+                ) : (
+                  <div className="board-pill-picker">
+                    {pills.map((pill) => {
+                      const checked = editingBoard.pills.some(
+                        (p) => p.type === pill.type && p.id === pill.id
+                      );
+                      const label = pill.type === 'custom' ? pill.label || pill.id : pill.id;
+                      return (
+                        <label key={`${pill.type}-${pill.id}`} className="board-pill-option">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => handleBoardPillToggle(pill)}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="board-editor-actions">
+                  <button
+                    type="button"
+                    className="sign-in-button primary-button"
+                    onClick={handleSaveBoard}
+                    disabled={saving}
+                  >
+                    {saving ? 'Saving…' : editingBoard.id ? 'Save board' : 'Create board'}
+                  </button>
+                  {editingBoard.id && (
+                    <button
+                      type="button"
+                      className="sign-in-button secondary-button board-delete-button"
+                      onClick={() => handleDeleteBoard(editingBoard.id as string, editingBoard.name)}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
 

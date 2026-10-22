@@ -13,6 +13,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
 import { ProfileDialog } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
+import { BoardPage } from './components/BoardPage';
 import { useAuth } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
@@ -39,6 +40,13 @@ function parseProfileFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
   const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/?$/i);
   return match ? match[1].toLowerCase() : null;
+}
+
+/** Extracts a `@username/boardslug` board route, e.g. `/@katie/cozy-reads`. */
+function parseBoardFromUrl(): { username: string; slug: string } | null {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/?$/i);
+  return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
 }
 
 export const App: React.FC = () => {
@@ -77,6 +85,9 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
+  const [boardRoute, setBoardRoute] = useState<{ username: string; slug: string } | null>(() => parseBoardFromUrl());
+  // Board branding shown in the header while viewing a board page
+  const [boardBrand, setBoardBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
@@ -122,6 +133,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
+      const urlBoard = parseBoardFromUrl();
+      setBoardRoute(urlBoard);
+      if (urlBoard) {
+        setProfileRoute(null);
+        return;
+      }
+      setBoardBrand(null);
       const urlProfile = parseProfileFromUrl();
       setProfileRoute(urlProfile);
       if (urlProfile) return;
@@ -246,6 +264,8 @@ export const App: React.FC = () => {
     setSelectedStory(null);
     setActiveStoryParam(null);
     setProfileRoute(null);
+    setBoardRoute(null);
+    setBoardBrand(null);
     try {
       localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
     } catch {}
@@ -353,6 +373,8 @@ export const App: React.FC = () => {
           onOpenSignIn={() => setActiveDialog('signin')}
           onOpenProfile={() => setActiveDialog('profile')}
           isLoading={isLoading}
+          brandName={boardBrand?.name}
+          brandLogoUrl={boardBrand?.logoUrl}
         />
 
         <CategoryNav
@@ -360,7 +382,15 @@ export const App: React.FC = () => {
           onSelectCategory={handleSelectCategory}
         />
 
-        {profileRoute ? (
+        {boardRoute ? (
+          <BoardPage
+            username={boardRoute.username}
+            slug={boardRoute.slug}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+            onBrand={setBoardBrand}
+          />
+        ) : profileRoute ? (
           <PublicProfilePage
             username={profileRoute}
             onHome={handleHomeRefresh}
