@@ -1701,6 +1701,9 @@ body.story-modal-open {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
+  /* Pull the scrollbar to the dialog's right edge, under the × button */
+  margin-right: -1.4rem;
+  padding-right: 1.4rem;
 }
 
 /* Keep the scrollbar inside the tab content's rounded corners */
