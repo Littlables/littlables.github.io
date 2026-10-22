@@ -2764,3 +2764,29 @@ textarea.board-input {
   margin-top: 0;
   flex-shrink: 0;
 }
+
+/* All text inputs in the profile dialog share the same themed style */
+.profile-dialog-expanded input[type="text"],
+.profile-dialog-expanded textarea {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  background: var(--news-card-bg, #1e293b);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.profile-dialog-expanded input[type="text"]::placeholder,
+.profile-dialog-expanded textarea::placeholder {
+  color: var(--news-text-muted, #94a3b8);
+  opacity: 0.7;
+}
+
+.profile-dialog-expanded input[type="text"]:focus,
+.profile-dialog-expanded textarea:focus {
+  outline: none;
+  border-color: var(--pill-border, rgba(79, 70, 229, 0.35));
+  box-shadow: 0 0 0 2px var(--pill-bg, rgba(79, 70, 229, 0.12));
+}
