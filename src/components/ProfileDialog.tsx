@@ -120,6 +120,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   // Load profile data when the dialog opens — not on every profile update,
   // so saves (Clear, theme pick, avatar) don't clobber edits or yank the tab
   const loadedForOpen = useRef(false);
+  const boardsLoadedForOpen = useRef(false);
   useEffect(() => {
     if (!isOpen) {
       loadedForOpen.current = false;
@@ -413,7 +414,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   };
 
   // Load boards when the dialog opens
-  const boardsLoadedForOpen = useRef(false);
   useEffect(() => {
     if (!isOpen) {
       boardsLoadedForOpen.current = false;
