@@ -179,6 +179,20 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     setThemeBg(/^#[0-9a-fA-F]{6}$/.test(v) ? v : '');
   }, [isOpen, localTheme, bgColor, profile?.background_color]);
 
+  // Load boards when the dialog opens
+  useEffect(() => {
+    if (!isOpen) {
+      boardsLoadedForOpen.current = false;
+      setEditingBoard(null);
+      return;
+    }
+    if (user && !boardsLoadedForOpen.current) {
+      boardsLoadedForOpen.current = true;
+      loadBoards();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, user]);
+
   if (!isOpen) return null;
 
   // Username availability check (debounced)
@@ -412,20 +426,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       setBoardsLoading(false);
     }
   };
-
-  // Load boards when the dialog opens
-  useEffect(() => {
-    if (!isOpen) {
-      boardsLoadedForOpen.current = false;
-      setEditingBoard(null);
-      return;
-    }
-    if (user && !boardsLoadedForOpen.current) {
-      boardsLoadedForOpen.current = true;
-      loadBoards();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, user]);
 
   const handleNewBoard = () => {
     setEditingBoard({
