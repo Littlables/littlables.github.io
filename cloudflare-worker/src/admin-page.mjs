@@ -1120,6 +1120,30 @@ export function getAdminPage() {
       </div>
     </section>
 
+    <!-- 1b. EMBEDDING VALIDATION SECTION -->
+    <section aria-labelledby="embedding-validation-title" class="admin-card-section" data-section-id="embedding-validation">
+      <div class="section-header">
+        <h2 id="embedding-validation-title">
+          <button id="embedding-validation-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="embedding-validation-body" data-section-toggle="embedding-validation">
+            <span id="embedding-validation-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Embedding Category Validation <span id="embedding-validation-count"></span></span>
+          </button>
+        </h2>
+      </div>
+      <div id="embedding-validation-body" class="section-body">
+        <p class="admin-hint">Validates story categories using semantic embeddings. Flags stories where the AI-predicted category disagrees with the query-assigned category.</p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+          <label for="validate-categories-limit" class="admin-hint" style="margin: 0;">Stories to validate:</label>
+          <input id="validate-categories-limit" type="number" min="1" max="2000" value="200" style="width: 5rem; padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);" />
+          <button id="validate-categories-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
+            Validate Categories
+          </button>
+          <span id="validate-categories-status" class="admin-hint"></span>
+        </div>
+        <div id="validate-categories-results" aria-live="polite"></div>
+      </div>
+    </section>
+
     <!-- 2. PENDING STORIES SECTION -->
     <section aria-labelledby="pending-title" class="admin-card-section" data-section-id="pending">
       <div class="section-header">
@@ -1387,7 +1411,7 @@ export function getAdminPage() {
     const STORAGE_PAGE_SIZES_KEY = 'littlables_admin_page_sizes_v1';
 
     const categories = [
-      { id: 'all', label: 'Top Currents', icon: '⚡' },
+      { id: 'all', label: 'All', icon: '⚡' },
       { id: 'childcare', label: 'Childcare & Family', icon: '👨‍👩‍👧' },
       { id: 'animals', label: 'Animals & Nature', icon: '🐾' },
       { id: 'arts', label: 'Creative Arts', icon: '🎨' },
@@ -1560,6 +1584,7 @@ export function getAdminPage() {
     const sectionTargets = {
       summary: { toggle: 'summary-toggle', arrow: 'summary-arrow', body: 'summary-body', defaultOpen: true },
       'ai-staging': { toggle: 'ai-staging-toggle', arrow: 'ai-staging-arrow', body: 'ai-staging-body', defaultOpen: true },
+      'embedding-validation': { toggle: 'embedding-validation-toggle', arrow: 'embedding-validation-arrow', body: 'embedding-validation-body', defaultOpen: true },
       pending: { toggle: 'pending-toggle', arrow: 'pending-arrow', body: 'pending-body', defaultOpen: true },
       search: { toggle: 'search-toggle', arrow: 'search-arrow', body: 'search-body', defaultOpen: true },
       ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
@@ -4952,6 +4977,250 @@ export function getAdminPage() {
           }
         }
       } catch {}
+    }
+
+    /* Embedding category validation */
+    const validateBtn = document.getElementById('validate-categories-btn');
+    const validateStatus = document.getElementById('validate-categories-status');
+    const validateResults = document.getElementById('validate-categories-results');
+    if (validateBtn) {
+      validateBtn.addEventListener('click', async () => {
+        validateBtn.disabled = true;
+        validateBtn.textContent = 'Validating…';
+        if (validateResults) validateResults.replaceChildren();
+        const BATCH_SIZE = 20;
+        const totalRequested = parseInt(document.getElementById('validate-categories-limit').value, 10) || 200;
+        let totalValidated = 0;
+        let allMismatches = [];
+        let allValidatedStories = [];
+        try {
+          let totalStored = 0;
+          let storeError = null;
+          while (totalValidated < totalRequested) {
+            const remaining = totalRequested - totalValidated;
+            if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
+            const res = await fetch('/admin/api/stories/validate-categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit: Math.min(BATCH_SIZE, remaining) }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Validation failed');
+            totalValidated += data.validated;
+            totalStored += data.stored || 0;
+            if (data.storeError && !storeError) storeError = data.storeError;
+            allMismatches = allMismatches.concat(data.mismatches || []);
+            allValidatedStories = allValidatedStories.concat(data.results || []);
+            if (data.validated === 0) break;
+          }
+          if (validateStatus) {
+            let msg = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
+            msg += ' (' + totalStored + ' stored)';
+            if (storeError) msg += ' Error: ' + storeError;
+            validateStatus.textContent = msg;
+          }
+          if (validateResults) {
+            // Collect from batch loop (we'll accumulate in the loop above)
+            if (allValidatedStories.length === 0) {
+              const p = document.createElement('p');
+              p.className = 'admin-hint';
+              p.textContent = 'No stories were validated in this run.';
+              validateResults.appendChild(p);
+            } else {
+              var OVERRIDABLE_IDS = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
+              var catLabel = function (id) {
+                var found = categories.find(function (c) { return c.id === id; });
+                return found ? found.label : id;
+              };
+              var fmtValDate = function (m) {
+                var raw = m.publishedAt || m.fetchedAt;
+                if (!raw) return '';
+                var d = new Date(raw);
+                return isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+              };
+              var refreshValidationRow = function (row, m) {
+                var fresh = createValidationRow(m);
+                row.replaceWith(fresh);
+              };
+              var applyDisplayCategories = function (storyId, cats, row, m, btns) {
+                btns.forEach(function (b) { b.disabled = true; });
+                fetch('/admin/api/stories/' + storyId + '/display-categories', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ display_categories: cats }),
+                }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                  .then(function (out) {
+                    if (!out.ok) throw new Error(out.data.error || 'Update failed');
+                    m.displayCategories = out.data.display_categories;
+                    refreshValidationRow(row, m);
+                  })
+                  .catch(function (err) {
+                    if (validateStatus) validateStatus.textContent = 'Category update failed: ' + (err.message || 'unknown error');
+                    btns.forEach(function (b) { b.disabled = false; });
+                  });
+              };
+              var createValidationRow = function (m) {
+                var row = document.createElement('article');
+                row.className = 'story';
+                row.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
+
+                var fallbackImg = 'img/' + (m.queryCategory || 'all') + '_1.jpg';
+                var image = document.createElement('img');
+                image.src = m.imageUrl || fallbackImg;
+                image.alt = '';
+                image.loading = 'lazy';
+                if (typeof attachSmoothImageLoader === 'function') attachSmoothImageLoader(image, null, fallbackImg);
+                row.appendChild(image);
+
+                var details = document.createElement('div');
+                details.className = 'story-details';
+                var title = document.createElement('h3');
+                var link = document.createElement('a');
+                link.href = m.articleUrl || '#';
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = decodeHtmlEntities(m.title || 'Untitled');
+                title.appendChild(link);
+                details.appendChild(title);
+
+                var meta = document.createElement('p');
+                meta.className = 'story-meta';
+                var addMeta = function (text, cls) {
+                  if (!text) return;
+                  var s = document.createElement('span');
+                  if (cls) s.className = cls;
+                  s.textContent = text;
+                  meta.appendChild(s);
+                };
+                addMeta(m.provider || 'unknown', 'meta-provider');
+                if (m.articleUrl) addMeta(getStoryDomain(m.articleUrl), 'meta-domain');
+                var dateStr = fmtValDate(m);
+                if (dateStr) addMeta(dateStr, 'meta-date');
+
+                var catLine = document.createElement('span');
+                catLine.className = 'meta-category';
+                catLine.textContent = 'query=' + catLabel(m.queryCategory) + ' → AI=' + catLabel(m.embeddingCategory) +
+                  ' (' + (m.confidence != null ? Number(m.confidence).toFixed(2) : 'n/a') + ')';
+                meta.appendChild(catLine);
+
+                var badge = document.createElement('span');
+                badge.className = 'meta-badge-status ' + (m._isMismatch ? 'meta-banned' : 'meta-approved');
+                badge.textContent = m._isMismatch ? 'MISMATCH' : '✓ match';
+                meta.appendChild(badge);
+
+                var override = Array.isArray(m.displayCategories) && m.displayCategories.length > 0 ? m.displayCategories : null;
+                if (override) {
+                  var ovBadge = document.createElement('span');
+                  ovBadge.className = 'meta-badge-status meta-approved';
+                  ovBadge.textContent = 'Showing in: ' + override.map(catLabel).join(', ');
+                  meta.appendChild(ovBadge);
+                }
+                details.appendChild(meta);
+
+                var main = document.createElement('div');
+                main.className = 'story-main';
+                main.appendChild(details);
+                row.appendChild(main);
+
+                var actions = document.createElement('div');
+                actions.className = 'story-actions';
+                var rowBtns = [];
+                var mkBtn = function (label, cls) {
+                  var b = document.createElement('button');
+                  b.type = 'button';
+                  b.className = cls || 'secondary small-btn';
+                  b.textContent = label;
+                  actions.appendChild(b);
+                  rowBtns.push(b);
+                  return b;
+                };
+                var hasAi = m._isMismatch && m.embeddingCategory && OVERRIDABLE_IDS.indexOf(m.embeddingCategory) !== -1;
+                if (!override) {
+                  if (hasAi) {
+                    mkBtn('Use AI', 'small-btn').addEventListener('click', function () {
+                      applyDisplayCategories(m.id, [m.embeddingCategory], row, m, rowBtns);
+                    });
+                    if (m.embeddingCategory !== m.queryCategory) {
+                      mkBtn('Use both', 'small-btn').addEventListener('click', function () {
+                        var both = [m.queryCategory, m.embeddingCategory].filter(function (c, i, a) {
+                          return c && OVERRIDABLE_IDS.indexOf(c) !== -1 && a.indexOf(c) === i;
+                        });
+                        applyDisplayCategories(m.id, both, row, m, rowBtns);
+                      });
+                    }
+                  }
+                  var pickBtn = mkBtn('Pick…', 'secondary small-btn');
+                  pickBtn.addEventListener('click', function () { togglePicker(row, m, actions, pickBtn, rowBtns); });
+                } else {
+                  mkBtn('Undo', 'secondary small-btn').addEventListener('click', function () {
+                    applyDisplayCategories(m.id, null, row, m, rowBtns);
+                  });
+                  var changeBtn = mkBtn('Change…', 'secondary small-btn');
+                  changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
+                }
+                row.appendChild(actions);
+                return row;
+              };
+              var togglePicker = function (row, m, actions, anchorBtn, rowBtns) {
+                var existing = actions.querySelector('.cat-picker');
+                if (existing) { existing.remove(); return; }
+                var picker = document.createElement('div');
+                picker.className = 'cat-picker';
+                picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem;flex-basis:100%;';
+                var current = Array.isArray(m.displayCategories) && m.displayCategories.length > 0
+                  ? m.displayCategories
+                  : (m._isMismatch && m.embeddingCategory ? [m.queryCategory, m.embeddingCategory] : [m.queryCategory]);
+                var boxes = [];
+                OVERRIDABLE_IDS.forEach(function (id) {
+                  var lab = document.createElement('label');
+                  lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+                  var cb = document.createElement('input');
+                  cb.type = 'checkbox';
+                  cb.value = id;
+                  cb.checked = current.indexOf(id) !== -1;
+                  lab.appendChild(cb);
+                  lab.appendChild(document.createTextNode(catLabel(id)));
+                  picker.appendChild(lab);
+                  boxes.push(cb);
+                });
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'small-btn';
+                applyBtn.textContent = 'Apply';
+                applyBtn.addEventListener('click', function () {
+                  var chosen = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+                  applyDisplayCategories(m.id, chosen.length > 0 ? chosen : null, row, m, rowBtns.concat([applyBtn]));
+                });
+                var cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'secondary small-btn';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', function () { picker.remove(); });
+                picker.appendChild(applyBtn);
+                picker.appendChild(cancelBtn);
+                actions.appendChild(picker);
+              };
+              var list = document.createElement('div');
+              list.style.display = 'flex';
+              list.style.flexDirection = 'column';
+              list.style.gap = '0.5rem';
+              // Show mismatches first, then matches
+              var sorted = [...allMismatches.map(m => ({...m, _isMismatch: true})), ...allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}))];
+              for (const m of sorted) {
+                list.appendChild(createValidationRow(m));
+              }
+              validateResults.appendChild(list);
+            }
+          }
+          const countEl = document.getElementById('embedding-validation-count');
+          if (countEl) countEl.textContent = allMismatches.length ? '(' + allMismatches.length + ' mismatches)' : '';
+        } catch (err) {
+          if (validateStatus) validateStatus.textContent = 'Error: ' + (err.message || 'Validation failed');
+        } finally {
+          validateBtn.disabled = false;
+          validateBtn.textContent = 'Validate Categories';
+        }
+      });
     }
 
     restoreSectionLayout();

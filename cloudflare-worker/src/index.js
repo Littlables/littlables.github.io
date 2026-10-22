@@ -24,6 +24,9 @@ import {
   getStoredKeywordNewsFeed,
   undoNewsStoryDecision,
   updateNewsStory,
+  setStoryDisplayCategories,
+  OVERRIDABLE_CATEGORIES,
+  effectiveDisplayCategories,
   upsertNewsStories,
   searchNewsStories,
   getProviderCooldownState,
@@ -38,10 +41,16 @@ import {
   getAiCurationState,
   updateAiCurationConfig,
   runAiStoryCuration,
-  bulkDecideNewsStories
+  bulkDecideNewsStories,
+  recordEngagementEvent,
+  STORIES_TABLE,
+  supabaseHeaders,
+  supabaseUrl
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
+import { validateStoryCategories } from './embedding-classifier.mjs';
+import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -67,6 +76,22 @@ function jsonResponse(body, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
   });
+}
+
+async function handleEngagementEvent(request, env) {
+  try {
+    const body = await request.json();
+    const result = await recordEngagementEvent(env, {
+      url: body.url,
+      title: body.title,
+      category: body.category,
+      eventType: body.eventType,
+      sessionId: body.sessionId,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
 }
 
 async function serveNewsFeed(request, env) {
@@ -449,6 +474,71 @@ async function executeProviderSync(provider, updatedBy, env, {
 async function updateNewsProvider(provider, updatedBy, env, options = {}) {
   const result = await executeProviderSync(provider, updatedBy, env, options);
   return jsonResponse(result.body, result.httpStatus);
+}
+
+/**
+ * Staggered topic sync: processes the next batch of (provider, category) pairs
+ * from the rotation queue. Designed to run every 10 minutes via cron,
+ * spreading the 42 fetches evenly across the hour instead of bursting.
+ */
+async function runStaggeredSync(env, triggerSource = 'cron', updatedBy = 'staggered-scheduler') {
+  const providers = getNewsProviders(env).filter(p => p.configured);
+  if (providers.length === 0) {
+    return { skipped: true, reason: 'No providers configured', pairsSynced: 0 };
+  }
+
+  const batch = getNextSyncBatch(providers, PAIRS_PER_RUN);
+  const results = [];
+  let totalStoriesSaved = 0;
+
+  for (const { provider, category } of batch) {
+    const config = getNewsProviderConfig(provider);
+    if (!config) continue;
+    // Small pause between fetches to avoid hammering APIs
+    if (results.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    try {
+      const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+      });
+      const stories = feed.items.slice(0, 10);
+      const upsertResult = await upsertNewsStories(env, provider, category, stories);
+      const savedCount = upsertResult?.savedCount ?? 0;
+      totalStoriesSaved += savedCount;
+      await recordNewsProviderFetchLog(env, {
+        provider,
+        providerLabel: config.label,
+        category,
+        triggerSource: triggerSource + ':staggered',
+        status: 'succeeded',
+        httpStatus: 200,
+        durationMs: 0,
+        attemptCount: 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: savedCount,
+        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+        errorMessage: null,
+      });
+      results.push({ provider, category, status: 'succeeded', storiesSaved: savedCount });
+    } catch (err) {
+      console.error(`Staggered sync failed for ${provider}/${category}:`, err);
+      results.push({
+        provider,
+        category,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    pairsSynced: results.length,
+    totalStoriesSaved,
+    results,
+    triggerSource,
+  };
 }
 
 async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourly-scheduler', { force = false } = {}) {
@@ -865,6 +955,27 @@ async function serveAdmin(request, env) {
     }
   }
 
+  const displayCatsMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/display-categories$/);
+  if (displayCatsMatch && request.method === 'PATCH') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story category updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      let body = {};
+      try { body = await request.json(); } catch { /* empty body clears the override */ }
+      const result = await setStoryDisplayCategories(env, displayCatsMatch[1], body.display_categories);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not update story categories' }, result.error === 'Story was not found' ? 404 : 400);
+      return jsonResponse({
+        id: Number(displayCatsMatch[1]),
+        display_categories: result.displayCategories,
+        overrridable_categories: OVERRIDABLE_CATEGORIES,
+      });
+    } catch (err) {
+      console.error('News story display-categories update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story categories' }, 502);
+    }
+  }
+
   const updateMatch = url.pathname.match(/^\/admin\/api\/providers\/([a-z0-9-]+)\/update$/);
   if (updateMatch && request.method === 'POST') {
     try {
@@ -1063,6 +1174,120 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('Story search failed:', err);
       return jsonResponse({ items: [] });
+    }
+  }
+
+  // Validate story categories via embedding classifier (prototype).
+  // Classifies unapproved stories and flags mismatches for review.
+  if (url.pathname === '/admin/api/stories/validate-categories' && request.method === 'POST') {
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    try {
+      // Parse optional limit (default: process all unvalidated)
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        // empty body is fine
+      }
+      const maxStories = Math.min(Math.max(Number(body.limit) || 15, 1), 20);
+      const BATCH = 15;
+
+      let totalValidated = 0;
+      let totalStored = 0;
+      let firstError = null;
+      const allMismatches = [];
+      const allResults = [];
+      let offset = 0;
+
+      while (totalValidated < maxStories) {
+        // Fetch next batch of unapproved stories that haven't been validated yet
+        const query = new URLSearchParams({
+          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories',
+          approved: 'eq.false',
+          removed: 'eq.false',
+          'embedding_category': 'is.null',
+          order: 'fetched_at.desc',
+          limit: String(Math.min(BATCH, maxStories - totalValidated)),
+          offset: String(offset),
+        });
+        const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+          headers: supabaseHeaders(env),
+        });
+        if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+        const stories = await res.json();
+        if (!stories.length) break;
+
+        const results = await validateStoryCategories(env, stories);
+
+        // Store the embedding predictions
+        for (const r of results) {
+          if (!r.embeddingCategory) continue;
+          const updateRes = await fetch(
+            supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${r.id}` })),
+            {
+              method: 'PATCH',
+              headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                embedding_category: r.embeddingCategory,
+                embedding_confidence: r.confidence,
+              }),
+            }
+          );
+          if (updateRes.ok) {
+            totalStored++;
+          } else {
+            const errText = await updateRes.text().catch(() => 'unknown');
+            console.error(`Failed to store embedding for story ${r.id}: ${updateRes.status} ${errText}`);
+            if (!firstError) firstError = `Story ${r.id}: ${updateRes.status} ${errText}`;
+          }
+        }
+
+        totalValidated += results.length;
+        allMismatches.push(...results.filter((r) => r.mismatch));
+        allResults.push(...results.map((r) => ({
+          id: r.id,
+          title: r.title,
+          queryCategory: r.queryCategory,
+          embeddingCategory: r.embeddingCategory,
+          confidence: r.confidence,
+          mismatch: r.mismatch,
+          imageUrl: r.imageUrl || null,
+          provider: r.provider || null,
+          articleUrl: r.articleUrl || null,
+          publishedAt: r.publishedAt || null,
+          fetchedAt: r.fetchedAt || null,
+          displayCategories: r.displayCategories || null,
+        })));
+        offset += stories.length;
+
+        // If we got fewer than requested, we've reached the end
+        if (stories.length < BATCH) break;
+      }
+
+      return jsonResponse({
+        validated: totalValidated,
+        stored: totalStored,
+        storeError: firstError,
+        mismatches: allMismatches.map((m) => ({
+          id: m.id,
+          title: m.title,
+          queryCategory: m.queryCategory,
+          embeddingCategory: m.embeddingCategory,
+          confidence: m.confidence,
+          imageUrl: m.imageUrl || null,
+          provider: m.provider || null,
+          articleUrl: m.articleUrl || null,
+          publishedAt: m.publishedAt || null,
+          fetchedAt: m.fetchedAt || null,
+          displayCategories: m.displayCategories || null,
+        })),
+        results: allResults,
+      });
+    } catch (err) {
+      console.error('Category validation failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Validation failed' }, 502);
     }
   }
 
@@ -1765,6 +1990,9 @@ export default {
       }
       return serveNewsFeed(request, env);
     }
+    if (request.method === 'POST' && pathname === '/api/engagement') {
+      return handleEngagementEvent(request, env);
+    }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();
       const query = (url.searchParams.get('q') || url.searchParams.get('topic') || '').trim();
@@ -1794,10 +2022,16 @@ export default {
 
   async scheduled(event, env, ctx) {
     if (env?.AUTO_SYNC_ENABLED === 'false') {
-      console.info('Hourly provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
+      console.info('Provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
       return;
     }
-    const task = runHourlyAutoSync(env, 'cron', `cron:${event?.cron || '0 * * * *'}`);
+    const cronPattern = event?.cron || '0 * * * *';
+    // Use staggered sync for frequent crons (every 10 min), hourly burst otherwise.
+    // Staggered spreads the 42 provider/topic fetches evenly across the hour.
+    const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
+    const task = isStaggered
+      ? runStaggeredSync(env, 'cron', `cron:${cronPattern}`)
+      : runHourlyAutoSync(env, 'cron', `cron:${cronPattern}`);
     if (ctx && typeof ctx.waitUntil === 'function') {
       ctx.waitUntil(task);
     } else {

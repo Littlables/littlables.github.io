@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { NewsCategory, NewsItem, AdItem, ReactionType, ReactionCounts } from './types';
 import { SAVED_CATEGORY_KEY, CATEGORIES } from './constants/config';
 import { useTheme } from './hooks/useTheme';
+import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
 import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
@@ -9,7 +10,14 @@ import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
+import { AboutPage } from './components/AboutPage';
 import { SettingsDialog } from './components/SettingsDialog';
+import { SignInDialog } from './components/SignInDialog';
+import { ProfileDialog } from './components/ProfileDialog';
+import { PublicProfilePage } from './components/PublicProfilePage';
+import { BoardPage } from './components/BoardPage';
+import { useAuth } from './contexts/AuthContext';
+import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
 import { fetchAdsForCategory } from './services/adsService';
 import {
@@ -30,8 +38,75 @@ import {
 } from './services/urlService';
 import { t, getDetectedLocale } from './constants/translations';
 
+/** Extracts a `@username` profile route from the URL path, e.g. `/@katie`. */
+function parseProfileFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/?$/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/** Extracts a `@username/boardslug` board route, e.g. `/@katie/cozy-reads`. */
+function parseBoardFromUrl(): { username: string; slug: string } | null {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/?$/i);
+  return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
+}
+
+/** True when on the standalone `/about` landing page. */
+function parseAboutFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^\/about\/?$/i.test(window.location.pathname);
+}
+
+/**
+ * Prioritizes stories matching the user's interests (from their profile).
+ * Stories matching an interest come first (preserving their relative order),
+ * followed by non-matching stories. Used on the homepage for signed-in users.
+ */
+function prioritizeByInterests(stories: NewsItem[], interests: PillConfig[]): NewsItem[] {
+  if (!interests.length) return stories;
+
+  const matchesInterest = (story: NewsItem): boolean => {
+    const haystack = `${story.title || ''} ${story.description || ''}`.toLowerCase();
+    return interests.some((pill) => {
+      if (pill.type === 'category') {
+        return story.category === pill.id;
+      }
+      // Custom interest: match keywords or label in title/description
+      const terms: string[] = [];
+      if (pill.keywords) {
+        terms.push(...pill.keywords.split(',').map((k) => k.trim().toLowerCase()).filter(Boolean));
+      }
+      if (pill.label) {
+        terms.push(pill.label.toLowerCase());
+      }
+      return terms.some((term) => term.length > 1 && haystack.includes(term));
+    });
+  };
+
+  const matching: NewsItem[] = [];
+  const rest: NewsItem[] = [];
+  for (const story of stories) {
+    (matchesInterest(story) ? matching : rest).push(story);
+  }
+  return [...matching, ...rest];
+}
+
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
+  const { profile } = useAuth();
+
+  // Apply custom background color from profile (overrides theme).
+  // Setting --news-bg on :root flows into body, header, and footer,
+  // which all use var(--news-bg).
+  useEffect(() => {
+    const bg = profile?.background_color;
+    if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
+      document.documentElement.style.setProperty('--news-bg', bg);
+    } else {
+      document.documentElement.style.removeProperty('--news-bg');
+    }
+  }, [profile?.background_color]);
 
   const [category, setCategoryState] = useState<NewsCategory>(() => {
     const urlTopic = parseTopicFromUrl();
@@ -52,10 +127,29 @@ export const App: React.FC = () => {
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
+  const [boardRoute, setBoardRoute] = useState<{ username: string; slug: string } | null>(() => parseBoardFromUrl());
+  const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
+  // Board branding shown in the header while viewing a board page
+  const [boardBrand, setBoardBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
-  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | null>(null);
+  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
+
+  // Lock background scrolling whenever any dialog/modal window is open,
+  // so scrolling inside the window can't chain out to the page behind it
+  useLockBodyScroll(activeDialog !== null || selectedStory !== null);
+
+  // App-level toast popover: floats above everything, unaffected by layout,
+  // and persists even if the dialog that triggered it is closed
+  const [toast, setToast] = useState<{ key: number; message: string; kind: 'success' | 'error' } | null>(null);
+  const toastTimer = React.useRef<number | null>(null);
+  const notify = useCallback((message: string, kind: 'success' | 'error' = 'success') => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ key: Date.now(), message, kind });
+    toastTimer.current = window.setTimeout(() => setToast(null), 3500);
+  }, []);
 
   // Set document title and lang from current locale and active story/topic
   useEffect(() => {
@@ -87,6 +181,23 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
+      const urlAbout = parseAboutFromUrl();
+      setAboutRoute(urlAbout);
+      if (urlAbout) {
+        setBoardRoute(null);
+        setProfileRoute(null);
+        return;
+      }
+      const urlBoard = parseBoardFromUrl();
+      setBoardRoute(urlBoard);
+      if (urlBoard) {
+        setProfileRoute(null);
+        return;
+      }
+      setBoardBrand(null);
+      const urlProfile = parseProfileFromUrl();
+      setProfileRoute(urlProfile);
+      if (urlProfile) return;
       const urlTopic = parseTopicFromUrl() || 'all';
       const urlStory = parseStoryFromUrl();
       if (urlTopic !== category) {
@@ -105,17 +216,34 @@ export const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
 
+    let fetchedStories: NewsItem[] = [];
     try {
       // Parallel fetch news and category/keyword-based ads
-      const [fetchedStories, categoryAds] = await Promise.all([
+      const [stories, categoryAds] = await Promise.all([
         fetchNewsFeed(cat),
         fetchAdsForCategory(cat)
       ]);
 
-      setStories(fetchedStories);
-      setAds(categoryAds);
+      // On the homepage, prioritize stories matching the user's interests
+      let displayStories = stories;
+      if (cat === 'all' && profile?.pills && profile.pills.length > 0) {
+        displayStories = prioritizeByInterests(stories, profile.pills);
+      }
 
-      // Fetch reactions for stories
+      fetchedStories = displayStories;
+      setStories(displayStories);
+      setAds(categoryAds);
+    } catch (err: any) {
+      console.error('Error loading stories:', err);
+      setError(err?.message || 'Unable to load stories.');
+    } finally {
+      // Stories are showing — release the loading state immediately.
+      // Reactions load afterward and must not hold the button.
+      setIsLoading(false);
+    }
+
+    // Fetch reactions for stories (non-blocking for the refresh button)
+    try {
       if (fetchedStories.length > 0) {
         const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
         const reactionData = await fetchReactionsForStories(storyIds);
@@ -123,11 +251,8 @@ export const App: React.FC = () => {
       } else {
         setReactions({});
       }
-    } catch (err: any) {
-      console.error('Error loading stories:', err);
-      setError(err?.message || 'Unable to load stories.');
-    } finally {
-      setIsLoading(false);
+    } catch {
+      setReactions({});
     }
   }, []);
 
@@ -207,11 +332,15 @@ export const App: React.FC = () => {
   const handleHomeRefresh = () => {
     setSelectedStory(null);
     setActiveStoryParam(null);
+    setProfileRoute(null);
+    setBoardRoute(null);
+    setBoardBrand(null);
     try {
       localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
     } catch {}
     if (typeof window !== 'undefined') {
-      const homeHref = getTopicHref('all');
+      // Always return to the site root (clears any /@username profile path)
+      const homeHref = `/?topic=${encodeURIComponent('all')}`;
       if (window.location.pathname + window.location.search !== homeHref) {
         window.history.pushState({ topic: 'all', story: null }, '', homeHref);
       }
@@ -282,7 +411,7 @@ export const App: React.FC = () => {
     const active = CATEGORIES.find(c => c.id === targetCat);
     if (active) {
       const icon = active.icon || '⚡';
-      if (targetCat === 'all') return `${icon} ${t('breaking') || 'Top Currents'}`;
+      if (targetCat === 'all') return `${icon} ${t('breaking') || 'All'}`;
       return `${icon} ${t((active.i18nKey || 'catAll') as any)}`;
     }
     return `🔍 ${formatCustomTopicLabel(targetCat)}`;
@@ -310,7 +439,11 @@ export const App: React.FC = () => {
           onHomeClick={handleHomeRefresh}
           onRefresh={() => loadFeed(category)}
           onOpenSettings={() => setActiveDialog('settings')}
+          onOpenSignIn={() => setActiveDialog('signin')}
+          onOpenProfile={() => setActiveDialog('profile')}
           isLoading={isLoading}
+          brandName={boardBrand?.name}
+          brandLogoUrl={boardBrand?.logoUrl}
         />
 
         <CategoryNav
@@ -318,6 +451,28 @@ export const App: React.FC = () => {
           onSelectCategory={handleSelectCategory}
         />
 
+        {aboutRoute ? (
+          <main className="news-grid">
+            <AboutPage
+              onExplore={handleHomeRefresh}
+              onSignIn={() => setActiveDialog('signin')}
+            />
+          </main>
+        ) : boardRoute ? (
+          <BoardPage
+            username={boardRoute.username}
+            slug={boardRoute.slug}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+            onBrand={setBoardBrand}
+          />
+        ) : profileRoute ? (
+          <PublicProfilePage
+            username={profileRoute}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+          />
+        ) : (
         <main id="news-grid-container" className="news-grid">
           {isLoading && stories.length === 0 && ads.length === 0 ? (
             <>
@@ -358,7 +513,7 @@ export const App: React.FC = () => {
                 onClick={() => handleSelectCategory('all')}
                 style={{ marginTop: '0.75rem' }}
               >
-                ⚡ View Top Currents
+                ⚡ View All
               </button>
             </div>
           ) : (
@@ -404,6 +559,7 @@ export const App: React.FC = () => {
             </>
           )}
         </main>
+        )}
       </div>
 
       <StoryModal
@@ -426,6 +582,7 @@ export const App: React.FC = () => {
         id="about"
         isOpen={activeDialog === 'about'}
         onClose={() => setActiveDialog(null)}
+        onSignIn={() => setActiveDialog('signin')}
       />
 
       <InfoDialog
@@ -440,6 +597,23 @@ export const App: React.FC = () => {
         theme={theme}
         onThemeChange={setTheme}
       />
+
+      <SignInDialog
+        isOpen={activeDialog === 'signin'}
+        onClose={() => setActiveDialog(null)}
+      />
+
+      <ProfileDialog
+        isOpen={activeDialog === 'profile'}
+        onClose={() => setActiveDialog(null)}
+        notify={notify}
+      />
+
+      {toast && (
+        <div key={toast.key} className={`toast-popover toast-${toast.kind}`} role="status">
+          {toast.message}
+        </div>
+      )}
     </>
   );
 };
