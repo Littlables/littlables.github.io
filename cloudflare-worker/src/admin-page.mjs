@@ -1134,7 +1134,7 @@ export function getAdminPage() {
         <p class="admin-hint">Validates story categories using semantic embeddings. Flags stories where the AI-predicted category disagrees with the query-assigned category.</p>
         <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
           <label for="validate-categories-limit" class="admin-hint" style="margin: 0;">Stories to validate:</label>
-          <input id="validate-categories-limit" type="number" min="1" max="20" value="15" style="width: 5rem; padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);" />
+          <input id="validate-categories-limit" type="number" min="1" max="2000" value="200" style="width: 5rem; padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);" />
           <button id="validate-categories-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
             Validate Categories
           </button>
@@ -4987,21 +4987,31 @@ export function getAdminPage() {
       validateBtn.addEventListener('click', async () => {
         validateBtn.disabled = true;
         validateBtn.textContent = 'Validating…';
-        if (validateStatus) validateStatus.textContent = 'Classifying stories via embeddings…';
         if (validateResults) validateResults.replaceChildren();
+        const BATCH_SIZE = 20;
+        const totalRequested = parseInt(document.getElementById('validate-categories-limit').value, 10) || 200;
+        let totalValidated = 0;
+        let allMismatches = [];
         try {
-          const res = await fetch('/admin/api/stories/validate-categories', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ limit: parseInt(document.getElementById('validate-categories-limit').value, 10) || 200 }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Validation failed');
+          while (totalValidated < totalRequested) {
+            const remaining = totalRequested - totalValidated;
+            if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
+            const res = await fetch('/admin/api/stories/validate-categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit: Math.min(BATCH_SIZE, remaining) }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Validation failed');
+            totalValidated += data.validated;
+            allMismatches = allMismatches.concat(data.mismatches || []);
+            if (data.validated === 0) break;
+          }
           if (validateStatus) {
-            validateStatus.textContent = 'Validated ' + data.validated + ' stories, ' + data.mismatches.length + ' mismatches found.';
+            validateStatus.textContent = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
           }
           if (validateResults) {
-            if (data.mismatches.length === 0) {
+            if (allMismatches.length === 0) {
               const p = document.createElement('p');
               p.className = 'admin-hint';
               p.textContent = 'No mismatches — all validated stories match their query-assigned categories.';
@@ -5011,7 +5021,7 @@ export function getAdminPage() {
               list.style.display = 'flex';
               list.style.flexDirection = 'column';
               list.style.gap = '0.5rem';
-              for (const m of data.mismatches) {
+              for (const m of allMismatches) {
                 const item = document.createElement('div');
                 item.className = 'admin-card';
                 item.style.padding = '0.75rem';
@@ -5022,7 +5032,7 @@ export function getAdminPage() {
             }
           }
           const countEl = document.getElementById('embedding-validation-count');
-          if (countEl) countEl.textContent = data.mismatches.length ? '(' + data.mismatches.length + ' mismatches)' : '';
+          if (countEl) countEl.textContent = allMismatches.length ? '(' + allMismatches.length + ' mismatches)' : '';
         } catch (err) {
           if (validateStatus) validateStatus.textContent = 'Error: ' + (err.message || 'Validation failed');
         } finally {
