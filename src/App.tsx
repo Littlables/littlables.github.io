@@ -8,6 +8,31 @@ import { NewsCard } from './components/NewsCard';
 import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
+
+/** TEMPORARY DEBUG error boundary — shows the crash message instead of a blank page (remove after fix) */
+class DebugErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('Dialog crash:', error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#7f1d1d', color: '#fff', padding: '2rem', overflow: 'auto' }}>
+          <h2>Dialog crashed:</h2>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error && (this.state.error as Error).stack || this.state.error)}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { InfoDialog } from './components/InfoDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
@@ -526,11 +551,13 @@ export const App: React.FC = () => {
         onClose={() => setActiveDialog(null)}
       />
 
+      <DebugErrorBoundary>
       <ProfileDialog
         isOpen={activeDialog === 'profile'}
         onClose={() => setActiveDialog(null)}
         notify={notify}
       />
+      </DebugErrorBoundary>
 
       {toast && (
         <div key={toast.key} className={`toast-popover toast-${toast.kind}`} role="status">
