@@ -1627,7 +1627,7 @@ body.story-modal-open {
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
 }
 
 .profile-avatar {
@@ -1704,6 +1704,7 @@ body.story-modal-open {
   /* Pull the scrollbar to the dialog's right edge, under the × button */
   margin-right: -1.4rem;
   padding-right: 1.4rem;
+  padding-top: 1.25rem;
 }
 
 /* Keep the scrollbar inside the tab content's rounded corners */
@@ -1728,7 +1729,7 @@ body.story-modal-open {
 .profile-tabs {
   display: flex;
   gap: 0.25rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
   border-bottom: 1px solid var(--news-border, #334155);
   padding-bottom: 0.5rem;
 }
