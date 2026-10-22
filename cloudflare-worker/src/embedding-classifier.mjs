@@ -131,3 +131,71 @@ export async function classifyStoryByEmbedding(env, story) {
 export function clearEmbeddingCache() {
   cachedCategoryEmbeddings = null;
 }
+
+/**
+ * Validate a batch of stories: classify each and flag mismatches.
+ *
+ * @param {object} env - Worker env (needs AI binding)
+ * @param {Array<{id: number, title: string, description: string, category: string}>} stories
+ * @returns {Promise<Array<{id: number, queryCategory: string, embeddingCategory: string|null, confidence: number, mismatch: boolean}>>}
+ */
+export async function validateStoryCategories(env, stories) {
+  const categoryVectors = await getCategoryEmbeddings(env);
+  if (!categoryVectors) return stories.map((s) => ({
+    id: s.id,
+    queryCategory: s.category,
+    embeddingCategory: null,
+    confidence: 0,
+    mismatch: false,
+    error: 'embedding unavailable',
+  }));
+
+  // Embed all stories in parallel (bounded to avoid overwhelming the API)
+  const BATCH_SIZE = 10;
+  const results = [];
+  for (let i = 0; i < stories.length; i += BATCH_SIZE) {
+    const batch = stories.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async (story) => {
+        const text = `${story.title || ''} ${story.description || ''}`.trim();
+        const storyVector = await embedText(env, text);
+        if (!storyVector) {
+          return {
+            id: story.id,
+            queryCategory: story.category,
+            embeddingCategory: null,
+            confidence: 0,
+            mismatch: false,
+            error: 'embedding failed',
+          };
+        }
+        let bestCategory = null;
+        let bestScore = -1;
+        const scores = {};
+        for (const [cat, catVector] of categoryVectors) {
+          const sim = cosineSimilarity(storyVector, catVector);
+          scores[cat] = Math.round(sim * 10000) / 10000;
+          if (sim > bestScore) {
+            bestScore = sim;
+            bestCategory = cat;
+          }
+        }
+        // 'all' is a catch-all; only flag mismatch if embedding is confident
+        // about a specific category different from the query category
+        const mismatch = bestCategory !== story.category
+          && story.category !== 'all'
+          && bestScore >= 0.35;
+        return {
+          id: story.id,
+          queryCategory: story.category,
+          embeddingCategory: bestCategory,
+          confidence: Math.round(bestScore * 10000) / 10000,
+          scores,
+          mismatch,
+        };
+      })
+    );
+    results.push(...batchResults);
+  }
+  return results;
+}
