@@ -5207,9 +5207,6 @@ export function getAdminPage() {
                   var pickBtn = mkBtn('Interests', 'secondary small-btn');
                   pickBtn.addEventListener('click', function () { togglePicker(row, m, actions, pickBtn, rowBtns); });
                 } else {
-                  mkBtn('Undo', 'secondary small-btn').addEventListener('click', function () {
-                    applyDisplayCategories(m.id, null, row, m, rowBtns);
-                  });
                   var changeBtn = mkBtn('Interests', 'secondary small-btn');
                   changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
                 }
@@ -5222,6 +5219,11 @@ export function getAdminPage() {
                 var picker = document.createElement('div');
                 picker.className = 'cat-picker';
                 picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem;flex-basis:100%;';
+                var hint = document.createElement('span');
+                hint.className = 'admin-hint';
+                hint.style.flexBasis = '100%';
+                hint.textContent = 'Uncheck all to clear the override.';
+                picker.appendChild(hint);
                 var current = Array.isArray(m.displayCategories) && m.displayCategories.length > 0
                   ? m.displayCategories
                   : (m._isMismatch && m.embeddingCategory ? [m.queryCategory, m.embeddingCategory] : [m.queryCategory]);
