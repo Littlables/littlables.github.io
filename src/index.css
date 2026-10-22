@@ -2678,3 +2678,91 @@ body.story-modal-open {
 }
 
 }
+
+/* ---------- Board editor inputs (themed) ---------- */
+.board-input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  background: var(--news-card-bg, #1e293b);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.board-input::placeholder {
+  color: var(--news-text-muted, #94a3b8);
+  opacity: 0.7;
+}
+
+.board-input:focus {
+  outline: none;
+  border-color: var(--pill-border, rgba(79, 70, 229, 0.35));
+  box-shadow: 0 0 0 2px var(--pill-bg, rgba(79, 70, 229, 0.12));
+}
+
+textarea.board-input {
+  resize: vertical;
+  min-height: 3.5rem;
+  line-height: 1.5;
+}
+
+/* ---------- Board pill picker ---------- */
+.board-pill-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.board-custom-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.board-custom-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem 0.45rem 0.9rem;
+  border-radius: 999px;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.88rem;
+}
+
+.board-custom-pill .pill-remove {
+  background: none;
+  border: none;
+  color: var(--news-text-muted, #94a3b8);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+
+.board-custom-pill .pill-remove:hover {
+  color: var(--news-text, #f1f5f9);
+}
+
+.board-custom-pill-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.board-custom-pill-row .board-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.board-custom-pill-row .sign-in-button {
+  width: auto;
+  padding: 0.7rem 1.2rem;
+  margin-top: 0;
+  flex-shrink: 0;
+}

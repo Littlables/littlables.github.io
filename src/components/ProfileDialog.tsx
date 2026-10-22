@@ -23,7 +23,7 @@ interface ProfileDialogProps {
   notify: (message: string, kind?: 'success' | 'error') => void;
 }
 
-type Tab = 'profile' | 'avatar' | 'pills' | 'theme' | 'boards';
+type Tab = 'profile' | 'avatar' | 'theme' | 'boards';
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
   { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
@@ -361,59 +361,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     }
   };
 
-  // Pill management
-  const togglePill = (pillId: string) => {
-    setPills((prev) => {
-      const exists = prev.find((p) => p.id === pillId);
-      if (exists) {
-        return prev.filter((p) => p.id !== pillId);
-      }
-      // Add back in default order position
-      const allPills: PillConfig[] = [
-        ...CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })),
-        ...prev.filter((p) => p.type === 'custom'),
-      ];
-      const ordered = allPills.filter((p) => prev.some((pp) => pp.id === p.id) || p.id === pillId);
-      return ordered;
-    });
-  };
-
-  const addCustomPill = () => {
-    if (!newPillLabel.trim()) return;
-    const id = `custom-${Date.now()}`;
-    setPills((prev) => [...prev, { id, type: 'custom', label: newPillLabel.trim(), keywords: newPillKeywords.trim() || undefined }]);
-    setNewPillLabel('');
-    setNewPillKeywords('');
-  };
-
-  const removeCustomPill = (pillId: string) => {
-    setPills((prev) => prev.filter((p) => p.id !== pillId));
-  };
-
-  const movePill = (index: number, direction: -1 | 1) => {
-    setPills((prev) => {
-      const next = [...prev];
-      const target = index + direction;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
-  };
-
-  const handleSavePills = async () => {
-    setError('');
-    setSaved(false);
-    setSaving(true);
-    try {
-      await updateProfile({ pills });
-      setSaved(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   // ---- Boards ----
   const loadBoards = async () => {
     if (!user) return;
@@ -480,6 +427,20 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
         ? editingBoard.pills.filter((p) => !(p.type === pill.type && p.id === pill.id))
         : [...editingBoard.pills, pill],
     });
+  };
+
+  const addCustomBoardPill = () => {
+    if (!editingBoard || !newPillLabel.trim()) return;
+    const id = `custom-${Date.now()}`;
+    const pill: PillConfig = {
+      id,
+      type: 'custom',
+      label: newPillLabel.trim(),
+      keywords: newPillKeywords.trim() || undefined,
+    };
+    setEditingBoard({ ...editingBoard, pills: [...editingBoard.pills, pill] });
+    setNewPillLabel('');
+    setNewPillKeywords('');
   };
 
   const handleSaveBoard = async () => {
@@ -600,7 +561,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'profile', label: 'Profile' },
     { id: 'avatar', label: 'Avatar' },
-    { id: 'pills', label: 'Pills' },
     { id: 'theme', label: 'Theme' },
     { id: 'boards', label: 'Boards' },
   ];
@@ -774,77 +734,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
           </div>
         )}
 
-        {tab === 'pills' && (
-          <div className="profile-tab-content">
-            <p className="profile-hint">Choose which pills appear on your space, in order. Add your own custom topics too.</p>
-
-            <label className="profile-section-label">Your pills (in order)</label>
-            <div className="pill-list">
-              {pills.map((pill, index) => {
-                const cat = CATEGORIES.find((c) => c.id === pill.id);
-                const label = pill.type === 'custom' ? pill.label : (cat ? t(cat.i18nKey as keyof TranslationStrings) || cat.id : pill.id);
-                const icon = pill.type === 'custom' ? '📌' : (cat?.icon || '');
-                return (
-                  <div key={pill.id} className="pill-row">
-                    <span className="pill-icon">{icon}</span>
-                    <span className="pill-label">{label}</span>
-                    {pill.type === 'custom' && (
-                      <button type="button" className="pill-remove" onClick={() => removeCustomPill(pill.id)} aria-label="Remove">×</button>
-                    )}
-                    <div className="pill-reorder">
-                      <button type="button" onClick={() => movePill(index, -1)} disabled={index === 0} aria-label="Move up">↑</button>
-                      <button type="button" onClick={() => movePill(index, 1)} disabled={index === pills.length - 1} aria-label="Move down">↓</button>
-                    </div>
-                  </div>
-                );
-              })}
-              {pills.length === 0 && <p className="profile-hint">No pills selected — add some below.</p>}
-            </div>
-
-            <label className="profile-section-label">Available categories</label>
-            <div className="pill-toggle-grid">
-              {CATEGORIES.map((cat) => {
-                const active = pills.some((p) => p.id === cat.id);
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    className={`pill-toggle ${active ? 'active' : ''}`}
-                    onClick={() => togglePill(cat.id)}
-                  >
-                    <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
-                  </button>
-                );
-              })}
-            </div>
-
-            <label className="profile-section-label">Add a custom topic</label>
-            <div className="sign-in-form">
-              <input
-                type="text"
-                value={newPillLabel}
-                onChange={(e) => setNewPillLabel(e.target.value)}
-                placeholder="Topic name (e.g. Dinosaurs)"
-                maxLength={30}
-              />
-              <input
-                type="text"
-                value={newPillKeywords}
-                onChange={(e) => setNewPillKeywords(e.target.value)}
-                placeholder="Keywords (e.g. dinosaur, t-rex, fossil)"
-                maxLength={100}
-              />
-              <button type="button" className="sign-in-button secondary-button" onClick={addCustomPill} disabled={!newPillLabel.trim()}>
-                Add custom pill
-              </button>
-            </div>
-
-            <button type="button" className="sign-in-button primary-button" onClick={handleSavePills} disabled={saving} style={{ marginTop: '1rem' }}>
-              {saving ? 'Saving…' : 'Save Pills'}
-            </button>
-          </div>
-        )}
-
         {tab === 'theme' && (
           <div className="profile-tab-content">
             <label className="profile-section-label">Theme</label>
@@ -981,7 +870,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 <label className="profile-field-label">Name</label>
                 <input
                   type="text"
-                  className="sign-in-input"
+                  className="board-input"
                   value={editingBoard.name}
                   onChange={(e) => setEditingBoard({ ...editingBoard, name: e.target.value })}
                   placeholder="Cozy reads"
@@ -993,7 +882,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   <span className="board-slug-prefix">@{profile?.username}/</span>
                   <input
                     type="text"
-                    className="sign-in-input board-slug-input"
+                    className="board-input board-slug-input"
                     value={editingBoard.slug}
                     onChange={(e) => setEditingBoard({ ...editingBoard, slug: slugify(e.target.value) })}
                     placeholder={slugify(editingBoard.name) || 'board-name'}
@@ -1003,7 +892,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
                 <label className="profile-field-label">Description (optional)</label>
                 <textarea
-                  className="sign-in-input board-description-input"
+                  className="board-input board-description-input"
                   value={editingBoard.description}
                   onChange={(e) => setEditingBoard({ ...editingBoard, description: e.target.value })}
                   placeholder="What is this board about?"
@@ -1107,30 +996,70 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 </div>
 
                 <label className="profile-field-label">Topics on this board</label>
-                {pills.length === 0 ? (
-                  <p className="profile-hint profile-hint-compact">
-                    Add pills on the Pills tab first, then pick which ones appear here.
-                  </p>
-                ) : (
-                  <div className="board-pill-picker">
-                    {pills.map((pill) => {
-                      const checked = editingBoard.pills.some(
-                        (p) => p.type === pill.type && p.id === pill.id
-                      );
-                      const label = pill.type === 'custom' ? pill.label || pill.id : pill.id;
-                      return (
-                        <label key={`${pill.type}-${pill.id}`} className="board-pill-option">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => handleBoardPillToggle(pill)}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      );
-                    })}
+                <p className="profile-hint profile-hint-compact">
+                  Pick categories or add your own custom topics.
+                </p>
+                <div className="board-pill-picker">
+                  {CATEGORIES.map((cat) => {
+                    const pill: PillConfig = { id: cat.id, type: 'category' };
+                    const checked = editingBoard.pills.some(
+                      (p) => p.type === 'category' && p.id === cat.id
+                    );
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        className={`pill-toggle ${checked ? 'active' : ''}`}
+                        onClick={() => handleBoardPillToggle(pill)}
+                      >
+                        <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
+                      </button>
+                    );
+                  })}
+                </div>
+                {editingBoard.pills.filter((p) => p.type === 'custom').length > 0 && (
+                  <div className="board-custom-pills">
+                    {editingBoard.pills
+                      .filter((p) => p.type === 'custom')
+                      .map((pill) => (
+                        <span key={pill.id} className="board-custom-pill">
+                          📌 {pill.label || pill.id}
+                          <button
+                            type="button"
+                            className="pill-remove"
+                            onClick={() => handleBoardPillToggle(pill)}
+                            aria-label="Remove"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
                   </div>
                 )}
+                <div className="board-custom-pill-row">
+                  <input
+                    type="text"
+                    className="board-input"
+                    value={newPillLabel}
+                    onChange={(e) => setNewPillLabel(e.target.value)}
+                    placeholder="Add a custom topic…"
+                    maxLength={40}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCustomBoardPill();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="sign-in-button secondary-button"
+                    onClick={addCustomBoardPill}
+                    disabled={!newPillLabel.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
 
                 <div className="board-editor-actions">
                   <button
