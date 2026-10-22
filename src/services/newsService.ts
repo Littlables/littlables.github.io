@@ -85,6 +85,9 @@ function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsIte
     provider: item.provider,
     category: primaryCategory || item.category || defaultCategory,
     displayCategories,
+    interestKeywords: Array.isArray(item.interestKeywords) && item.interestKeywords.length > 0
+      ? item.interestKeywords.filter((k: any) => typeof k === 'string')
+      : null,
   };
 }
 
@@ -358,5 +361,33 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
   } catch (err) {
     console.warn('Fetch news feed returned error, using fallback curated stories:', err);
     return FALLBACK_STORIES[category] || FALLBACK_STORIES.all;
+  }
+}
+
+/**
+ * Fetch stories tagged with an interest keyword (for custom boards).
+ * Interest keywords never appear as categories; the worker serves them
+ * via /feed?keyword=.
+ */
+export async function fetchKeywordFeed(keywordId: string): Promise<NewsItem[]> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/feed';
+    url.searchParams.set('keyword', keywordId);
+    const response = await fetch(url.href, { cache: 'no-cache' });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `Keyword feed request failed (HTTP ${response.status})`);
+    }
+    if (!Array.isArray(data.items)) return [];
+    const items = data.items
+      .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
+      .map((item: any) => normalizeFetchedItem(item, 'all'));
+    const approved = items.filter((i: NewsItem) => i.approved === true).sort(byPublicationDate);
+    const unapproved = items.filter((i: NewsItem) => i.approved !== true).sort(byPublicationDate);
+    return [...approved, ...unapproved];
+  } catch (err) {
+    console.warn('Fetch keyword feed returned error:', err);
+    return [];
   }
 }

@@ -1,3 +1,5 @@
+import { INTEREST_KEYWORDS } from './interest-keywords.mjs';
+
 export function getAdminLoginPage() {
   return `<!doctype html>
 <html lang="en">
@@ -23,6 +25,10 @@ export function getAdminLoginPage() {
 }
 
 export function getAdminPage() {
+  // Interest keyword options for the validation list picker (id/label/icon only).
+  const keywordOptionsJson = JSON.stringify(
+    INTEREST_KEYWORDS.map((k) => ({ id: k.id, label: k.label, icon: k.icon }))
+  );
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1405,6 +1411,7 @@ export function getAdminPage() {
   </dialog>
 
   <script>
+    var LITTLABLES_KEYWORDS = ` + keywordOptionsJson + `;
     const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
     const STORAGE_ORDER_KEY = 'littlables_admin_section_order_v1';
     const STORAGE_COLLAPSED_KEY = 'littlables_admin_collapsed_v1';
@@ -5057,6 +5064,10 @@ export function getAdminPage() {
                 var found = categories.find(function (c) { return c.id === id; });
                 return found ? found.label : id;
               };
+              var kwLabel = function (id) {
+                var found = (window.LITTLABLES_KEYWORDS || []).find(function (k) { return k.id === id; });
+                return found ? ((found.icon ? found.icon + ' ' : '') + found.label) : id;
+              };
               var fmtValDate = function (m) {
                 var raw = m.publishedAt || m.fetchedAt;
                 if (!raw) return '';
@@ -5081,6 +5092,23 @@ export function getAdminPage() {
                   })
                   .catch(function (err) {
                     if (validateStatus) validateStatus.textContent = 'Category update failed: ' + (err.message || 'unknown error');
+                    btns.forEach(function (b) { b.disabled = false; });
+                  });
+              };
+              var applyInterestKeywords = function (storyId, keywords, row, m, btns) {
+                btns.forEach(function (b) { b.disabled = true; });
+                fetch('/admin/api/stories/' + storyId + '/interest-keywords', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ interest_keywords: keywords }),
+                }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                  .then(function (out) {
+                    if (!out.ok) throw new Error(out.data.error || 'Update failed');
+                    m.interestKeywords = out.data.interest_keywords;
+                    refreshValidationRow(row, m);
+                  })
+                  .catch(function (err) {
+                    if (validateStatus) validateStatus.textContent = 'Keyword update failed: ' + (err.message || 'unknown error');
                     btns.forEach(function (b) { b.disabled = false; });
                   });
               };
@@ -5178,6 +5206,14 @@ export function getAdminPage() {
                   ovBadge.textContent = 'Showing in: ' + override.map(catLabel).join(', ');
                   meta.appendChild(ovBadge);
                 }
+
+                var kws = Array.isArray(m.interestKeywords) && m.interestKeywords.length > 0 ? m.interestKeywords : null;
+                if (kws) {
+                  var kwBadge = document.createElement('span');
+                  kwBadge.className = 'meta-badge-status meta-approved';
+                  kwBadge.textContent = '🔖 ' + kws.map(kwLabel).join(', ');
+                  meta.appendChild(kwBadge);
+                }
                 details.appendChild(meta);
 
                 var main = document.createElement('div');
@@ -5253,12 +5289,14 @@ export function getAdminPage() {
                   var changeBtn = mkBtn('Interests', 'secondary small-btn');
                   changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
                 }
+                var kwBtn = mkBtn('Keywords', 'secondary small-btn');
+                kwBtn.addEventListener('click', function () { toggleKeywordPicker(row, m, actions, kwBtn, rowBtns); });
                 row.appendChild(actions);
                 validationRowRegistry.set(Number(m.id), { m: m, row: row, render: createValidationRow });
                 return row;
               };
               var togglePicker = function (row, m, actions, anchorBtn, rowBtns) {
-                var existing = actions.querySelector('.cat-picker');
+                var existing = actions.querySelector('.cat-picker, .kw-picker');
                 if (existing) { existing.remove(); return; }
                 var picker = document.createElement('div');
                 picker.className = 'cat-picker';
@@ -5291,6 +5329,48 @@ export function getAdminPage() {
                 applyBtn.addEventListener('click', function () {
                   var chosen = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
                   applyDisplayCategories(m.id, chosen.length > 0 ? chosen : null, row, m, rowBtns.concat([applyBtn]));
+                });
+                var cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'secondary small-btn';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', function () { picker.remove(); });
+                picker.appendChild(applyBtn);
+                picker.appendChild(cancelBtn);
+                actions.appendChild(picker);
+              };
+              var toggleKeywordPicker = function (row, m, actions, anchorBtn, rowBtns) {
+                var existing = actions.querySelector('.cat-picker, .kw-picker');
+                if (existing) { existing.remove(); return; }
+                var picker = document.createElement('div');
+                picker.className = 'kw-picker';
+                picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem;flex-basis:100%;';
+                var hint = document.createElement('span');
+                hint.className = 'admin-hint';
+                hint.style.flexBasis = '100%';
+                hint.textContent = 'Tag this story with interest keywords. Uncheck all to clear.';
+                picker.appendChild(hint);
+                var current = Array.isArray(m.interestKeywords) && m.interestKeywords.length > 0 ? m.interestKeywords : [];
+                var boxes = [];
+                (window.LITTLABLES_KEYWORDS || []).forEach(function (kw) {
+                  var lab = document.createElement('label');
+                  lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+                  var cb = document.createElement('input');
+                  cb.type = 'checkbox';
+                  cb.value = kw.id;
+                  cb.checked = current.indexOf(kw.id) !== -1;
+                  lab.appendChild(cb);
+                  lab.appendChild(document.createTextNode((kw.icon ? kw.icon + ' ' : '') + kw.label));
+                  picker.appendChild(lab);
+                  boxes.push(cb);
+                });
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'small-btn';
+                applyBtn.textContent = 'Apply';
+                applyBtn.addEventListener('click', function () {
+                  var chosen = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+                  applyInterestKeywords(m.id, chosen.length > 0 ? chosen : null, row, m, rowBtns.concat([applyBtn]));
                 });
                 var cancelBtn = document.createElement('button');
                 cancelBtn.type = 'button';

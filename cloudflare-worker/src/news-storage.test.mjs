@@ -12,6 +12,8 @@ import {
   disapproveNewsStory,
   resetNewsProviderSync,
   setStoryDisplayCategories,
+  setStoryInterestKeywords,
+  getStoriesByKeyword,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories
@@ -64,6 +66,7 @@ test('stored feed query returns normalized publisher story shape', async () => {
       provider: 'gnews',
       category: 'childcare',
       displayCategories: null,
+      interestKeywords: null,
       title: 'Family story',
       link: 'https://publisher.example/family',
       image: 'https://images.example/family.jpg',
@@ -548,4 +551,52 @@ test('effectiveDisplayCategories prefers the override list', () => {
     effectiveDisplayCategories({ category: 'tech', displayCategories: ['arts'] }),
     ['arts']
   );
+});
+
+test('setStoryInterestKeywords validates, dedupes, and clears keyword tags', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (input, options) => {
+    requestBody = JSON.parse(options.body);
+    return Response.json([{ id: 99 }]);
+  };
+  try {
+    // Valid keywords, with duplicates and casing normalized
+    let result = await setStoryInterestKeywords(env, 99, ['Space', 'food', 'space']);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.interestKeywords, ['space', 'food']);
+    assert.deepEqual(requestBody, { interest_keywords: ['space', 'food'] });
+
+    // Empty list clears the tags (NULL, not empty array)
+    result = await setStoryInterestKeywords(env, 99, []);
+    assert.equal(result.ok, true);
+    assert.equal(result.interestKeywords, null);
+    assert.deepEqual(requestBody, { interest_keywords: null });
+
+    // Unknown keywords are rejected, nothing is written
+    result = await setStoryInterestKeywords(env, 99, ['space', 'nonsense']);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'Unknown interest keyword');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByKeyword queries the interest_keywords array column', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(input));
+    return Response.json([]);
+  };
+  try {
+    const feed = await getStoriesByKeyword(env, 'space');
+    assert.equal(feed.provider, 'supabase');
+    assert.deepEqual(feed.items, []);
+    assert.equal(requestUrls.length, 2);
+    assert.ok(requestUrls.every(u => u.searchParams.get('interest_keywords') === 'cs.{space}'));
+    assert.ok(requestUrls.every(u => u.searchParams.get('removed') === 'eq.false'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

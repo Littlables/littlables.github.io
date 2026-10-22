@@ -55,6 +55,12 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 - **Trigger:** Manual via admin panel ("Validate Categories" button) → `POST /admin/api/stories/validate-categories`
 - **What it does:** Classifies unapproved stories into categories via cosine similarity against pre-computed category description vectors. Flags mismatches where the embedding-predicted category disagrees with the query-assigned category (confidence ≥ 0.35). Results stored in `embedding_category` / `embedding_confidence` columns for review. Used to validate (not override) the query-based categorization.
 
+### 5. Interest keyword tagging
+- **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
+- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs`
+- **Trigger:** Same validation run as #4 (no extra AI calls per story — the story embedding is reused; the 12 keyword description vectors are embedded once and cached)
+- **What it does:** Tags stories with up to 3 interest keywords (Space, Dinosaurs, Science, Food, Sports, Music, Gardening, Ocean Life, Weather, Inventions, Travel, Holidays) at cosine similarity ≥ 0.35. Keywords are a cross-cutting layer — never shown as categories. Stored in the `interest_keywords` column; served via `GET /feed?keyword=` for custom boards and hand-editable in the admin panel.
+
 ## Cloudflare Worker news providers
 
 The Worker serves saved stories from Supabase; it does not call news providers on public feed requests. Provider metadata, category mappings, required credentials, and update pacing are centralized in `cloudflare-worker/src/news-provider-config.mjs`. Each adapter in `cloudflare-worker/src/feeds/` owns its provider request and response parsing. Shared timeouts, bounded retries, response-size limits, URL validation, and story normalization are in `cloudflare-worker/src/feed-utils.mjs`.

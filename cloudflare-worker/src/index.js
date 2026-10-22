@@ -25,6 +25,8 @@ import {
   undoNewsStoryDecision,
   updateNewsStory,
   setStoryDisplayCategories,
+  setStoryInterestKeywords,
+  getStoriesByKeyword,
   OVERRIDABLE_CATEGORIES,
   effectiveDisplayCategories,
   upsertNewsStories,
@@ -49,7 +51,8 @@ import {
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
-import { validateStoryCategories } from './embedding-classifier.mjs';
+import { validateStoryCategories, getKeywordEmbeddings } from './embedding-classifier.mjs';
+import { getInterestKeyword, INTEREST_KEYWORDS } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
@@ -109,6 +112,16 @@ async function serveNewsFeed(request, env) {
       'all'
     ).trim();
     const normalizedCategory = rawCategory.toLowerCase();
+
+    // Interest keyword feed (for custom boards). Keywords never appear as
+    // categories; this is the dedicated read path for them.
+    const keywordParam = (url.searchParams.get('keyword') || '').trim();
+    if (keywordParam) {
+      const kw = getInterestKeyword(keywordParam);
+      if (!kw) return jsonResponse({ error: 'Unknown interest keyword' }, 400);
+      const feed = await getStoriesByKeyword(env, kw.id);
+      return jsonResponse({ ...feed, keyword: kw.id });
+    }
 
     if (NEWS_CATEGORY_SET.has(normalizedCategory)) {
       const feed = await getStoredNewsFeed(env, normalizedCategory);
@@ -976,6 +989,27 @@ async function serveAdmin(request, env) {
     }
   }
 
+  const interestKwMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/interest-keywords$/);
+  if (interestKwMatch && request.method === 'PATCH') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story keyword updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      let body = {};
+      try { body = await request.json(); } catch { /* empty body clears the keywords */ }
+      const result = await setStoryInterestKeywords(env, interestKwMatch[1], body.interest_keywords);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not update story keywords' }, result.error === 'Story was not found' ? 404 : 400);
+      return jsonResponse({
+        id: Number(interestKwMatch[1]),
+        interest_keywords: result.interestKeywords,
+        interest_keyword_options: INTEREST_KEYWORDS,
+      });
+    } catch (err) {
+      console.error('News story interest-keywords update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story keywords' }, 502);
+    }
+  }
+
   const updateMatch = url.pathname.match(/^\/admin\/api\/providers\/([a-z0-9-]+)\/update$/);
   if (updateMatch && request.method === 'POST') {
     try {
@@ -1201,14 +1235,19 @@ async function serveAdmin(request, env) {
       const allResults = [];
       let offset = 0;
 
+      // Interest keyword vectors are embedded once per run and reused for
+      // every story (keyword scoring is pure cosine math — no extra AI calls).
+      const keywordVectors = await getKeywordEmbeddings(env);
+
       while (totalValidated < maxStories) {
-        // Fetch next batch of unapproved stories that haven't been validated yet
+        // Fetch next batch of unapproved stories missing category validation
+        // (and never overwriting a hand-set display override) or missing
+        // interest keyword tags.
         const query = new URLSearchParams({
-          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories',
+          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories,embedding_category,embedding_confidence,interest_keywords',
           approved: 'eq.false',
           removed: 'eq.false',
-          'embedding_category': 'is.null',
-          'display_categories': 'is.null',
+          or: '(and(embedding_category.is.null,display_categories.is.null),interest_keywords.is.null)',
           order: 'fetched_at.desc',
           limit: String(Math.min(BATCH, maxStories - totalValidated)),
           offset: String(offset),
@@ -1220,28 +1259,34 @@ async function serveAdmin(request, env) {
         const stories = await res.json();
         if (!stories.length) break;
 
-        const results = await validateStoryCategories(env, stories);
+        const results = await validateStoryCategories(env, stories, { keywordVectors });
 
-        // Store the embedding predictions. For mismatches, auto-apply the AI's
-        // pick as the display override — Katie reviews them in the validation
-        // list and can revert any with Undo.
+        // Store the embedding predictions. For category mismatches, auto-apply
+        // the AI's pick as the display override — Katie reviews them in the
+        // validation list. Interest keyword tags are always stored when found.
         for (const r of results) {
-          if (!r.embeddingCategory) continue;
+          const patch = {};
+          if (r.categoryValidated && r.embeddingCategory) {
+            patch.embedding_category = r.embeddingCategory;
+            patch.embedding_confidence = r.confidence;
+            if (r.mismatch) patch.display_categories = [r.embeddingCategory];
+          }
+          if (r.keywordsClassified) {
+            patch.interest_keywords = r.keywordMatches.map((m) => m.id);
+          }
+          if (Object.keys(patch).length === 0) continue;
           const updateRes = await fetch(
             supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${r.id}` })),
             {
               method: 'PATCH',
               headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                embedding_category: r.embeddingCategory,
-                embedding_confidence: r.confidence,
-                ...(r.mismatch ? { display_categories: [r.embeddingCategory] } : {}),
-              }),
+              body: JSON.stringify(patch),
             }
           );
           if (updateRes.ok) {
             totalStored++;
-            if (r.mismatch) r.displayCategories = [r.embeddingCategory];
+            if (r.mismatch && r.categoryValidated) r.displayCategories = [r.embeddingCategory];
+            if (r.keywordsClassified) r.interestKeywords = r.keywordMatches.map((m) => m.id);
           } else {
             const errText = await updateRes.text().catch(() => 'unknown');
             console.error(`Failed to store embedding for story ${r.id}: ${updateRes.status} ${errText}`);
@@ -1265,6 +1310,12 @@ async function serveAdmin(request, env) {
           publishedAt: r.publishedAt || null,
           fetchedAt: r.fetchedAt || null,
           displayCategories: r.displayCategories || null,
+          interestKeywords: r.interestKeywords || null,
+          keywordMatches: (r.keywordMatches || []).map((m) => ({
+            id: m.id,
+            label: m.label,
+            confidence: m.confidence,
+          })),
         })));
         offset += stories.length;
 
@@ -1289,6 +1340,12 @@ async function serveAdmin(request, env) {
           publishedAt: m.publishedAt || null,
           fetchedAt: m.fetchedAt || null,
           displayCategories: m.displayCategories || null,
+          interestKeywords: m.interestKeywords || null,
+          keywordMatches: (m.keywordMatches || []).map((k) => ({
+            id: k.id,
+            label: k.label,
+            confidence: k.confidence,
+          })),
         })),
         results: allResults,
       });

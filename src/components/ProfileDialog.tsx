@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth, PillConfig, SocialLinks } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
 import { THEMES, CATEGORIES } from '../constants/config';
+import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
 import {
   Board,
   slugify,
@@ -1176,6 +1177,28 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                         onClick={() => handleBoardPillToggle(pill)}
                       >
                         <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
+                      </button>
+                    );
+                  })}
+                </div>
+                <label className="profile-field-label" style={{ marginTop: '0.75rem' }}>Keyword interests</label>
+                <p className="profile-hint profile-hint-compact">
+                  Cross-cutting topics for custom boards — never shown as categories.
+                </p>
+                <div className="board-pill-picker">
+                  {INTEREST_KEYWORDS.map((kw) => {
+                    const pill: PillConfig = { id: kw.id, type: 'keyword' };
+                    const checked = editingBoard.pills.some(
+                      (p) => p.type === 'keyword' && p.id === kw.id
+                    );
+                    return (
+                      <button
+                        key={kw.id}
+                        type="button"
+                        className={`pill-toggle ${checked ? 'active' : ''}`}
+                        onClick={() => handleBoardPillToggle(pill)}
+                      >
+                        <span>{kw.icon}</span> {kw.label}
                       </button>
                     );
                   })}

@@ -1,4 +1,5 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS } from './interest-keywords.mjs';
 
 export const STORIES_TABLE = 'news_stories';
 const SYNC_TABLE = 'news_provider_sync';
@@ -40,6 +41,10 @@ function normalizeStory(row) {
     // Admin-curated frontend category override. Null/empty = use `category`.
     displayCategories: Array.isArray(row.display_categories) && row.display_categories.length > 0
       ? row.display_categories.filter(c => typeof c === 'string')
+      : null,
+    // Interest keywords (cross-cutting tags, never shown as categories).
+    interestKeywords: Array.isArray(row.interest_keywords) && row.interest_keywords.length > 0
+      ? row.interest_keywords.filter(k => typeof k === 'string')
       : null
   };
 }
@@ -62,7 +67,7 @@ export function effectiveDisplayCategories(row) {
 export async function getStoredNewsFeed(env, category) {
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,display_categories,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       order: 'published_at.desc.nullslast,fetched_at.desc',
@@ -88,6 +93,45 @@ export async function getStoredNewsFeed(env, category) {
   const [approvedRows, unapprovedRows] = await Promise.all([
     readRows(approvedResponse, 'Approved news feed lookup'),
     readRows(unapprovedResponse, 'Unapproved news feed lookup')
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  return { provider: 'supabase', items };
+}
+
+/**
+ * Feed of stories tagged with an interest keyword (for custom boards).
+ * Interest keywords never appear as categories; this is the only public
+ * read path for them.
+ */
+export async function getStoriesByKeyword(env, keyword) {
+  const makeQuery = approved => {
+    const params = new URLSearchParams({
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      'interest_keywords': `cs.{${keyword}}`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    return params;
+  };
+  const [approvedResponse, unapprovedResponse] = await Promise.all([
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), {
+      headers: supabaseHeaders(env)
+    }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), {
+      headers: supabaseHeaders(env)
+    })
+  ]);
+  const [approvedRows, unapprovedRows] = await Promise.all([
+    readRows(approvedResponse, 'Approved keyword feed lookup'),
+    readRows(unapprovedResponse, 'Unapproved keyword feed lookup')
   ]);
   const seenUrls = new Set();
   const items = [];
@@ -524,6 +568,32 @@ export async function setStoryDisplayCategories(env, storyId, categories) {
   const rows = await readRows(response, 'Story display-categories update');
   if (rows.length !== 1) return { ok: false, displayCategories: null, error: 'Story was not found' };
   return { ok: true, displayCategories: value };
+}
+
+/**
+ * Set the interest keywords for a story (admin tagging).
+ * @param {string[]|null} keywords - desired keyword ids; null/empty clears them.
+ * @returns {{ ok: boolean, interestKeywords: string[]|null, error?: string }}
+ */
+export async function setStoryInterestKeywords(env, storyId, keywords) {
+  const requested = (Array.isArray(keywords) ? keywords : [])
+    .map(k => String(k || '').trim().toLowerCase())
+    .filter(k => k.length > 0);
+  const clean = normalizeInterestKeywords(requested);
+  // Reject unknown values rather than silently dropping them, so the admin UI
+  // can surface typos instead of applying a partial tag list.
+  if (requested.some(k => !INTEREST_KEYWORD_IDS.has(k))) {
+    return { ok: false, interestKeywords: null, error: 'Unknown interest keyword' };
+  }
+  const query = new URLSearchParams({ id: `eq.${storyId}`, select: 'id' });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({ interest_keywords: clean })
+  });
+  const rows = await readRows(response, 'Story interest-keywords update');
+  if (rows.length !== 1) return { ok: false, interestKeywords: null, error: 'Story was not found' };
+  return { ok: true, interestKeywords: clean };
 }
 
 export async function createApprovedCustomNewsStory(env, story, approvedBy) {

@@ -12,7 +12,7 @@ export interface SocialLinks {
 
 export interface PillConfig {
   id: string;
-  type: 'category' | 'custom';
+  type: 'category' | 'custom' | 'keyword';
   label?: string;      // for custom pills
   keywords?: string;   // for custom pills (search keywords)
 }

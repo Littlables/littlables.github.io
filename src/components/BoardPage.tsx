@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
 import { Profile, useAuth } from '../contexts/AuthContext';
 import { Board, getBoardBySlug } from '../services/boardService';
-import { fetchNewsFeed } from '../services/newsService';
+import { fetchNewsFeed, fetchKeywordFeed } from '../services/newsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -107,9 +107,11 @@ export const BoardPage: React.FC<BoardPageProps> = ({
       }
       const results = await Promise.allSettled(
         pills.map((p) =>
-          fetchNewsFeed(
-            (p.type === 'custom' ? p.keywords || p.label || p.id : p.id) as NewsCategory
-          )
+          p.type === 'keyword'
+            ? fetchKeywordFeed(p.id)
+            : fetchNewsFeed(
+                (p.type === 'custom' ? p.keywords || p.label || p.id : p.id) as NewsCategory
+              )
         )
       );
       if (cancelled) return;
