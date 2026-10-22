@@ -4755,6 +4755,7 @@ export function getAdminPage() {
             updatedAt: new Date().toISOString(),
             ...(approve ? { approved: true, removed: false, decisionAction: 'approve' } : {})
           });
+          if (approve) updateValidationRowApproval(existingId, true);
         }
         previewDialog.close();
         await refreshData();
@@ -4980,6 +4981,17 @@ export function getAdminPage() {
     }
 
     /* Embedding category validation */
+    // Registry of rendered validation rows by story id, so approval/badge state
+    // can update live when a story is approved from its row or its preview.
+    var validationRowRegistry = new Map();
+    var updateValidationRowApproval = function (storyId, approved) {
+      var entry = validationRowRegistry.get(Number(storyId));
+      if (!entry) return;
+      entry.m.approved = approved === true;
+      var fresh = entry.render(entry.m);
+      entry.row.replaceWith(fresh);
+      validationRowRegistry.set(Number(storyId), { m: entry.m, row: fresh, render: entry.render });
+    };
     const validateBtn = document.getElementById('validate-categories-btn');
     const validateStatus = document.getElementById('validate-categories-status');
     const validateResults = document.getElementById('validate-categories-results');
@@ -5060,6 +5072,7 @@ export function getAdminPage() {
                   });
               };
               var createValidationRow = function (m) {
+                if (m.approved !== true) m.approved = false;
                 var row = document.createElement('article');
                 row.className = 'story';
                 row.tabIndex = 0;
@@ -5138,6 +5151,13 @@ export function getAdminPage() {
                 badge.textContent = m._isMismatch ? 'MISMATCH' : '✓ match';
                 meta.appendChild(badge);
 
+                if (m.approved === true) {
+                  var scoop = document.createElement('span');
+                  scoop.className = 'meta-badge-status meta-approved';
+                  scoop.textContent = "🧸 Littlables' Little Scoop";
+                  meta.appendChild(scoop);
+                }
+
                 var override = Array.isArray(m.displayCategories) && m.displayCategories.length > 0 ? m.displayCategories : null;
                 if (override) {
                   var ovBadge = document.createElement('span');
@@ -5164,26 +5184,36 @@ export function getAdminPage() {
                   rowBtns.push(b);
                   return b;
                 };
-                var approveBtn = mkBtn('Approve', 'small-btn');
+                var approveBtn = null;
+                if (m.approved !== true) {
+                  approveBtn = mkBtn('Approve', 'small-btn');
+                }
                 var banBtn = mkBtn('Ban', 'secondary small-btn');
-                var actionDone = function () {
+                var fadeOutRow = function () {
                   row.style.transition = 'opacity 0.3s';
                   row.style.opacity = '0';
-                  setTimeout(function () { row.remove(); }, 320);
+                  setTimeout(function () {
+                    row.remove();
+                    validationRowRegistry.delete(Number(m.id));
+                  }, 320);
                 };
-                approveBtn.addEventListener('click', function () {
-                  approveBtn.disabled = true;
-                  banBtn.disabled = true;
-                  approveStory(m.id).then(actionDone).catch(function () {
-                    approveBtn.disabled = false;
-                    banBtn.disabled = false;
+                if (approveBtn) {
+                  approveBtn.addEventListener('click', function () {
+                    approveBtn.disabled = true;
+                    banBtn.disabled = true;
+                    approveStory(m.id).then(function () {
+                      updateValidationRowApproval(m.id, true);
+                    }).catch(function () {
+                      approveBtn.disabled = false;
+                      banBtn.disabled = false;
+                    });
                   });
-                });
+                }
                 banBtn.addEventListener('click', function () {
-                  approveBtn.disabled = true;
+                  if (approveBtn) approveBtn.disabled = true;
                   banBtn.disabled = true;
-                  banStory(m.id).then(actionDone).catch(function () {
-                    approveBtn.disabled = false;
+                  banStory(m.id).then(fadeOutRow).catch(function () {
+                    if (approveBtn) approveBtn.disabled = false;
                     banBtn.disabled = false;
                   });
                 });
@@ -5211,6 +5241,7 @@ export function getAdminPage() {
                   changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
                 }
                 row.appendChild(actions);
+                validationRowRegistry.set(Number(m.id), { m: m, row: row, render: createValidationRow });
                 return row;
               };
               var togglePicker = function (row, m, actions, anchorBtn, rowBtns) {
@@ -5261,6 +5292,7 @@ export function getAdminPage() {
               list.style.display = 'flex';
               list.style.flexDirection = 'column';
               list.style.gap = '0.5rem';
+              validationRowRegistry.clear();
               // Show mismatches first, then matches
               var sorted = [...allMismatches.map(m => ({...m, _isMismatch: true})), ...allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}))];
               for (const m of sorted) {
