@@ -40,6 +40,8 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // When a space pill is tapped, filter the feed to that space (tap again to clear)
+  const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
 
   // Fetch the playroom + its owner + its spaces
   useEffect(() => {
@@ -100,17 +102,21 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     };
   }, [playroom, owner, viewerProfile?.use_viewer_theme_for_boards]);
 
-  // Fetch stories for every space's pills, merged + deduped into one combined feed
+  // Fetch stories for the spaces' pills, merged + deduped into one combined feed.
+  // When a space pill is active, only that space's stories show.
   useEffect(() => {
-    if (!playroom || spaces.length === 0) {
+    const effectiveSpaces = activeSpaceId
+      ? spaces.filter((s) => s.id === activeSpaceId)
+      : spaces;
+    if (!playroom || effectiveSpaces.length === 0) {
       if (playroom) setStories([]);
       return;
     }
     let cancelled = false;
     (async () => {
-      // Collect unique pills across all spaces (dedupe by type+id)
+      // Collect unique pills across the visible spaces (dedupe by type+id)
       const seenPills = new Map<string, PillConfig>();
-      for (const space of spaces) {
+      for (const space of effectiveSpaces) {
         for (const p of space.pills || []) {
           const key = `${p.type}:${p.id}`;
           if (!seenPills.has(key)) seenPills.set(key, p);
@@ -160,7 +166,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [playroom, spaces]);
+  }, [playroom, spaces, activeSpaceId]);
 
   const handleReaction = useCallback(async (storyId: string, type: ReactionType) => {
     setReactions((prev) => {
@@ -246,11 +252,8 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
               <button
                 key={space.id}
                 type="button"
-                className="cat-pill"
-                onClick={() => {
-                  window.history.pushState({}, '', `/@${username}/${playroom.slug}/${space.slug}`);
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                }}
+                className={`cat-pill${activeSpaceId === space.id ? ' active' : ''}`}
+                onClick={() => setActiveSpaceId((prev) => (prev === space.id ? null : space.id))}
               >
                 {space.logo_url ? (
                   <img src={space.logo_url} alt="" className="playroom-space-pill-logo" />
