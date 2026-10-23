@@ -38,6 +38,10 @@ import {
   setProviderCooldownState,
   clearProviderCooldownState,
   persistProviderCooldown,
+  enqueueProviderRetry,
+  drainDueRetries,
+  completeRetryJob,
+  countQueuedRetries,
   getAutoSyncState,
   setAutoSyncState,
   recordNewsProviderFetchLog,
@@ -230,110 +234,10 @@ function computeCooldownWindow(err) {
   };
 }
 
-function selectFallbackProvider(failedProviderId, env, excluded = new Set()) {
-  if (env?.DISABLE_PROVIDER_FAILOVER === 'true') return null;
-  const allProviders = getNewsProviders(env);
-  const candidates = allProviders.filter((p) => {
-    if (p.id === failedProviderId || excluded.has(p.id)) return false;
-    if (!p.configured) return false;
-    if (getProviderCooldownState(p.id)) return false;
-    return true;
-  });
-  if (!candidates.length) return null;
-  // Prefer configured API providers first if credentials exist, then keyless RSS/Atom providers (bing, reddit)
-  const withKey = candidates.find(c => Boolean(c.credential_name && env?.[c.credential_name]));
-  return withKey || candidates[0];
-}
-
-async function runFailoverCategories(failedProviderId, remainingCategories, env, excludedProviders = new Set()) {
-  if (!remainingCategories.length) {
-    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
-  }
-  const fallback = selectFallbackProvider(failedProviderId, env, excludedProviders);
-  if (!fallback) {
-    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
-  }
-  const fallbackConfig = getNewsProviderConfig(fallback.id);
-  if (!fallbackConfig) {
-    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
-  }
-
-  let failoverStoriesSaved = 0;
-  const coveredCategories = [];
-
-  for (const [idx, category] of remainingCategories.entries()) {
-    if (!Object.hasOwn(fallbackConfig.categories, category)) continue;
-    if (idx > 0 && fallbackConfig.updatePauseMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, Math.min(fallbackConfig.updatePauseMs, 500)));
-    }
-    let lastTelemetry = null;
-    try {
-      const feed = await getNewsFeed(fallback.id, category, ADMIN_MARKET, {
-        credentials: env,
-        cache: false,
-        onFetchTelemetry: (t) => { lastTelemetry = t; }
-      });
-      const stories = feed.items.slice(0, 10);
-      const upsertResult = await upsertNewsStories(env, fallback.id, category, stories);
-      const savedCount = upsertResult?.savedCount ?? stories.length;
-      failoverStoriesSaved += savedCount;
-      coveredCategories.push(category);
-
-      await recordNewsProviderFetchLog(env, {
-        provider: fallback.id,
-        providerLabel: fallbackConfig.label,
-        category,
-        triggerSource: 'failover',
-        status: 'succeeded',
-        httpStatus: lastTelemetry?.httpStatus ?? 200,
-        durationMs: lastTelemetry?.durationMs ?? 0,
-        attemptCount: lastTelemetry?.attemptCount ?? 1,
-        itemsFetched: feed.items.length,
-        storiesSaved: savedCount,
-        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
-        retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
-        rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
-        rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
-        requestUrl: lastTelemetry?.requestUrl || fallbackConfig.endpoint || '',
-        failoverProvider: failedProviderId,
-        errorMessage: null
-      });
-    } catch (fallbackErr) {
-      const isFallbackRateLimit = Boolean(fallbackErr?.isRateLimit || fallbackErr?.status === 429);
-      await recordNewsProviderFetchLog(env, {
-        provider: fallback.id,
-        providerLabel: fallbackConfig.label,
-        category,
-        triggerSource: 'failover',
-        status: isFallbackRateLimit ? 'rate_limited' : 'failed',
-        httpStatus: fallbackErr?.status ?? lastTelemetry?.httpStatus ?? null,
-        durationMs: fallbackErr?.durationMs ?? lastTelemetry?.durationMs ?? 0,
-        attemptCount: fallbackErr?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
-        itemsFetched: 0,
-        storiesSaved: 0,
-        retryAfterSeconds: fallbackErr?.retryAfterSeconds ?? null,
-        rateLimitRemaining: fallbackErr?.rateLimitRemaining ?? null,
-        rateLimitReset: fallbackErr?.rateLimitReset ?? null,
-        requestUrl: fallbackErr?.requestUrl || lastTelemetry?.requestUrl || fallbackConfig.endpoint || '',
-        failoverProvider: failedProviderId,
-        errorMessage: `Failover from ${failedProviderId} failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`
-      });
-      if (isFallbackRateLimit) break;
-    }
-  }
-
-  return {
-    failoverProvider: coveredCategories.length > 0 ? fallback.id : null,
-    failoverStoriesSaved,
-    failoverCategories: coveredCategories
-  };
-}
 
 async function executeProviderSync(provider, updatedBy, env, {
   triggerSource = 'manual',
-  force = false,
-  allowFailover = true,
-  excludedFailoverProviders = new Set()
+  force = false
 } = {}) {
   const config = getNewsProviderConfig(provider);
   if (!config) return { httpStatus: 404, body: { error: 'Unknown news provider' } };
@@ -387,9 +291,6 @@ async function executeProviderSync(provider, updatedBy, env, {
   }
 
   let storiesSaved = 0;
-  let failoverStoriesSaved = 0;
-  let failoverProvider = null;
-  let failoverCategories = [];
   let cooldownUntil = null;
   let hitRateLimit = false;
   const errors = [];
@@ -441,17 +342,15 @@ async function executeProviderSync(provider, updatedBy, env, {
           cooldownUntil = windowInfo.cooldownUntil;
           const remainingCategories = categories.slice(index);
 
-          if (allowFailover && remainingCategories.length > 0) {
-            excludedFailoverProviders.add(provider);
-            const failoverResult = await runFailoverCategories(
-              provider,
-              remainingCategories,
-              env,
-              excludedFailoverProviders
-            );
-            failoverProvider = failoverResult.failoverProvider;
-            failoverStoriesSaved = failoverResult.failoverStoriesSaved;
-            failoverCategories = failoverResult.failoverCategories;
+          // No cross-provider failover: queue the remaining categories for this
+          // same provider to retry after the cooldown expires.
+          let queuedCount = 0;
+          for (const rc of remainingCategories) {
+            const ok = await enqueueProviderRetry(env, provider, rc, {
+              notBefore: cooldownUntil,
+              error: message
+            });
+            if (ok) queuedCount++;
           }
 
           setProviderCooldownState(provider, {
@@ -460,8 +359,8 @@ async function executeProviderSync(provider, updatedBy, env, {
             retryAfterSeconds: windowInfo.cooldownSeconds,
             rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
             lastError: message,
-            failoverProvider,
-            failoverCategories
+            failoverProvider: null,
+            failoverCategories: []
           });
           // Persist to DB so cooldown survives worker restarts (fire-and-forget)
           persistProviderCooldown(env, provider, {
@@ -485,12 +384,12 @@ async function executeProviderSync(provider, updatedBy, env, {
             rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
             rateLimitReset: windowInfo.rateLimitResetAt,
             requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
-            failoverProvider,
-            errorMessage: `${message}${failoverProvider ? ` · Failed over [${failoverCategories.join(', ')}] to ${failoverProvider} (+${failoverStoriesSaved} stories)` : ''}`
+            failoverProvider: null,
+            errorMessage: `${message} · queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown`
           });
 
-          if (failoverProvider) {
-            errors.push(`failover: routed remaining topics (${failoverCategories.join(', ')}) to ${failoverProvider} (+${failoverStoriesSaved} stories saved)`);
+          if (queuedCount > 0) {
+            errors.push(`queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown (${cooldownUntil})`);
           }
           // Stop querying remaining categories on the rate-limited provider immediately
           break;
@@ -522,7 +421,7 @@ async function executeProviderSync(provider, updatedBy, env, {
 
     const status = errors.length === 0
       ? 'succeeded'
-      : (storiesSaved > 0 || failoverStoriesSaved > 0)
+      : storiesSaved > 0
         ? 'partial'
         : 'failed';
     const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
@@ -537,10 +436,7 @@ async function executeProviderSync(provider, updatedBy, env, {
         errors,
         ...(hitRateLimit ? {
           rateLimited: true,
-          cooldownUntil,
-          failoverProvider,
-          failoverCategories,
-          failoverStoriesSaved
+          cooldownUntil
         } : {})
       }
     };
@@ -565,6 +461,86 @@ async function updateNewsProvider(provider, updatedBy, env, options = {}) {
  * from the rotation queue. Designed to run every 10 minutes via cron,
  * spreading the 42 fetches evenly across the hour instead of bursting.
  */
+/**
+ * Drain due provider retry jobs: re-run the same provider/category fetch
+ * after its cooldown expired. Bounded to stay under the subrequest budget.
+ */
+async function drainProviderRetries(env, { limit = 10, triggerSource = 'cron:retry' } = {}) {
+  const jobs = await drainDueRetries(env, { limit });
+  if (!jobs.length) return { drained: 0, succeeded: 0, requeued: 0, failed: 0 };
+  let succeeded = 0, requeued = 0, failed = 0;
+  for (const job of jobs) {
+    const config = getNewsProviderConfig(job.provider);
+    if (!config) {
+      await completeRetryJob(env, job.id, { success: false, error: 'Unknown provider' });
+      failed++;
+      continue;
+    }
+    // Respect an active cooldown (may have been re-set since the job was queued)
+    if (getProviderCooldownState(job.provider)) {
+      await completeRetryJob(env, job.id, {
+        success: false,
+        notBefore: getProviderCooldownState(job.provider).cooldownUntil,
+        error: 'Still in cooldown, re-queued'
+      });
+      requeued++;
+      continue;
+    }
+    try {
+      const feed = await getNewsFeed(job.provider, job.category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+        onFetchTelemetry: () => {}
+      });
+      const stories = feed.items.slice(0, 10);
+      const upsertResult = await upsertNewsStories(env, job.provider, job.category, stories);
+      await recordNewsProviderFetchLog(env, {
+        provider: job.provider,
+        providerLabel: config.label,
+        category: job.category,
+        triggerSource,
+        status: 'succeeded',
+        httpStatus: 200,
+        durationMs: 0,
+        attemptCount: job.attempts + 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: upsertResult?.savedCount ?? 0,
+        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+        errorMessage: null
+      });
+      await completeRetryJob(env, job.id, { success: true });
+      succeeded++;
+    } catch (err) {
+      const isRateLimit = Boolean(err?.isRateLimit || err?.status === 429);
+      const windowInfo = isRateLimit ? computeCooldownWindow(err) : null;
+      const result = await completeRetryJob(env, job.id, {
+        success: false,
+        notBefore: windowInfo?.cooldownUntil || undefined,
+        error: err instanceof Error ? err.message : String(err)
+      });
+      if (isRateLimit) {
+        // Refresh the provider cooldown so the normal sync also backs off
+        setProviderCooldownState(job.provider, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          retryAfterSeconds: windowInfo.cooldownSeconds,
+          lastError: err instanceof Error ? err.message : String(err),
+          failoverProvider: null,
+          failoverCategories: []
+        });
+        persistProviderCooldown(env, job.provider, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          lastError: err instanceof Error ? err.message : String(err)
+        }).catch(() => {});
+      }
+      if (result === 'requeued') requeued++;
+      else failed++;
+    }
+  }
+  return { drained: jobs.length, succeeded, requeued, failed };
+}
+
 async function runStaggeredSync(env, triggerSource = 'cron', updatedBy = 'staggered-scheduler') {
   const providers = getNewsProviders(env).filter(p => p.configured);
   if (providers.length === 0) {
@@ -639,18 +615,15 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
   const results = [];
   let totalStoriesSaved = 0;
   let rateLimitedCount = 0;
-  const excludedFailovers = new Set();
 
   for (const provider of providers) {
     try {
       const outcome = await executeProviderSync(provider.id, updatedBy, env, {
         triggerSource,
-        force: false,
-        allowFailover: true,
-        excludedFailoverProviders: excludedFailovers
+        force: false
       });
       if (outcome.httpStatus === 200) {
-        totalStoriesSaved += (outcome.body.storiesSaved || 0) + (outcome.body.failoverStoriesSaved || 0);
+        totalStoriesSaved += (outcome.body.storiesSaved || 0);
         if (outcome.body.rateLimited || outcome.body.status === 'rate_limited') {
           rateLimitedCount++;
         }
@@ -1403,8 +1376,8 @@ async function serveAdmin(request, env) {
       } catch {
         // empty body is fine
       }
-      const maxStories = Math.min(Math.max(Number(body.limit) || 15, 1), 20);
-      const BATCH = 15;
+      const maxStories = Math.min(Math.max(Number(body.limit) || 10, 1), 10);
+      const BATCH = 10;
 
       let totalValidated = 0;
       let totalStored = 0;
@@ -2337,12 +2310,16 @@ export default {
       return;
     }
     const cronPattern = event?.cron || '0 * * * *';
-    // Use staggered sync for frequent crons (every 10 min), hourly burst otherwise.
-    // Staggered spreads the 42 provider/topic fetches evenly across the hour.
-    const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
-    const task = isStaggered
-      ? runStaggeredSync(env, 'cron', `cron:${cronPattern}`)
-      : runHourlyAutoSync(env, 'cron', `cron:${cronPattern}`);
+    // Drain due retry jobs first (same provider retried after cooldown),
+    // then run the normal sync. Sequential to stay under the subrequest budget.
+    const task = (async () => {
+      const drainResult = await drainProviderRetries(env, { limit: 10, triggerSource: 'cron:retry' });
+      const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
+      const syncResult = isStaggered
+        ? await runStaggeredSync(env, 'cron', `cron:${cronPattern}`)
+        : await runHourlyAutoSync(env, 'cron', `cron:${cronPattern}`);
+      return { drainResult, syncResult };
+    })();
     if (ctx && typeof ctx.waitUntil === 'function') {
       ctx.waitUntil(task);
     } else {
