@@ -38,6 +38,7 @@ import {
   formatCustomTopicLabel
 } from './services/urlService';
 import { t, getDetectedLocale } from './constants/translations';
+import { getCategoryDescription } from './constants/categoryDescriptions';
 
 /** Extracts a `@username` profile route from the URL path, e.g. `/@katie`. */
 function parseProfileFromUrl(): string | null {
@@ -520,6 +521,32 @@ export const App: React.FC = () => {
                 No stories or partner discoveries found for{' '}
                 <strong>"{formatCustomTopicLabel(category)}"</strong>.
               </p>
+              <button
+                className="refresh-news-button"
+                onClick={() => handleSelectCategory('all')}
+                style={{ marginTop: '0.75rem' }}
+              >
+                ⚡ View All
+              </button>
+            </div>
+          ) : !customTopicActive && stories.length === 0 && ads.length === 0 ? (
+            <div className="news-feed-error" role="status">
+              {(() => {
+                const desc = getCategoryDescription(category);
+                const catInfo = CATEGORIES.find(c => c.id === category);
+                const label = catInfo ? t((catInfo.i18nKey || 'catAll') as any) : category;
+                return (
+                  <>
+                    <p>
+                      <strong>{catInfo?.icon} {label}</strong>
+                    </p>
+                    {desc && <p style={{ marginTop: '0.5rem', opacity: 0.85 }}>{desc}</p>}
+                    <p style={{ marginTop: '0.5rem' }}>
+                      No stories here yet — check back soon!
+                    </p>
+                  </>
+                );
+              })()}
               <button
                 className="refresh-news-button"
                 onClick={() => handleSelectCategory('all')}
