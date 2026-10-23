@@ -63,7 +63,7 @@ test('stored feed query returns normalized publisher story shape', async () => {
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
     // Category OR nested inside AND with the exclusion filter.
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === '((and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare}),(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news}))'));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === '((and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare}),(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news,politics,elections,government}))'));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
     assert.equal(feed.provider, 'supabase');
@@ -72,8 +72,6 @@ test('stored feed query returns normalized publisher story shape', async () => {
       category: 'childcare',
       displayCategories: null,
       interestKeywords: null,
-      countryCode: null,
-      region: 'global',
       title: 'Family story',
       link: 'https://publisher.example/family',
       image: 'https://images.example/family.jpg',
@@ -106,7 +104,7 @@ test('getStoredNewsFeed excludes flagged keywords from the all category', async 
     await getStoredNewsFeed(env, 'all');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl =>
-      requestUrl.searchParams.get('or') === '(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news})'
+      requestUrl.searchParams.get('or') === '(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news,politics,elections,government})'
     ));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
   } finally {
@@ -671,7 +669,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
         INTEREST_KEYWORDS.map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1, 0.2, 0.3],
-          model: '@cf/baai/bge-base-en-v1.5:kwv7',
+          model: '@cf/baai/bge-base-en-v1.5:kwv8',
         }))
       );
     }
@@ -713,7 +711,7 @@ test('getKeywordVectorStatus reports stored count without backfilling', async ()
       return Response.json(
         INTEREST_KEYWORDS.slice(0, Math.floor(INTEREST_KEYWORDS.length / 2)).map((kw) => ({
           keyword_id: kw.id,
-          model: '@cf/baai/bge-base-en-v1.5:kwv7',
+          model: '@cf/baai/bge-base-en-v1.5:kwv8',
         }))
       );
     }
@@ -782,7 +780,7 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
         INTEREST_KEYWORDS.slice(0, INTEREST_KEYWORDS.length - 1).map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1],
-          model: '@cf/baai/bge-base-en-v1.5:kwv7',
+          model: '@cf/baai/bge-base-en-v1.5:kwv8',
         }))
       );
     }

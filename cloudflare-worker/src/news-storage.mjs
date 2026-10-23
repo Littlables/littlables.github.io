@@ -53,10 +53,9 @@ function normalizeStory(row) {
     // Interest keywords (cross-cutting tags, never shown as categories).
     interestKeywords: Array.isArray(row.interest_keywords) && row.interest_keywords.length > 0
       ? row.interest_keywords.filter(k => typeof k === 'string')
-      : null,
-    // Geographic classification: ISO country code + broad region ('global' = no clear country).
-    countryCode: row.country_code || null,
-    region: row.region || 'global'
+      : null
+    // NOTE: region/country_code temporarily removed from feed select until
+    // the story_region.sql migration succeeds. Re-add after columns exist.
   };
 }
 
@@ -87,7 +86,7 @@ export async function getStoredNewsFeed(env, category) {
     : null;
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,display_categories,interest_keywords,region,country_code,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       order: 'published_at.desc.nullslast,fetched_at.desc',
@@ -271,7 +270,7 @@ export function clearKeywordVectorCache() {
 export async function getStoriesByKeyword(env, keyword) {
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,display_categories,interest_keywords,region,country_code,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       'interest_keywords': `cs.{${keyword}}`,
