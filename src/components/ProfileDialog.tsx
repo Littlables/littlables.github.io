@@ -1676,7 +1676,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     className="board-input"
                     value={newPillLabel}
                     onChange={(e) => setNewPillLabel(e.target.value)}
-                    placeholder="Add a custom topic…"
+                    placeholder="Add a custom interest…"
                     maxLength={40}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
