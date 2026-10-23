@@ -17,7 +17,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
 import { ProfileDialog } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
-import { BoardPage } from './components/BoardPage';
+import { SpaceRoutePage } from './components/SpaceRoutePage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
@@ -525,7 +525,7 @@ export const App: React.FC = () => {
             />
           </main>
         ) : boardRoute ? (
-          <BoardPage
+          <SpaceRoutePage
             username={boardRoute.username}
             slug={boardRoute.slug}
             onHome={handleHomeRefresh}
