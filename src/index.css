@@ -1999,6 +1999,24 @@ body.story-modal-open {
   color: #fff;
 }
 
+/* Board logo inside interest toggle pills and the selected-interests list */
+.pill-toggle-logo {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 0.3rem;
+  object-fit: cover;
+  vertical-align: -0.2rem;
+  margin-right: 0.15rem;
+}
+
+.pill-board-logo {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 0.35rem;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
 /* Theme picker */
 .theme-grid {
   display: grid;

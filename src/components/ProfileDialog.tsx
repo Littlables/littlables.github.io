@@ -373,10 +373,35 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       }
       const allPills: PillConfig[] = [
         ...CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })),
-        ...prev.filter((p) => p.type === 'custom'),
+        ...prev.filter((p) => p.type !== 'category'),
       ];
       const ordered = allPills.filter((p) => prev.some((pp) => pp.id === p.id) || p.id === pillId);
       return ordered;
+    });
+  };
+
+  /** Snapshot a board's topics as match keywords for a board interest pill. */
+  const boardInterestKeywords = (board: Board): string => {
+    const terms: string[] = [];
+    for (const p of board.pills || []) {
+      if (p.type === 'category' || p.type === 'keyword') terms.push(p.id);
+      else if (p.type === 'custom') {
+        if (p.keywords) terms.push(p.keywords);
+        if (p.label) terms.push(p.label);
+      }
+    }
+    return terms.join(', ');
+  };
+
+  /** Toggle one of the user's boards as an interest (boosts matching stories on the homepage). */
+  const toggleBoardPill = (board: Board) => {
+    const pillId = `board-${board.id}`;
+    setPills((prev) => {
+      if (prev.some((p) => p.id === pillId)) {
+        return prev.filter((p) => p.id !== pillId);
+      }
+      const keywords = boardInterestKeywords(board);
+      return [...prev, { id: pillId, type: 'board' as const, label: board.name, keywords: keywords || undefined }];
     });
   };
 
@@ -689,7 +714,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 maxLength={50}
               />
 
-              <label htmlFor="profile-username">Username (for your unique URL)</label>
+              <label htmlFor="profile-username">Unique link</label>
               <input
                 id="profile-username"
                 type="text"
@@ -790,19 +815,30 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
         {tab === 'interests' && (
           <div className="profile-tab-content">
-            <p className="profile-hint">Choose your interests — they shape what appears on your homepage. Add your own custom topics too.</p>
+            <p className="profile-hint">Choose your interests — they shape what appears on your homepage.</p>
 
             <label className="profile-section-label">Your interests (in order)</label>
             <div className="pill-list">
               {pills.map((pill, index) => {
                 const cat = CATEGORIES.find((c) => c.id === pill.id);
-                const label = pill.type === 'custom' ? pill.label : (cat ? t(cat.i18nKey as keyof TranslationStrings) || cat.id : pill.id);
+                const board = pill.type === 'board' ? boards.find((b) => `board-${b.id}` === pill.id) : undefined;
+                const label = pill.type === 'custom' || pill.type === 'board'
+                  ? (pill.label || pill.id)
+                  : (cat ? t(cat.i18nKey as keyof TranslationStrings) || cat.id : pill.id);
                 const icon = pill.type === 'custom' ? '📌' : (cat?.icon || '');
                 return (
                   <div key={pill.id} className="pill-row">
-                    <span className="pill-icon">{icon}</span>
+                    <span className="pill-icon">
+                      {board?.logo_url ? (
+                        <img src={board.logo_url} alt="" className="pill-board-logo" />
+                      ) : board ? (
+                        (board.name || '?')[0].toUpperCase()
+                      ) : (
+                        icon
+                      )}
+                    </span>
                     <span className="pill-label">{label}</span>
-                    {pill.type === 'custom' && (
+                    {(pill.type === 'custom' || pill.type === 'board') && (
                       <button type="button" className="pill-remove" onClick={() => removeCustomPill(pill.id)} aria-label="Remove">×</button>
                     )}
                     <div className="pill-reorder">
@@ -815,7 +851,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               {pills.length === 0 && <p className="profile-hint">No interests selected — add some below.</p>}
             </div>
 
-            <label className="profile-section-label">Available categories</label>
+            <label className="profile-section-label">Available spaces</label>
             <div className="pill-toggle-grid">
               {CATEGORIES.map((cat) => {
                 const active = pills.some((p) => p.id === cat.id);
@@ -831,6 +867,33 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 );
               })}
             </div>
+
+            {boards.length > 0 && (
+              <>
+                <label className="profile-section-label">Your spaces</label>
+                <div className="pill-toggle-grid">
+                  {boards.map((board) => {
+                    const pillId = `board-${board.id}`;
+                    const active = pills.some((p) => p.id === pillId);
+                    return (
+                      <button
+                        key={pillId}
+                        type="button"
+                        className={`pill-toggle ${active ? 'active' : ''}`}
+                        onClick={() => toggleBoardPill(board)}
+                      >
+                        {board.logo_url ? (
+                          <img src={board.logo_url} alt="" className="pill-toggle-logo" />
+                        ) : (
+                          <span>{(board.name || '?')[0].toUpperCase()}</span>
+                        )}{' '}
+                        {board.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             <label className="profile-section-label">Add a custom interest</label>
             <div className="board-custom-pill-row">
@@ -943,9 +1006,9 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
           <div className="profile-tab-content">
             {!editingBoard ? (
               <>
-                <label className="profile-section-label">Your boards</label>
+                <label className="profile-section-label">Your spaces</label>
                 <p className="profile-hint profile-hint-compact">
-                  Boards group your topics into their own pages at @{profile?.username || 'you'}/board-name.
+                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/board-name.
                 </p>
                 {boardsLoading ? (
                   <p className="profile-hint">Loading boards…</p>

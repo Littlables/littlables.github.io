@@ -265,7 +265,7 @@ export function trackStoryDwell(item: NewsItem, dwellSeconds: number, category?:
 
 interface BoardPill {
   id: string;
-  type: 'category' | 'custom' | 'keyword';
+  type: 'category' | 'custom' | 'keyword' | 'board';
 }
 
 /**
