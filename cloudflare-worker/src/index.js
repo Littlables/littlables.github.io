@@ -1373,6 +1373,64 @@ async function serveAdmin(request, env) {
     }
   }
 
+  // Auto-tag a single story with interest keywords (on-demand).
+  // POST /admin/api/stories/auto-tag { id }
+  // Classifies via embeddings, saves to DB, returns keywords.
+  if (url.pathname === '/admin/api/stories/auto-tag' && request.method === 'POST') {
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Must be requested from the admin origin' }, 403);
+    }
+    try {
+      const body = await request.json().catch(() => ({}));
+      const storyId = body.id;
+      if (!storyId) return jsonResponse({ error: 'Story ID required' }, 400);
+
+      // Fetch the story
+      const storyRes = await fetch(
+        supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${storyId}`, select: 'id,title,description' })),
+        { headers: supabaseHeaders(env) }
+      );
+      if (!storyRes.ok) throw new Error('Story fetch failed');
+      const rows = await storyRes.json();
+      const story = Array.isArray(rows) ? rows[0] : null;
+      if (!story) return jsonResponse({ error: 'Story not found' }, 404);
+
+      // Classify
+      const text = ((story.title || '') + ' ' + (story.description || '')).trim();
+      if (!text) return jsonResponse({ id: storyId, keywords: [] });
+
+      const keywordVectors = await getKeywordEmbeddings(env);
+      if (!keywordVectors || keywordVectors.size === 0) {
+        return jsonResponse({ error: 'Keyword vectors not warmed up' }, 503);
+      }
+      const vector = await embedText(env, text);
+      const matches = classifyStoryKeywords(vector, keywordVectors);
+      const keywords = matches.map(m => m.id);
+
+      // Save to DB
+      const saveRes = await fetch(
+        supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${storyId}` })),
+        {
+          method: 'PATCH',
+          headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interest_keywords: keywords })
+        }
+      );
+      if (!saveRes.ok) throw new Error('Save failed: ' + saveRes.status);
+
+      return jsonResponse({
+        id: storyId,
+        keywords,
+        matches: matches.map(m => ({ id: m.id, label: m.label, confidence: m.confidence }))
+      });
+    } catch (err) {
+      return jsonResponse({ error: err.message || 'Auto-tag failed' }, 500);
+    }
+  }
+
   // Validate story categories via embedding classifier (prototype).
   // Classifies unapproved stories and flags mismatches for review.
   if (url.pathname === '/admin/api/stories/validate-categories' && request.method === 'POST') {

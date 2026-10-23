@@ -2337,6 +2337,7 @@ export function getAdminPage() {
       if (Array.isArray(storyKws) && storyKws.length > 0) {
         const kwSpan = document.createElement('span');
         kwSpan.className = 'meta-badge-status meta-approved';
+        kwSpan.setAttribute('data-kw-badge', '1');
         kwSpan.textContent = '🔖 ' + storyKws.join(', ');
         kwSpan.title = 'Content keywords';
         meta.append(kwSpan);
@@ -2376,6 +2377,51 @@ export function getAdminPage() {
         openStoryPreview(story);
       });
       actions.append(editBtn);
+
+      // Auto-tag button (search results): classify on-demand, save, update live
+      if (isSearch) {
+        const tagBtn = document.createElement('button');
+        tagBtn.type = 'button';
+        tagBtn.className = 'secondary small-btn';
+        tagBtn.textContent = '🏷️ Tag';
+        tagBtn.title = 'Auto-tag with interest keywords';
+        tagBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          tagBtn.disabled = true;
+          tagBtn.textContent = 'Tagging...';
+          try {
+            const res = await fetch('/admin/api/stories/auto-tag', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: story.id })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Tag failed');
+            // Update story object and refresh the keywords badge live
+            const kws = data.keywords || [];
+            story.interest_keywords = kws;
+            story.interestKeywords = kws;
+            // Remove old badge if present, add new one
+            const oldBadge = meta.querySelector('[data-kw-badge]');
+            if (oldBadge) oldBadge.remove();
+            if (kws.length > 0) {
+              const kwSpan = document.createElement('span');
+              kwSpan.className = 'meta-badge-status meta-approved';
+              kwSpan.setAttribute('data-kw-badge', '1');
+              kwSpan.textContent = '🔖 ' + kws.join(', ');
+              kwSpan.title = 'Content keywords';
+              meta.append(kwSpan);
+            }
+            tagBtn.textContent = '✓ Tagged';
+            setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 2000);
+          } catch (err) {
+            tagBtn.textContent = 'Error';
+            setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 2000);
+          }
+        });
+        actions.append(tagBtn);
+      }
 
       if (pending) {
         const button = document.createElement('button');
