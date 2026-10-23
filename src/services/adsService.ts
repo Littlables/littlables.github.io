@@ -405,24 +405,32 @@ export function getRandomAds(ads: AdItem[], count: number = 2): AdItem[] {
 
 /** Cached ad keyword tags: ad_id -> keyword ids. Fetched once per session. */
 let adTagsCache: Record<string, string[]> | null = null;
+let adTagsCacheKey = '';
 
 /**
- * Fetch all ad keyword tags from the worker (GET /ads/tags).
- * Returns a map of ad_id -> keyword ids. Cached after first fetch.
+ * Fetch ad keyword tags from the worker (GET /ads/tags).
+ * Pass story keywords to only fetch relevant tags; omit for all.
+ * Returns a map of ad_id -> keyword ids. Cached per keyword set.
  * Returns empty object on failure (graceful degradation to category matching).
  */
-export async function fetchAdKeywordTags(): Promise<Record<string, string[]>> {
-  if (adTagsCache) return adTagsCache;
+export async function fetchAdKeywordTags(filterKeywords?: string[]): Promise<Record<string, string[]>> {
+  const cacheKey = (filterKeywords || []).sort().join(',');
+  if (adTagsCache && adTagsCacheKey === cacheKey) return adTagsCache;
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
     url.pathname = '/ads/tags';
+    if (filterKeywords && filterKeywords.length > 0) {
+      url.searchParams.set('keywords', filterKeywords.slice(0, 20).join(','));
+    }
     const response = await fetch(url.href, { cache: 'no-cache' });
     if (!response.ok) throw new Error('tags fetch failed');
     const data = await response.json();
     adTagsCache = data?.tags || {};
+    adTagsCacheKey = cacheKey;
     return adTagsCache;
   } catch {
     adTagsCache = {};
+    adTagsCacheKey = cacheKey;
     return {};
   }
 }
@@ -447,7 +455,9 @@ export async function getMatchedAdsForStory(
   count: number = 2
 ): Promise<AdItem[]> {
   if (!ads || !ads.length) return [];
-  const tags = await fetchAdKeywordTags();
+  const storyKeywords = story?.interest_keywords || story?.interestKeywords || [];
+  // Only fetch tags for this story's keywords — smaller payload, scales better.
+  const tags = await fetchAdKeywordTags(storyKeywords);
   const taggedAds = applyAdKeywordTags(ads, tags);
   const { matchAdsToStory } = await import('./adKeywordMatcher');
   const matched = matchAdsToStory(story, taggedAds);

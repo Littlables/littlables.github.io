@@ -2366,8 +2366,18 @@ export default {
     // Small payload (~200 rows), cacheable.
     if (request.method === 'GET' && pathname === '/ads/tags') {
       try {
+        const params = new URLSearchParams({ select: 'ad_id,keywords,updated_at' });
+        // Optional: ?keywords=dinosaurs,toys — only return ads matching any of these.
+        // Uses PostgREST array overlap. Omit for all tags.
+        const kwFilter = (url.searchParams.get('keywords') || '').trim();
+        if (kwFilter) {
+          const ids = kwFilter.split(',').map(s => s.trim()).filter(Boolean).slice(0, 20);
+          if (ids.length > 0) {
+            params.set('keywords', `ov.{${ids.join(',')}}`);
+          }
+        }
         const res = await fetch(
-          supabaseUrl(env, 'ad_keyword_tags', new URLSearchParams({ select: 'ad_id,keywords,updated_at' })),
+          supabaseUrl(env, 'ad_keyword_tags', params),
           { headers: supabaseHeaders(env) }
         );
         if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
