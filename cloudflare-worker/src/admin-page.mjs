@@ -1251,7 +1251,10 @@ export function getAdminPage() {
               <strong>Keyword auto-tag</strong>
               <span id="ad-tag-status" class="muted">Tag ads with interest keywords via embedding classifier</span>
             </div>
-            <button id="ad-tag-btn" type="button" class="small-btn">🏷️ Auto-tag ads</button>
+            <button id="ad-tag-btn" type="button" class="small-btn">🏷️ Auto-tag new</button>
+            <button id="ad-tag-all-btn" type="button" class="small-btn">↻ Rerun all</button>
+            <button id="ad-tag-untagged-btn" type="button" class="small-btn">↻ Rerun untagged</button>
+            <button id="ad-tag-tagged-btn" type="button" class="small-btn">↻ Rerun tagged</button>
           </div>
           <div id="ad-tag-log" class="awin-log" hidden></div>
           <div id="ad-tag-results" hidden></div>
@@ -3079,15 +3082,18 @@ export function getAdminPage() {
     document.getElementById('awin-sync-btn').addEventListener('click', runAwinSync);
     loadAwinStatus();
 
-    // Ad keyword auto-tag
-    document.getElementById('ad-tag-btn').addEventListener('click', runAdAutoTag);
+    // Ad keyword auto-tag (4 modes)
+    document.getElementById('ad-tag-btn').addEventListener('click', () => runAdAutoTag('new'));
+    document.getElementById('ad-tag-all-btn').addEventListener('click', () => runAdAutoTag('all'));
+    document.getElementById('ad-tag-untagged-btn').addEventListener('click', () => runAdAutoTag('untagged'));
+    document.getElementById('ad-tag-tagged-btn').addEventListener('click', () => runAdAutoTag('tagged'));
 
-    async function runAdAutoTag() {
-      const btn = document.getElementById('ad-tag-btn');
+    async function runAdAutoTag(mode) {
+      const btnIds = ['ad-tag-btn', 'ad-tag-all-btn', 'ad-tag-untagged-btn', 'ad-tag-tagged-btn'];
+      btnIds.forEach(id => { document.getElementById(id).disabled = true; });
       const status = document.getElementById('ad-tag-status');
       const log = document.getElementById('ad-tag-log');
       const resultsDiv = document.getElementById('ad-tag-results');
-      btn.disabled = true;
       log.hidden = false;
       log.textContent = 'Fetching ads...';
       resultsDiv.hidden = true;
@@ -3098,16 +3104,29 @@ export function getAdminPage() {
         const adsRes = await fetch('/admin/api/ads', { credentials: 'include' });
         if (!adsRes.ok) throw new Error('Failed to fetch ads');
         const adsData = await adsRes.json();
-        const ads = (adsData.ads || []).map(a => ({
+        let ads = (adsData.ads || []).map(a => ({
           id: a.id,
           title: a.title || a.name || '',
           description: a.description || a.desc || ''
         })).filter(a => a.title);
 
+        // Filter by mode: fetch existing tags to know what's tagged
+        if (mode !== 'all') {
+          log.textContent = 'Checking existing tags...';
+          const tagsRes = await fetch('/ads/tags');
+          const tagsData = await tagsRes.json().catch(() => ({ tags: {} }));
+          const taggedIds = new Set(Object.keys(tagsData.tags || {}));
+          if (mode === 'new' || mode === 'untagged') {
+            ads = ads.filter(a => !taggedIds.has(a.id));
+          } else if (mode === 'tagged') {
+            ads = ads.filter(a => taggedIds.has(a.id));
+          }
+        }
+
         if (!ads.length) {
-          status.textContent = 'No ads found';
-          log.textContent = 'No ads to tag.';
-          btn.disabled = false;
+          status.textContent = 'No ads to tag';
+          log.textContent = 'Nothing to do for mode: ' + mode;
+          btnIds.forEach(id => { document.getElementById(id).disabled = false; });
           return;
         }
 
@@ -3149,7 +3168,7 @@ export function getAdminPage() {
         status.textContent = 'Error';
         log.textContent = 'Error: ' + err.message;
       } finally {
-        btn.disabled = false;
+        btnIds.forEach(id => { document.getElementById(id).disabled = false; });
       }
     }
 
