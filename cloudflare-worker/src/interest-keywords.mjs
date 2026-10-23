@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 6;
+export const KEYWORD_DESCRIPTIONS_VERSION = 7;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -114,6 +114,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
 
   // ---- Shows & Fun ----
   { id: 'family-movies', label: 'Family Movies', icon: '🎬', group: 'Shows & Fun', description: 'family film news: new animated movies, Disney, Pixar, movie night picks' },
+  { id: 'entertainment', label: 'Entertainment', icon: '🌟', group: 'Shows & Fun', description: 'entertainment and pop culture news: celebrities, Hollywood, red carpets, viral stars, showbiz stories' },
   { id: 'tv-shows', label: 'TV Shows', icon: '📺', group: 'Shows & Fun', description: 'kids\' TV: new shows, cartoons, episodes, what to watch streaming' },
   { id: 'comics', label: 'Comics', icon: '💬', group: 'Shows & Fun', description: 'comics and graphic novels: manga, comic books, visual storytelling' },
   { id: 'theme-parks', label: 'Theme Parks', icon: '🎢', group: 'Shows & Fun', description: 'theme park news: new rides, Disney World, roller coasters, planning a park visit' },
@@ -153,6 +154,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'history', label: 'History', icon: '🏛️', group: 'Community & Life', description: 'history stories: past eras, ancient civilizations, museums, historical anniversaries' },
   { id: 'volunteering', label: 'Volunteering', icon: '💝', group: 'Community & Life', description: 'giving back: volunteering, charity drives, fundraisers, helping causes' },
   { id: 'big-feelings', label: 'Big Feelings', icon: '💛', group: 'Community & Life', description: 'understanding emotions: managing big feelings, calming down, mindfulness for kids, being kind to yourself' },
+  { id: 'religion', label: 'Religion', icon: '🕊️', group: 'Community & Life', description: 'faith and religion news: religious holidays, traditions, churches, mosques, temples, interfaith community stories' },
   { id: 'records', label: 'Records & Firsts', icon: '🏆', group: 'Community & Life', description: 'amazing achievements: world records, incredible firsts, extraordinary feats by kids and everyday people' },
 
   // ---- Flagged (excluded from front-page feeds) ----
