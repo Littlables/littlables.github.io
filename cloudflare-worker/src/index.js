@@ -1407,10 +1407,13 @@ async function serveAdmin(request, env) {
         return jsonResponse({ error: 'Keyword vectors not warmed up' }, 503);
       }
       const vector = await embedText(env, text);
+      if (!vector) {
+        return jsonResponse({ error: 'Failed to embed story text', id: storyId }, 500);
+      }
       const matches = classifyStoryKeywords(vector, keywordVectors);
       const keywords = matches.map(m => m.id);
 
-      // Save to DB
+      // Save to DB (even if empty — marks as processed)
       const saveRes = await fetch(
         supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${storyId}` })),
         {
@@ -1424,7 +1427,13 @@ async function serveAdmin(request, env) {
       return jsonResponse({
         id: storyId,
         keywords,
-        matches: matches.map(m => ({ id: m.id, label: m.label, confidence: m.confidence }))
+        matches: matches.map(m => ({ id: m.id, label: m.label, confidence: m.confidence })),
+        diagnostic: {
+          textLength: text.length,
+          vectorDims: vector.length,
+          keywordVectorsCount: keywordVectors.size,
+          threshold: 0.45
+        }
       });
     } catch (err) {
       return jsonResponse({ error: err.message || 'Auto-tag failed' }, 500);

@@ -2412,9 +2412,14 @@ export function getAdminPage() {
               kwSpan.textContent = '🔖 ' + kws.join(', ');
               kwSpan.title = 'Content keywords';
               meta.append(kwSpan);
+              tagBtn.textContent = '✓ Tagged';
+            } else {
+              // No matches — show diagnostic
+              const diag = data.diagnostic || {};
+              tagBtn.textContent = 'No match';
+              tagBtn.title = 'Text: ' + (diag.textLength || 0) + ' chars, Vectors: ' + (diag.keywordVectorsCount || 0);
             }
-            tagBtn.textContent = '✓ Tagged';
-            setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 2000);
+            setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 3000);
           } catch (err) {
             tagBtn.textContent = 'Error';
             setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 2000);
