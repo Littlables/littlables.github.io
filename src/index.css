@@ -2220,9 +2220,9 @@ body.story-modal-open {
   align-items: center;
   gap: 0.75rem;
   grid-column: 1 / -1;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0;
   flex-wrap: wrap;
-  padding: 0.35rem 0;
+  padding: 0.2rem 0;
 }
 .board-page-logo {
   width: 44px;
@@ -2280,7 +2280,15 @@ body.story-modal-open {
 /* Space pills below the playroom header (reuse category pill styles) */
 .playroom-space-pills {
   grid-column: 1 / -1;
-  margin-top: -0.25rem;
+  margin: 0;
+}
+.playroom-space-pills.news-category-container {
+  margin-top: 0.15rem;
+  margin-bottom: 0.2rem;
+  padding-bottom: 0;
+}
+.playroom-space-pills .news-category-bar {
+  padding: 0.25rem 1rem 0.35rem 1rem;
 }
 .playroom-space-pill-logo {
   width: 18px;
