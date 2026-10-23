@@ -1445,7 +1445,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               <>
                 <label className="profile-section-label">Your spaces</label>
                 <p className="profile-hint profile-hint-compact">
-                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}.
+                  Spaces group your interests into their own playrooms at @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}.
                 </p>
                 {!boardsLoading && (
                   <p className="profile-hint profile-hint-compact">
@@ -1606,7 +1606,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
                 <label className="profile-field-label">Interests in this space</label>
                 <p className="profile-hint profile-hint-compact">
-                  Pick categories or add your own custom topics.
+                  Pick categories or add your own custom interests.
                 </p>
                 <div className="board-pill-picker">
                   {CATEGORIES.map((cat) => {
@@ -1628,7 +1628,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 </div>
                 <label className="profile-field-label" style={{ marginTop: '0.75rem' }}>Keyword interests</label>
                 <p className="profile-hint profile-hint-compact">
-                  Cross-cutting topics for custom boards — never shown as categories.
+                  Cross-cutting interests for custom spaces — never shown as categories.
                 </p>
                 {INTEREST_KEYWORD_GROUPS.map((group: string) => (
                   <div key={group} style={{ marginBottom: '0.5rem' }}>
