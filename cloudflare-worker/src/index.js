@@ -1417,7 +1417,7 @@ async function serveAdmin(request, env) {
         // (and never overwriting a hand-set display override) or missing
         // interest keyword tags.
         const query = new URLSearchParams({
-          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories,embedding_category,embedding_confidence,interest_keywords',
+          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories,embedding_category,embedding_confidence,interest_keywords,provider_country',
           approved: 'eq.false',
           removed: 'eq.false',
           or: '(and(embedding_category.is.null,display_categories.is.null),interest_keywords.is.null)',

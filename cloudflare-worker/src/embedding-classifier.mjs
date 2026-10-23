@@ -303,6 +303,27 @@ export async function validateStoryCategories(env, stories, options = {}) {
         let keywordMatches = [];
         if (needsKeywords) {
           keywordMatches = classifyStoryKeywords(storyVector, keywordVectors);
+          // If provider gave us a country, ensure the corresponding country interest is tagged.
+          // Maps ISO → interest ID (reverse of COUNTRY_KEYWORD_TO_ISO).
+          const providerCountry = (story.provider_country || '').toUpperCase();
+          if (providerCountry) {
+            const isoToInterest = {
+              'US': 'country-us', 'GB': 'country-uk', 'CA': 'country-canada',
+              'AU': 'country-australia', 'NZ': 'country-nz', 'IE': 'country-ireland',
+              'FR': 'country-france', 'DE': 'country-germany', 'IT': 'country-italy',
+              'ES': 'country-spain', 'NL': 'country-netherlands', 'SE': 'country-sweden',
+              'CN': 'country-china', 'JP': 'country-japan', 'IN': 'country-india',
+              'KR': 'country-korea', 'MX': 'country-mexico', 'BR': 'country-brazil',
+              'ZA': 'country-south-africa', 'EG': 'country-egypt',
+            };
+            const interestId = isoToInterest[providerCountry];
+            if (interestId && !keywordMatches.some(m => m.id === interestId)) {
+              // Add with high confidence (provider data is authoritative)
+              keywordMatches.unshift({ id: interestId, label: interestId, confidence: 0.95 });
+              // Keep max 3
+              keywordMatches = keywordMatches.slice(0, 3);
+            }
+          }
         }
         return {
           id: story.id,

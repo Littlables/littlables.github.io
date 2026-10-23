@@ -952,6 +952,7 @@ export async function upsertNewsStories(env, provider, category, stories) {
     content: story.content || null,
     published_at: story.pubDate || null,
     source_name: story.source || null,
+    provider_country: story.providerCountry || null,
     fetched_at: new Date().toISOString()
   }));
   const query = new URLSearchParams({
