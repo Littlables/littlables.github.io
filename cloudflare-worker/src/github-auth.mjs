@@ -46,7 +46,7 @@ export async function createAdminSessionCookie(login, secret) {
   const key = await sessionKey(secret);
   const signature = new Uint8Array(await crypto.subtle.sign('HMAC', await key, encoder.encode(payload)));
   const token = `${payload}.${toBase64Url(signature)}`;
-  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_SECONDS}`;
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${SESSION_SECONDS}`;
 }
 
 export async function getAdminIdentity(request, env) {
@@ -95,5 +95,24 @@ export function createOAuthState() {
 }
 
 export function isSameOrigin(request) {
-  return request.headers.get('Origin') === new URL(request.url).origin;
+  const origin = request.headers.get('Origin');
+  const requestOrigin = new URL(request.url).origin;
+  if (origin === requestOrigin) return true;
+  // Allow the Pages frontend origins (for homepage admin editing)
+  const allowed = ['https://littlables.com', 'https://dev.littlables.com', 'http://localhost:5173'];
+  return allowed.includes(origin);
+}
+
+export function getCorsHeaders(request) {
+  const origin = request.headers.get('Origin');
+  const allowed = ['https://littlables.com', 'https://dev.littlables.com', 'http://localhost:5173'];
+  if (allowed.includes(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+  }
+  return {};
 }

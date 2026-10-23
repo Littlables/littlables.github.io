@@ -9,7 +9,8 @@ import {
   createOAuthStateCookie,
   getAdminIdentity,
   getOAuthState,
-  isSameOrigin
+  isSameOrigin,
+  getCorsHeaders
 } from './github-auth.mjs';
 import {
   claimNewsProviderSync,
@@ -1339,6 +1340,36 @@ async function serveAdmin(request, env) {
     return jsonResponse({ cleared: true, ...getNewsProviderFetchLogs() });
   }
 
+  // Lookup a story by article URL (for homepage admin editing).
+  if (url.pathname === '/admin/api/stories/by-url' && request.method === 'GET') {
+    const articleUrl = url.searchParams.get('url') || '';
+    if (!articleUrl.trim()) return jsonResponse({ error: 'URL is required' }, 400);
+    try {
+      const query = new URLSearchParams({
+        article_url: `eq.${articleUrl}`,
+        select: 'id,title,approved,removed,display_categories,interest_keywords,category',
+        limit: '1',
+      });
+      const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), { headers: supabaseHeaders(env) });
+      if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+      const rows = await res.json();
+      if (!rows.length) return jsonResponse({ error: 'Story not found' }, 404);
+      const s = rows[0];
+      return jsonResponse({
+        id: s.id,
+        title: s.title,
+        approved: s.approved,
+        removed: s.removed,
+        display_categories: s.display_categories,
+        interest_keywords: s.interest_keywords,
+        category: s.category,
+      });
+    } catch (err) {
+      console.error('Story by-url lookup failed:', err);
+      return jsonResponse({ error: 'Could not find story' }, 502);
+    }
+  }
+
   if (url.pathname === '/admin/api/stories/search' && request.method === 'GET') {
     const q = url.searchParams.get('q') || '';
     if (!q.trim()) return jsonResponse({ items: [] });
@@ -2216,12 +2247,21 @@ async function serveAiStoryImage(request, env) {
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      const cors = getCorsHeaders(request);
+      return new Response(null, { status: 204, headers: Object.keys(cors).length > 0 ? cors : corsHeaders });
     }
     const url = new URL(request.url);
     const pathname = url.pathname;
     if (pathname === '/admin' || pathname.startsWith('/admin/')) {
-      return serveAdmin(request, env);
+      const resp = await serveAdmin(request, env);
+      // Add CORS headers for frontend admin editing (GitHub session via credentials:include)
+      const cors = getCorsHeaders(request);
+      if (Object.keys(cors).length > 0) {
+        const headers = new Headers(resp.headers);
+        for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+        return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+      }
+      return resp;
     }
     if (request.method === 'GET' && pathname === '/ai-image') {
       return serveAiStoryImage(request, env);

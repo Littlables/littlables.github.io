@@ -6,6 +6,8 @@ import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
 import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
+import { AdminEditDialog } from './components/AdminEditDialog';
+import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
@@ -97,6 +99,8 @@ function prioritizeByInterests(stories: NewsItem[], interests: PillConfig[]): Ne
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const { profile } = useAuth();
+  const { isAdmin } = useAdminStatus();
+  const [adminEditStory, setAdminEditStory] = useState<NewsItem | null>(null);
 
   // Apply custom background color from profile (overrides theme).
   // Setting --news-bg on :root flows into body, header, and footer,
@@ -578,6 +582,7 @@ export const App: React.FC = () => {
                       reactions={cardReactions}
                       onReact={handleReaction}
                       onOpenStory={handleOpenStory}
+                      onAdminEdit={isAdmin ? setAdminEditStory : undefined}
                     />
 
                     {shouldInsertAd && currentAd && (
@@ -611,6 +616,13 @@ export const App: React.FC = () => {
         onClose={handleCloseStory}
         onSelectCategory={handleSelectCategory}
       />
+
+      {adminEditStory && (
+        <AdminEditDialog
+          story={adminEditStory}
+          onClose={() => setAdminEditStory(null)}
+        />
+      )}
 
       <Footer
         onOpenAbout={() => setActiveDialog('about')}

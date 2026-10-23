@@ -18,6 +18,7 @@ interface NewsCardProps {
   reactions: ReactionCounts;
   onReact: (storyId: string, type: ReactionType) => void;
   onOpenStory: (item: NewsItem, index: number) => void;
+  onAdminEdit?: (item: NewsItem) => void;
 }
 
 export const NewsCard: React.FC<NewsCardProps> = ({
@@ -27,7 +28,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   categoryBadge,
   reactions,
   onReact,
-  onOpenStory
+  onOpenStory,
+  onAdminEdit
 }) => {
   const storyId = getStoryId(item.title, item.link);
   const imageUrl = resolveImageUrl(item, index, category);
@@ -132,6 +134,55 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     }
   };
 
+  // Long-press to open admin edit (only when onAdminEdit is provided)
+  const longPressTimer = useRef<number | null>(null);
+  const longPressFired = useRef(false);
+
+  const startLongPress = () => {
+    if (!onAdminEdit) return;
+    longPressFired.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      longPressFired.current = true;
+      onAdminEdit(item);
+    }, 600);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchStart = () => startLongPress();
+  const handleTouchEnd = () => cancelLongPress();
+  const handleTouchMove = () => cancelLongPress();
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Right-click also opens admin edit on desktop
+    if (e.button === 2 && onAdminEdit) {
+      e.preventDefault();
+      onAdminEdit(item);
+      return;
+    }
+    startLongPress();
+  };
+  const handleMouseUp = () => cancelLongPress();
+  const handleMouseLeave = () => cancelLongPress();
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (onAdminEdit) e.preventDefault();
+  };
+
+  // Suppress click if long-press fired
+  const handleCardClickWrapper = (e: React.MouseEvent<HTMLElement>) => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    handleCardClick(e);
+  };
+
   return (
     <article
       ref={cardRef}
@@ -139,8 +190,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       tabIndex={0}
       role="article"
       aria-label={item.title}
-      onClick={handleCardClick}
+      onClick={handleCardClickWrapper}
       onKeyDown={handleCardKeyDown}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      onContextMenu={handleContextMenu}
     >
       <div className={`news-card-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
         <img
