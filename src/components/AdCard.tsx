@@ -39,7 +39,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ad.url]);
+  }, [ad.id]);
 
   useEffect(() => {
     if (!adPushedRef.current && typeof window !== 'undefined') {

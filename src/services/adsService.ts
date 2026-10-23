@@ -83,6 +83,14 @@ function resolveFallbackAdCategory(rawCategory?: string, fallbackCategory?: News
   return 'all';
 }
 
+function hashString(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex: number): AdItem {
   const title = raw.name || raw.title || 'Curated Discovery';
   const desc = raw.description || raw.desc || 'A handpicked resource tailored to your interests.';
@@ -97,14 +105,21 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
       : 'Free');
   const cta = raw.cta || (price === 'Free' ? 'Explore Free →' : `Get for ${price} →`);
 
+  // Stable ID: network + hash of URL (or title+sponsor as fallback)
+  const network = raw.network || 'unknown';
+  const idSeed = url !== '#' ? url : `${title}|${sponsor}`;
+  const id = `ad_${network}_${hashString(idSeed)}`;
+
   return {
+    id,
     title,
     desc,
     img,
     cta,
     sponsor,
     url,
-    category: raw.category || imgCat
+    category: raw.category || imgCat,
+    network
   };
 }
 

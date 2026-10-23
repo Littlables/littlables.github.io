@@ -32,6 +32,7 @@ export interface NewsItem {
 }
 
 export interface AdItem {
+  id?: string;
   title: string;
   desc: string;
   img: string;
@@ -39,6 +40,7 @@ export interface AdItem {
   sponsor: string;
   url?: string;
   category?: string;
+  network?: string;
 }
 
 export interface ReactionCounts {
