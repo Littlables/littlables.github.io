@@ -1098,11 +1098,12 @@ test('public feed and ads endpoints search stories and ads when custom topic key
   }
 });
 
-test('rate-limited provider stops immediately, applies cooldown, fails over remaining categories to fallback provider, and logs detailed diagnostics', async () => {
+test('rate-limited provider stops immediately, applies cooldown, and queues remaining categories for retry (no cross-provider failover)', async () => {
   const originalFetch = globalThis.fetch;
   const gnewsCalls = [];
   const newsdataCalls = [];
   const savedBatches = [];
+  const queueUpserts = [];
   const date = new Date().toISOString();
 
   globalThis.fetch = async (input, options = {}) => {
@@ -1136,21 +1137,14 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
       );
     }
     if (url.hostname === 'newsdata.io') {
-      const q = url.searchParams.get('q') || 'all';
-      newsdataCalls.push(q);
-      return Response.json({
-        results: [{
-          title: `Fallback Story for ${q}`,
-          link: `https://publisher.example/fallback-${newsdataCalls.length}`,
-          image_url: 'https://images.example/fb.jpg',
-          description: 'Fallback description',
-          content: 'Fallback content',
-          pubDate: date,
-          source_name: 'Fallback Source'
-        }]
-      });
+      newsdataCalls.push(url.searchParams.get('q') || 'all');
+      return Response.json({ results: [] });
     }
     if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+    if (url.pathname.endsWith('/provider_retry_queue') && options.method === 'POST') {
+      queueUpserts.push(JSON.parse(options.body));
+      return new Response(null, { status: 201 });
+    }
     if (url.pathname.endsWith('/news_stories')) {
       savedBatches.push(...JSON.parse(options.body));
       return new Response(null, { status: 204 });
@@ -1161,9 +1155,9 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
 
   try {
     const cookie = (await adminCookie()).split(';')[0];
-    const envWithFallback = {
+    const envWithKeys = {
       ...authEnv,
-      GNEWS_API_KEY: 'gnews-secret',
+GNEWS_API_KEY: 'gnews-secret',
       NEWSDATA_API_KEY: 'newsdata-secret',
       SUPABASE_URL: 'https://supabase.example',
       SUPABASE_SECRET_KEY: 'service-secret',
@@ -1175,7 +1169,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
         method: 'POST',
         headers: { Origin: 'https://worker.example', Cookie: cookie }
       }),
-      envWithFallback
+      envWithKeys
     );
 
     assert.equal(response.status, 200);
@@ -1183,10 +1177,15 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
     assert.equal(result.provider, 'gnews');
     assert.equal(result.rateLimited, true);
     assert.ok(result.cooldownUntil);
-    assert.equal(result.failoverProvider, 'newsdata');
+    assert.equal(result.failoverProvider, undefined, 'No cross-provider failover should occur');
     assert.equal(gnewsCalls.length, 2, 'GNews must stop immediately after hitting 429 on category #2');
-    assert.equal(newsdataCalls.length, 6, 'Remaining 6 categories must fail over to NewsData.io');
-    assert.equal(savedBatches.length, 7, '1 primary story + 6 failover stories saved');
+    assert.equal(newsdataCalls.length, 0, 'No other provider should be queried (failover removed)');
+    assert.ok(queueUpserts.length >= 1, 'Remaining categories must be queued for retry');
+    for (const q of queueUpserts) {
+      assert.equal(q.provider, 'gnews');
+      assert.equal(q.status, 'pending');
+      assert.ok(q.not_before, 'Retry must have a not_before time from the rate-limit headers');
+    }
 
     // Subsequent non-forced call should respect cooldown without hitting GNews again
     const cooldownRes = await worker.fetch(
@@ -1194,7 +1193,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
         method: 'POST',
         headers: { Origin: 'https://worker.example', Cookie: cookie }
       }),
-      envWithFallback
+      envWithKeys
     );
     const cooldownData = await cooldownRes.json();
     assert.equal(cooldownData.status, 'rate_limited');
@@ -1205,7 +1204,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
       new Request('https://worker.example/admin/api/logs?status=rate_limited', {
         headers: { Cookie: cookie }
       }),
-      envWithFallback
+      envWithKeys
     );
     assert.equal(logsRes.status, 200);
     const logsData = await logsRes.json();
@@ -1213,7 +1212,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
     assert.equal(logsData.logs[0].provider, 'gnews');
     assert.equal(logsData.logs[0].httpStatus, 429);
     assert.equal(logsData.logs[0].retryAfterSeconds, 900);
-    assert.equal(logsData.logs[0].failoverProvider, 'newsdata');
+    assert.equal(logsData.logs[0].failoverProvider, null);
   } finally {
     globalThis.fetch = originalFetch;
   }

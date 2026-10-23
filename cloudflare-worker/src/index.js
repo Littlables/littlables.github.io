@@ -2313,7 +2313,7 @@ export default {
     // Drain due retry jobs first (same provider retried after cooldown),
     // then run the normal sync. Sequential to stay under the subrequest budget.
     const task = (async () => {
-      const drainResult = await drainProviderRetries(env, { limit: 10, triggerSource: 'cron:retry' });
+      const drainResult = await drainProviderRetries(env, { limit: 6, triggerSource: 'cron:retry' });
       const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
       const syncResult = isStaggered
         ? await runStaggeredSync(env, 'cron', `cron:${cronPattern}`)

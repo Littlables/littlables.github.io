@@ -38,7 +38,8 @@ test('GNews general category requests top headlines and normalizes article field
     description: 'A short article description.',
     content: 'More article content [Read more...]',
     pubDate: article.publishedAt,
-    source: 'Example News'
+    source: 'Example News',
+    providerCountry: null
   });
 });
 
@@ -240,7 +241,8 @@ test('Reddit combines configured subreddits into an RSS feed', async () => {
     description: 'A helpful community post.',
     content: '',
     pubDate: article.publishedAt,
-    source: 'r/Parenting'
+    source: 'r/Parenting',
+    providerCountry: null
   });
 });
 

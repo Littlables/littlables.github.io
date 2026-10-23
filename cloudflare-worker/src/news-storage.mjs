@@ -432,6 +432,146 @@ export async function loadProviderCooldownsFromDb(env) {
   }
 }
 
+/**
+ * Enqueue a provider/category fetch for retry after a rate limit (or failure).
+ * Upserts: one pending/running row per (provider, category); re-queues with the
+ * new not_before time. Done/failed rows are replaced so the combo can retry again.
+ */
+export async function enqueueProviderRetry(env, providerId, category, { notBefore, error, maxAttempts = 5 } = {}) {
+  try {
+    const url = supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ on_conflict: 'provider,category' }));
+    const body = {
+      provider: providerId,
+      category: category || 'all',
+      status: 'pending',
+      not_before: notBefore || new Date().toISOString(),
+      attempts: 0,
+      last_error: error || null,
+      max_attempts: maxAttempts,
+      updated_at: new Date().toISOString()
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      console.warn(`Failed to enqueue retry for ${providerId}/${category}: ${res.status}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`Failed to enqueue retry for ${providerId}/${category}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Fetch due retry jobs (status=pending, not_before <= now), oldest first,
+ * and mark them running so concurrent drains don't double-process.
+ * Bounded by limit to stay under the subrequest budget.
+ */
+export async function drainDueRetries(env, { limit = 10 } = {}) {
+  try {
+    const params = new URLSearchParams({
+      select: 'id,provider,category,attempts,max_attempts,last_error',
+      status: 'eq.pending',
+      not_before: `lte.${new Date().toISOString()}`,
+      order: 'created_at.asc',
+      limit: String(limit)
+    });
+    const res = await fetch(supabaseUrl(env, 'provider_retry_queue', params), { headers: supabaseHeaders(env) });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    const claimed = [];
+    for (const row of rows) {
+      const claimRes = await fetch(
+        supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${row.id}`, status: 'eq.pending' })),
+        {
+          method: 'PATCH',
+          headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'running', updated_at: new Date().toISOString() })
+        }
+      );
+      if (claimRes.ok) claimed.push(row);
+    }
+    return claimed;
+  } catch (err) {
+    console.warn('Failed to drain retry queue:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Mark a retry job done, or re-queue it with backoff when it fails again.
+ * Returns 'done' | 'requeued' | 'failed'.
+ */
+export async function completeRetryJob(env, jobId, { success, notBefore, error } = {}) {
+  try {
+    if (success) {
+      await fetch(supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${jobId}` })), {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'done', updated_at: new Date().toISOString() })
+      });
+      return 'done';
+    }
+    // Re-read attempts to decide between requeue and give-up
+    const getRes = await fetch(
+      supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ select: 'attempts,max_attempts', id: `eq.${jobId}` })),
+      { headers: supabaseHeaders(env) }
+    );
+    const rows = getRes.ok ? await getRes.json() : [];
+    const attempts = (rows[0]?.attempts ?? 0) + 1;
+    const maxAttempts = rows[0]?.max_attempts ?? 5;
+    if (attempts >= maxAttempts) {
+      await fetch(supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${jobId}` })), {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'failed', attempts, last_error: error || null, updated_at: new Date().toISOString() })
+      });
+      return 'failed';
+    }
+    // Exponential backoff when no explicit not_before (e.g. non-429 errors): 2^attempts minutes
+    const backoffMs = notBefore
+      ? null
+      : Math.min(2 ** attempts * 60 * 1000, 6 * 3600 * 1000);
+    await fetch(supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${jobId}` })), {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'pending',
+        attempts,
+        not_before: notBefore || new Date(Date.now() + backoffMs).toISOString(),
+        last_error: error || null,
+        updated_at: new Date().toISOString()
+      })
+    });
+    return 'requeued';
+  } catch (err) {
+    console.warn(`Failed to complete retry job ${jobId}:`, err.message);
+    return 'failed';
+  }
+}
+
+/**
+ * Count pending/running retries (for admin display).
+ */
+export async function countQueuedRetries(env) {
+  try {
+    const params = new URLSearchParams({ select: 'id', status: 'in.(pending,running)' });
+    const res = await fetch(supabaseUrl(env, 'provider_retry_queue', params), {
+      headers: { ...supabaseHeaders(env), Prefer: 'count=exact' }
+    });
+    if (!res.ok) return 0;
+    const range = res.headers.get('Content-Range') || '';
+    const total = Number(range.match(/\/(\d+|\*)$/)?.[1]);
+    return Number.isFinite(total) ? total : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function getAutoSyncState() {
   const lastRunMs = autoSyncStateMemory.lastRunAt ? Date.parse(autoSyncStateMemory.lastRunAt) : NaN;
   const nextRunMs = Number.isFinite(lastRunMs)
