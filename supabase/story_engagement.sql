@@ -53,7 +53,8 @@ GRANT USAGE, SELECT ON SEQUENCE public.story_engagement_id_seq TO authenticated;
 GRANT USAGE, SELECT ON SEQUENCE public.story_engagement_id_seq TO service_role;
 
 -- Aggregated view for the scorer (last 30 days)
-CREATE OR REPLACE VIEW public.story_engagement_stats AS
+DROP VIEW IF EXISTS public.story_engagement_stats;
+CREATE VIEW public.story_engagement_stats AS
 SELECT
   story_url_hash,
   story_url,
@@ -74,7 +75,8 @@ GRANT SELECT ON public.story_engagement_stats TO service_role;
 
 -- Keyword-level CTR: which topics get viewed/clicked (last 30 days).
 -- Powers "dinosaurs get 3x the click rate of weather" insights.
-CREATE OR REPLACE VIEW public.keyword_engagement_stats AS
+DROP VIEW IF EXISTS public.keyword_engagement_stats;
+CREATE VIEW public.keyword_engagement_stats AS
 SELECT
   kw AS keyword,
   COUNT(*) FILTER (WHERE event_type = 'view') AS views,
@@ -92,7 +94,8 @@ GROUP BY kw;
 GRANT SELECT ON public.keyword_engagement_stats TO service_role;
 
 -- Acquisition: where engaged sessions come from (last 30 days).
-CREATE OR REPLACE VIEW public.acquisition_stats AS
+DROP VIEW IF EXISTS public.acquisition_stats;
+CREATE VIEW public.acquisition_stats AS
 SELECT
   COALESCE(NULLIF(referrer_domain, ''), '(direct)') AS referrer_domain,
   COALESCE(NULLIF(utm_source, ''), '(none)') AS utm_source,
@@ -139,7 +142,8 @@ GRANT USAGE, SELECT ON SEQUENCE public.board_analytics_id_seq TO authenticated;
 GRANT USAGE, SELECT ON SEQUENCE public.board_analytics_id_seq TO service_role;
 
 -- Most-built board topics (last 30 days)
-CREATE OR REPLACE VIEW public.board_topic_stats AS
+DROP VIEW IF EXISTS public.board_topic_stats;
+CREATE VIEW public.board_topic_stats AS
 SELECT
   kw AS keyword,
   COUNT(*) AS boards_built
@@ -152,7 +156,8 @@ ORDER BY boards_built DESC;
 GRANT SELECT ON public.board_topic_stats TO service_role;
 
 -- Average dwell time per story (last 30 days)
-CREATE OR REPLACE VIEW public.story_dwell_stats AS
+DROP VIEW IF EXISTS public.story_dwell_stats;
+CREATE VIEW public.story_dwell_stats AS
 SELECT
   story_url_hash,
   MAX(story_title) AS story_title,
