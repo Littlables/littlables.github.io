@@ -1186,7 +1186,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
                     <label className="profile-field-label">URL</label>
                     <div className="board-slug-row">
-                      <span className="board-slug-prefix">@{profile?.username}/</span>
+                      <span className="board-slug-prefix">/</span>
                       <input
                         type="text"
                         className="board-input board-slug-input"
