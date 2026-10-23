@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
 import { Profile } from '../contexts/AuthContext';
 import { Board, getUserBoards } from '../services/boardService';
+import { Playroom, getUserPlayrooms, getPlayroomSpaces } from '../services/playroomService';
 import { getCharacterAvatar } from '../constants/avatars';
 
 interface PublicProfilePageProps {
@@ -30,6 +31,8 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
 }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [boards, setBoards] = useState<Board[]>([]);
+  const [playrooms, setPlayrooms] = useState<Playroom[]>([]);
+  const [playroomSpaceCounts, setPlayroomSpaceCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -59,6 +62,24 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
           getUserBoards((data as Profile).id)
             .then((b) => {
               if (!cancelled) setBoards(b);
+            })
+            .catch(() => {});
+          // Load the user's playrooms + space counts (public)
+          getUserPlayrooms((data as Profile).id)
+            .then(async (rooms) => {
+              if (cancelled) return;
+              setPlayrooms(rooms);
+              const counts: Record<string, number> = {};
+              await Promise.all(
+                rooms.map(async (r) => {
+                  try {
+                    counts[r.id] = (await getPlayroomSpaces(r.id)).length;
+                  } catch {
+                    counts[r.id] = 0;
+                  }
+                })
+              );
+              if (!cancelled) setPlayroomSpaceCounts(counts);
             })
             .catch(() => {});
         }
@@ -183,6 +204,43 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
               </div>
             )}
           </div>
+
+          {playrooms.length > 0 && (
+            <div className="space-boards-section">
+              <h2 className="space-section-title">🛝 Playrooms</h2>
+              <div className="space-boards">
+                {playrooms.map((playroom) => (
+                  <button
+                    key={playroom.id}
+                    type="button"
+                    className="space-board-card"
+                    onClick={() => {
+                      window.history.pushState({}, '', `/@${profile.username}/${playroom.slug}`);
+                      window.dispatchEvent(new PopStateEvent('popstate'));
+                    }}
+                  >
+                    {playroom.logo_url ? (
+                      <img src={playroom.logo_url} alt="" className="space-board-logo" />
+                    ) : (
+                      <span className="space-board-logo-fallback">
+                        {(playroom.name || '?')[0].toUpperCase()}
+                      </span>
+                    )}
+                    <span className="space-board-info">
+                      <span className="space-board-name">{playroom.name}</span>
+                      {playroom.description && (
+                        <span className="space-board-description">{playroom.description}</span>
+                      )}
+                      <span className="space-board-meta">
+                        {playroomSpaceCounts[playroom.id] ?? 0} spaces · /{playroom.slug}
+                      </span>
+                    </span>
+                    <span className="space-board-arrow" aria-hidden="true">→</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {boards.length > 0 && (
             <div className="space-boards-section">
