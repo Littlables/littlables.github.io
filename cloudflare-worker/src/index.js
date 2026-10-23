@@ -2330,12 +2330,10 @@ export default {
       return;
     }
     const cronPattern = event?.cron || '0 * * * *';
-    // Use staggered sync for frequent crons (every 10 min), hourly burst otherwise.
-    // Staggered spreads the 42 provider/topic fetches evenly across the hour.
-    const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
-    const task = isStaggered
-      ? runStaggeredSync(env, 'cron', `cron:${cronPattern}`)
-      : runHourlyAutoSync(env, 'cron', `cron:${cronPattern}`);
+    // Always use staggered sync for cron: spreads the 42 provider/topic fetches
+    // across runs (7 pairs per run) to avoid rate-limit bursts. The manual
+    // "Sync all" button still uses the full burst via runHourlyAutoSync.
+    const task = runStaggeredSync(env, 'cron', `cron:${cronPattern}`);
     if (ctx && typeof ctx.waitUntil === 'function') {
       ctx.waitUntil(task);
     } else {
