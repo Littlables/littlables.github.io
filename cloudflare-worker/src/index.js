@@ -48,6 +48,7 @@ import {
   bulkDecideNewsStories,
   recordEngagementEvent,
   recordBoardEvent,
+  recordSearchQuery,
   STORIES_TABLE,
   supabaseHeaders,
   supabaseUrl
@@ -115,6 +116,7 @@ async function handleBoardEvent(request, env) {
       sessionId: body.sessionId,
       keywordIds: body.keywordIds,
       categoryIds: body.categoryIds,
+      country_code: request.cf?.country || null,
     });
     return jsonResponse(result, 200);
   } catch (err) {
@@ -122,7 +124,7 @@ async function handleBoardEvent(request, env) {
   }
 }
 
-async function serveNewsFeed(request, env) {
+async function serveNewsFeed(request, env, ctx) {
   const url = new URL(request.url);
   try {
     const limit = await env.SUMMARY_RATE_LIMITER.limit({
@@ -155,6 +157,15 @@ async function serveNewsFeed(request, env) {
 
     const feed = await getStoredKeywordNewsFeed(env, rawCategory);
     const ads = getAds({ query: rawCategory });
+    // Log the search query (fire-and-forget — never blocks the response).
+    const storyCount = Array.isArray(feed?.stories) ? feed.stories.length : 0;
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(recordSearchQuery(env, {
+        query: rawCategory,
+        resultCount: storyCount,
+        country_code: request.cf?.country || null,
+      }));
+    }
     return jsonResponse({
       ...feed,
       topic: rawCategory,
@@ -2179,7 +2190,7 @@ export default {
           ctx.waitUntil(runHourlyAutoSync(env, 'stale_check', 'feed-stale-check'));
         }
       }
-      return serveNewsFeed(request, env);
+      return serveNewsFeed(request, env, ctx);
     }
     if (request.method === 'POST' && pathname === '/api/engagement') {
       return handleEngagementEvent(request, env);
@@ -2209,7 +2220,16 @@ export default {
           console.error('Awin ads fetch failed:', err.message);
         }
       }
-      return jsonResponse({ ads: wantOnlyAwin ? awinAds : [...embedded, ...awinAds] });
+      const allAds = wantOnlyAwin ? awinAds : [...embedded, ...awinAds];
+      // Log ad searches too (fire-and-forget).
+      if (effectiveQuery && ctx?.waitUntil) {
+        ctx.waitUntil(recordSearchQuery(env, {
+          query: effectiveQuery,
+          resultCount: allAds.length,
+          country_code: request.cf?.country || null,
+        }));
+      }
+      return jsonResponse({ ads: allAds });
     }
     return jsonResponse({ error: 'Route not found' }, 404);
   },

@@ -2011,10 +2011,49 @@ export async function recordEngagementEvent(env, { url: storyUrl, title, categor
   }
 }
 
+// ── Search query logging ──
+// Anonymous: query text + result count + country. No user_id, no IP, no session.
+
+function normalizeSearchQuery(q) {
+  return String(q || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function looksLikePii(q) {
+  const s = String(q || '');
+  if (/[^\s@]+@[^\s@]+\.[^\s@]+/.test(s)) return true; // email
+  const digits = (s.match(/\d/g) || []).length;
+  const chars = s.replace(/\s/g, '').length;
+  if (chars > 0 && digits / chars > 0.5 && chars >= 7) return true; // phone-ish
+  return false;
+}
+
+export async function recordSearchQuery(env, { query, resultCount, country_code }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  const raw = String(query || '').trim().slice(0, 200);
+  const normalized = normalizeSearchQuery(raw);
+  if (!normalized || normalized.length < 2) return { ok: false, reason: 'empty' };
+  if (looksLikePii(raw)) return { ok: false, reason: 'pii' };
+  try {
+    const res = await fetch(supabaseUrl(env, 'search_queries'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        query: raw,
+        normalized_query: normalized,
+        result_count: Math.max(0, Math.round(Number(resultCount) || 0)),
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
 // ── Board creation analytics ──
 // Anonymous: pills only, no user_id, no board name.
 
-export async function recordBoardEvent(env, { sessionId, keywordIds, categoryIds }) {
+export async function recordBoardEvent(env, { sessionId, keywordIds, categoryIds, country_code }) {
   if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
   const cleanKeywords = Array.isArray(keywordIds)
     ? [...new Set(keywordIds.filter((k) => typeof k === 'string' && INTEREST_KEYWORD_IDS.has(k)).slice(0, 20))]
@@ -2033,6 +2072,7 @@ export async function recordBoardEvent(env, { sessionId, keywordIds, categoryIds
         session_id: String(sessionId || '').slice(0, 64) || null,
         keyword_ids: cleanKeywords,
         category_ids: cleanCategories,
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
       }),
     });
     return { ok: res.ok };
