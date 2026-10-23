@@ -104,9 +104,14 @@ describe('embedding-classifier', () => {
     const mockEnv = {
       AI: {
         run: async (model, { text }) => {
-          if (text.startsWith('animals,')) return { data: [animalVec] };
-          if (text.includes('Cute puppy')) return { data: [animalVec] };
-          return { data: [otherVec] };
+          // Handle both string (legacy) and array (batch) input
+          const texts = Array.isArray(text) ? text : [text];
+          const vectors = texts.map(t => {
+            if (t.startsWith('animals,')) return animalVec;
+            if (t.includes('Cute puppy')) return animalVec;
+            return otherVec;
+          });
+          return { data: vectors };
         },
       },
     };

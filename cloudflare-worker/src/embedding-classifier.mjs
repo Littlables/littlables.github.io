@@ -70,6 +70,51 @@ export async function embedText(env, text, retries = 3) {
 }
 
 /**
+ * Batch embed multiple texts in a single AI call.
+ * @returns {Promise<Array<number[]|null>>} Array of vectors (null for failures), same order as input.
+ */
+export async function embedTexts(env, texts, retries = 2) {
+  if (!env?.AI) return texts.map(() => null);
+  const inputs = texts.map(t => (t || '').trim().slice(0, 2000));
+  if (inputs.every(t => !t)) return texts.map(() => null);
+  
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      // BGE models accept array input for batch embedding
+      const result = await env.AI.run(EMBEDDING_MODEL, { text: inputs });
+      let vectors = result?.data || result?.embeddings;
+      // Handle various response formats:
+      // - Batch: [[...], [...], ...] (array of vectors)
+      // - Single: [...] (single vector, for mocks or single input)
+      if (Array.isArray(vectors) && vectors.length > 0) {
+        if (Array.isArray(vectors[0])) {
+          // Batch output: array of vectors
+          // Pad with nulls if fewer vectors than inputs
+          const out = [];
+          for (let i = 0; i < inputs.length; i++) {
+            out.push(i < vectors.length && Array.isArray(vectors[i]) ? vectors[i] : null);
+          }
+          return out;
+        } else {
+          // Single vector returned — replicate for all inputs (mock compatibility)
+          return inputs.map(() => vectors);
+        }
+      }
+      lastError = new Error('Empty embedding vectors returned');
+    } catch (err) {
+      lastError = err;
+      console.warn(`Batch embedding attempt ${attempt + 1}/${retries} failed:`, err?.message || err);
+    }
+    if (attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt)));
+    }
+  }
+  console.warn('Batch embedding failed after retries:', lastError?.message || lastError);
+  return texts.map(() => null);
+}
+
+/**
  * Get (or generate + cache) embeddings for all category descriptions.
  * @returns {Promise<Map<string, number[]>|null>}
  */
@@ -256,17 +301,34 @@ export async function validateStoryCategories(env, stories, options = {}) {
     ...storyDisplayFields(s),
   }));
 
-  // Embed all stories in parallel (bounded to avoid overwhelming the API)
-  const BATCH_SIZE = 10;
+  // Embed stories in batches using single AI call per batch (saves subrequests)
+  const BATCH_SIZE = 20;
   const results = [];
   for (let i = 0; i < stories.length; i += BATCH_SIZE) {
     const batch = stories.slice(i, i + BATCH_SIZE);
+    // Collect texts needing embedding
+    const textsToEmbed = [];
+    const textIndices = [];
+    batch.forEach((story, idx) => {
+      const needsCategory = story.embedding_category == null;
+      const needsKeywords = !hasKeywords(story) && !!keywordVectors;
+      if (needsCategory || needsKeywords) {
+        textsToEmbed.push(`${story.title || ''} ${story.description || ''}`.trim());
+        textIndices.push(idx);
+      }
+    });
+    // Batch embed in single AI call
+    const vectors = textsToEmbed.length > 0 ? await embedTexts(env, textsToEmbed) : [];
+    const vectorByIndex = {};
+    textIndices.forEach((storyIdx, vecIdx) => {
+      vectorByIndex[storyIdx] = vectors[vecIdx];
+    });
+    
     const batchResults = await Promise.all(
-      batch.map(async (story) => {
+      batch.map(async (story, batchIdx) => {
         const needsCategory = story.embedding_category == null;
         const needsKeywords = !hasKeywords(story) && !!keywordVectors;
-        const text = `${story.title || ''} ${story.description || ''}`.trim();
-        const storyVector = (needsCategory || needsKeywords) ? await embedText(env, text) : null;
+        const storyVector = vectorByIndex[batchIdx] || null;
         if ((needsCategory || needsKeywords) && !storyVector) {
           return {
             id: story.id,

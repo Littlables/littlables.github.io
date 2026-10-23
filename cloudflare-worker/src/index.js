@@ -1376,8 +1376,8 @@ async function serveAdmin(request, env) {
       } catch {
         // empty body is fine
       }
-      const maxStories = Math.min(Math.max(Number(body.limit) || 10, 1), 10);
-      const BATCH = 10;
+      const maxStories = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
+      const BATCH = 50;
 
       let totalValidated = 0;
       let totalStored = 0;
