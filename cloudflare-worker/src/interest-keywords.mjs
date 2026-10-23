@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 7;
+export const KEYWORD_DESCRIPTIONS_VERSION = 8;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -164,6 +164,11 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'stocks', label: 'Stocks', icon: '📈', group: 'Flagged', excluded: true, description: 'stock market news: stock prices, investing, VIX index, market sell-offs, shareholder news' },
   { id: 'cryptocurrency', label: 'Crypto', icon: '₿', group: 'Flagged', excluded: true, description: 'cryptocurrency news: Bitcoin, crypto prices, blockchain coins, crypto markets' },
   { id: 'business-news', label: 'Business News', icon: '💼', group: 'Flagged', excluded: true, description: 'corporate business news: earnings reports, mergers and acquisitions, company layoffs, CEO announcements' },
+
+  // ---- Politics (excluded from front page, available for boards) ----
+  { id: 'politics', label: 'Politics', icon: '🏛️', group: 'Politics', excluded: true, description: 'political news: politicians, political parties, campaigns, political debates and commentary' },
+  { id: 'elections', label: 'Elections', icon: '🗳️', group: 'Politics', excluded: true, description: 'elections and voting news: election campaigns, candidates, voting, election results' },
+  { id: 'government', label: 'Government', icon: '🏢', group: 'Politics', excluded: true, description: 'government and policy news: new laws, government decisions, public policy, regulations' },
 
   // ---- Countries ----
   // Geographic grouping: tag stories by the country they are about/from.
