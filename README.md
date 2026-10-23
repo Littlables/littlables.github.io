@@ -28,7 +28,7 @@ The dev server runs at `http://0.0.0.0:3000`.
 All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three distinct uses:
 
 ### 1. Story curation (editorial picks)
-- **Model:** `@cf/meta/llama-3.1-8b-instruct`
+- **Model:** `@cf/meta/llama-3.2-3b-instruct`
 - **Location:** `cloudflare-worker/src/news-storage.mjs` → `runAiStoryCuration()`
 - **Trigger:** 3× daily (morning / afternoon / evening slots) + manual "Curate" button in admin panel
 - **Calls per run:** 1 per category (up to 7 — one for each of childcare, animals, arts, tech, world, uplifting, all)
@@ -63,7 +63,7 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 - **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled 25/run as a standalone warmup step. Tagging is all-or-nothing — it waits until all 100 vectors exist. Vectors are keyed by `KEYWORD_DESCRIPTIONS_VERSION`; bumping it recomputes them when descriptions are sharpened.
 
 ### 6. LLM keyword correction
-- **Model:** `@cf/meta/llama-3.1-8b-instruct`
+- **Model:** `@cf/meta/llama-3.2-3b-instruct`
 - **Location:** `cloudflare-worker/src/index.js` → `POST /admin/api/stories/:id/llm-keywords`
 - **Trigger:** Manual via the "🤖 AI tags" button on each validation-list row
 - **What it does:** Reads the story's title + description and picks up to 3 keywords from the 100-keyword list by meaning (not word association — e.g. a Musk/Starlink story gets satellite/geopolitics-appropriate tags, not electric cars). Corrects embedding misfires; the row updates in place. Budget: 1 story fetch + 1 LLM call + 1 PATCH per click.

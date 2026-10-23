@@ -1092,7 +1092,7 @@ export async function searchNewsStories(env, queryText, limit = 100) {
 
 export const AI_CURATION_SLOTS = Object.freeze(['morning', 'afternoon', 'evening']);
 export const AI_PICKS_PER_CATEGORY = 5;
-const AI_CURATION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const AI_CURATION_MODEL = '@cf/meta/llama-3.2-3b-instruct';
 
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'that', 'with', 'this', 'from', 'have', 'are', 'was',

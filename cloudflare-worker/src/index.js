@@ -1046,7 +1046,7 @@ async function serveAdmin(request, env) {
         'a story about a broken office globe is about history, not outer space.\n\n' +
         `${keywordList}\n\n` +
         'Respond with ONLY a JSON array of keyword ids, e.g. ["space", "science"]. If none fit well, respond with [].';
-      const aiRes = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const aiRes = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
         messages: [
           { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
           { role: 'user', content: prompt },
