@@ -1008,7 +1008,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               <>
                 <label className="profile-section-label">Your spaces</label>
                 <p className="profile-hint profile-hint-compact">
-                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/board-name.
+                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/space-name.
                 </p>
                 {boardsLoading ? (
                   <p className="profile-hint">Loading spaces…</p>
@@ -1222,7 +1222,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   )}
                 </div>
 
-                <label className="profile-field-label">Interests on this space</label>
+                <label className="profile-field-label">Interests in this space</label>
                 <p className="profile-hint profile-hint-compact">
                   Pick categories or add your own custom topics.
                 </p>
