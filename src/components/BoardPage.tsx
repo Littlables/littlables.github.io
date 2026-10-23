@@ -185,7 +185,7 @@ export const BoardPage: React.FC<BoardPageProps> = ({
       <main className="news-grid">
         <div className="space-not-found">
           <div className="space-not-found-emoji">🗂️</div>
-          <h2>This board doesn't exist yet</h2>
+          <h2>This space doesn't exist yet</h2>
           <p>
             @{username}'s <strong>/{slug}</strong> board couldn't be found. It may have been
             renamed or removed.

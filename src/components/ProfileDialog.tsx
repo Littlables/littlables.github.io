@@ -581,7 +581,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   };
 
   const handleDeleteBoard = async (boardId: string, boardName: string) => {
-    if (!window.confirm(`Delete the "${boardName}" board? This can't be undone.`)) return;
+    if (!window.confirm(`Delete the "${boardName}" space? This can't be undone.`)) return;
     setError('');
     try {
       await deleteBoard(boardId);
@@ -641,7 +641,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     { id: 'avatar', label: 'Avatar' },
     { id: 'interests', label: 'Interests' },
     { id: 'theme', label: 'Theme' },
-    { id: 'boards', label: 'Boards' },
+    { id: 'boards', label: 'Spaces' },
   ];
 
   return (
@@ -815,7 +815,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
         {tab === 'interests' && (
           <div className="profile-tab-content">
-            <p className="profile-hint">Choose your interests — they shape what appears on your homepage.</p>
+            <p className="profile-hint">Choose your interests — they shape what appears on your playroom.</p>
 
             <label className="profile-section-label">Your interests (in order)</label>
             <div className="pill-list">
@@ -980,7 +980,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               {saving ? 'Saving…' : 'Save Theme'}
             </button>
 
-            <label className="profile-section-label" style={{ marginTop: '1.5rem' }}>Viewing others' boards</label>
+            <label className="profile-section-label" style={{ marginTop: '1.5rem' }}>Viewing others' spaces</label>
             <label className="board-pill-option" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -994,7 +994,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     .catch((err) => notify(err instanceof Error ? err.message : 'Failed to save', 'error'));
                 }}
               />
-              <span>Always use my theme when viewing others' boards</span>
+              <span>Always use my theme when viewing others' spaces</span>
             </label>
             <p className="profile-hint profile-hint-compact">
               Off by default. When on, boards you visit will appear in your theme instead of the owner's.
@@ -1011,9 +1011,9 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   Spaces group your topics into their own pages at @{profile?.username || 'you'}/board-name.
                 </p>
                 {boardsLoading ? (
-                  <p className="profile-hint">Loading boards…</p>
+                  <p className="profile-hint">Loading spaces…</p>
                 ) : boards.length === 0 ? (
-                  <p className="profile-hint">No boards yet — create your first one below.</p>
+                  <p className="profile-hint">No spaces yet — create your first one below.</p>
                 ) : (
                   <div className="board-list">
                     {boards.map((board, i) => (
@@ -1051,7 +1051,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                           <button
                             type="button"
                             className="board-icon-button"
-                            title="Edit board"
+                            title="Edit space"
                             onClick={() => handleEditBoard(board)}
                           >
                             ✏️
@@ -1059,7 +1059,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                           <button
                             type="button"
                             className="board-icon-button board-delete"
-                            title="Delete board"
+                            title="Delete space"
                             onClick={() => handleDeleteBoard(board.id, board.name)}
                           >
                             🗑️
@@ -1075,16 +1075,16 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   onClick={handleNewBoard}
                   style={{ marginTop: '1rem' }}
                 >
-                  + New board
+                  + New space
                 </button>
               </>
             ) : (
               <>
                 <button type="button" className="link-button" onClick={() => setEditingBoard(null)}>
-                  ← Back to boards
+                  ← Back to spaces
                 </button>
                 <label className="profile-section-label">
-                  {editingBoard.id ? 'Edit board' : 'New board'}
+                  {editingBoard.id ? 'Edit space' : 'New space'}
                 </label>
 
                 <label className="profile-field-label">Name</label>
@@ -1105,7 +1105,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     className="board-input board-slug-input"
                     value={editingBoard.slug}
                     onChange={(e) => setEditingBoard({ ...editingBoard, slug: slugify(e.target.value) })}
-                    placeholder={slugify(editingBoard.name) || 'board-name'}
+                    placeholder={slugify(editingBoard.name) || 'space-name'}
                     maxLength={50}
                   />
                 </div>
@@ -1115,12 +1115,12 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   className="board-input board-description-input"
                   value={editingBoard.description}
                   onChange={(e) => setEditingBoard({ ...editingBoard, description: e.target.value })}
-                  placeholder="What is this board about?"
+                  placeholder="What is this space about?"
                   maxLength={280}
                   rows={2}
                 />
 
-                <label className="profile-field-label">Board logo (optional)</label>
+                <label className="profile-field-label">Space logo (optional)</label>
                 <div className="board-logo-row">
                   {editingBoard.logoUrl ? (
                     <img src={editingBoard.logoUrl} alt="Board logo preview" className="board-logo-preview" />
@@ -1195,7 +1195,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     value={editingBoard.bgColor || themeBg || '#1e293b'}
                     onChange={(e) => setEditingBoard({ ...editingBoard, bgColor: e.target.value })}
                     className="color-wheel"
-                    aria-label="Pick board background color"
+                    aria-label="Pick space background color"
                   />
                   <input
                     type="text"
@@ -1222,7 +1222,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   )}
                 </div>
 
-                <label className="profile-field-label">Interests on this board</label>
+                <label className="profile-field-label">Interests on this space</label>
                 <p className="profile-hint profile-hint-compact">
                   Pick categories or add your own custom topics.
                 </p>
@@ -1324,7 +1324,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     onClick={handleSaveBoard}
                     disabled={saving}
                   >
-                    {saving ? 'Saving…' : editingBoard.id ? 'Save board' : 'Create board'}
+                    {saving ? 'Saving…' : editingBoard.id ? 'Save space' : 'Create space'}
                   </button>
                   {editingBoard.id && (
                     <button
