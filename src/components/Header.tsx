@@ -13,6 +13,8 @@ interface HeaderProps {
   /** Board branding override: shown instead of the Littlables logo on board pages */
   brandName?: string;
   brandLogoUrl?: string | null;
+  /** True when the GitHub admin session is active (enables long-press story editing) */
+  isAdmin?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -23,7 +25,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenProfile,
   isLoading,
   brandName,
-  brandLogoUrl
+  brandLogoUrl,
+  isAdmin
 }) => {
   const { user, profile } = useAuth();
 
@@ -136,6 +139,25 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </button>
 
+        {isAdmin && (
+          <span
+            className="header-admin-badge"
+            title="Admin mode — long-press a story to edit"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              padding: '0.25rem 0.6rem',
+              borderRadius: '9999px',
+              background: '#7c3aed',
+              color: '#fff',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}
+          >
+            🛠️ Admin
+          </span>
+        )}
         {user ? (
           <button
             type="button"

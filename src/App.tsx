@@ -461,6 +461,7 @@ export const App: React.FC = () => {
           isLoading={isLoading}
           brandName={boardBrand?.name}
           brandLogoUrl={boardBrand?.logoUrl}
+          isAdmin={isAdmin}
         />
 
         <CategoryNav
