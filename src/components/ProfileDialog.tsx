@@ -1445,7 +1445,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               <>
                 <label className="profile-section-label">Your spaces</label>
                 <p className="profile-hint profile-hint-compact">
-                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/spaces/space-name.
+                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}.
                 </p>
                 {!boardsLoading && (
                   <p className="profile-hint profile-hint-compact">
