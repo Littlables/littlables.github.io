@@ -179,3 +179,19 @@ export async function reorderPlayroomSpaces(playroomId: string, orderedBoardIds:
     )
   );
 }
+
+/** Upload a playroom logo; returns the public URL (does not save the playroom).
+ * Reuses the board-logos bucket (its RLS already scopes uploads to the user's own folder). */
+export async function uploadPlayroomLogo(userId: string, playroomId: string, file: File): Promise<string> {
+  const client = requireClient();
+  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file');
+  if (file.size > 2 * 1024 * 1024) throw new Error('Image must be under 2MB');
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const path = `${userId}/playroom-${playroomId}/logo.${ext}`;
+  const { error } = await client.storage
+    .from('board-logos')
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (error) throw error;
+  const { data } = client.storage.from('board-logos').getPublicUrl(path);
+  return `${data.publicUrl}?t=${Date.now()}`;
+}

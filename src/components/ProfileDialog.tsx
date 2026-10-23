@@ -14,6 +14,17 @@ import {
   reorderBoards,
   uploadBoardLogo,
 } from '../services/boardService';
+import {
+  Playroom,
+  getUserPlayrooms,
+  getPlayroomSpaces,
+  createPlayroom,
+  updatePlayroom,
+  ensureUniquePlayroomSlug,
+  addSpaceToPlayroom,
+  removeSpaceFromPlayroom,
+  uploadPlayroomLogo,
+} from '../services/playroomService';
 import { t } from '../constants/translations';
 import { TranslationStrings } from '../constants/translations';
 import { useTheme } from '../hooks/useTheme';
@@ -28,6 +39,8 @@ type Tab = 'profile' | 'avatar' | 'interests' | 'theme' | 'boards';
 
 /** Max spaces (boards) a user can create. */
 const MAX_SPACES = 5;
+/** Max spaces a playroom can hold on the free tier. */
+const MAX_PLAYROOM_SPACES = 5;
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
   { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
@@ -71,8 +84,13 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   // Boards
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(false);
-  interface EditingBoard {
-    id: string | null; // null = new board
+  // Playrooms (free tier: one per user)
+  const [playrooms, setPlayrooms] = useState<Playroom[]>([]);
+  const [playroomSpaces, setPlayroomSpaces] = useState<Board[]>([]);
+  const [playroomsLoading, setPlayroomsLoading] = useState(false);
+  const [showAddSpacePicker, setShowAddSpacePicker] = useState(false);
+  interface EditingPlayroom {
+    id: string;
     name: string;
     slug: string;
     description: string;
@@ -80,6 +98,16 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     logoFile: File | null;
     theme: string; // '' = inherit profile theme
     bgColor: string; // '' = inherit
+  }
+  const [editingPlayroom, setEditingPlayroom] = useState<EditingPlayroom | null>(null);
+  const playroomLogoRef = useRef<HTMLInputElement>(null);
+  interface EditingBoard {
+    id: string | null; // null = new board
+    name: string;
+    slug: string;
+    description: string;
+    logoUrl: string | null; // existing URL or blob preview
+    logoFile: File | null;
     pills: PillConfig[];
   }
   const [editingBoard, setEditingBoard] = useState<EditingBoard | null>(null);
@@ -185,16 +213,19 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     setThemeBg(/^#[0-9a-fA-F]{6}$/.test(v) ? v : '');
   }, [isOpen, localTheme, bgColor, profile?.background_color]);
 
-  // Load boards when the dialog opens
+  // Load boards + playrooms when the dialog opens
   useEffect(() => {
     if (!isOpen) {
       boardsLoadedForOpen.current = false;
       setEditingBoard(null);
+      setEditingPlayroom(null);
+      setShowAddSpacePicker(false);
       return;
     }
     if (user && !boardsLoadedForOpen.current) {
       boardsLoadedForOpen.current = true;
       loadBoards();
+      loadPlayrooms();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, user]);
@@ -464,8 +495,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       description: '',
       logoUrl: null,
       logoFile: null,
-      theme: '',
-      bgColor: '',
       pills: [...pills],
     });
   };
@@ -478,8 +507,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       description: board.description || '',
       logoUrl: board.logo_url,
       logoFile: null,
-      theme: board.theme || '',
-      bgColor: board.background_color || '',
       pills: [...(board.pills || [])],
     });
   };
@@ -543,6 +570,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       );
       let logoUrl = editingBoard.logoUrl;
       // New boards: create first (need the id for the logo path), then upload
+      // Spaces are interest-defined feeds: theme/background live on the playroom, not the space.
       let boardId = editingBoard.id;
       if (!boardId) {
         const created = await createBoard(user.id, {
@@ -550,8 +578,8 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
           slug,
           description: editingBoard.description.trim() || null,
           logo_url: null,
-          theme: editingBoard.theme || null,
-          background_color: editingBoard.bgColor || null,
+          theme: null,
+          background_color: null,
           pills: editingBoard.pills,
           position: boards.length,
         });
@@ -565,8 +593,8 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
         slug,
         description: editingBoard.description.trim() || null,
         logo_url: editingBoard.logoFile ? logoUrl : editingBoard.logoUrl,
-        theme: editingBoard.theme || null,
-        background_color: editingBoard.bgColor || null,
+        theme: null,
+        background_color: null,
         pills: editingBoard.pills,
       });
       if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
@@ -609,6 +637,133 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reorder');
       loadBoards();
+    }
+  };
+
+  // ---- Playrooms ----
+  const loadPlayrooms = async () => {
+    if (!user) return;
+    setPlayroomsLoading(true);
+    try {
+      let rooms = await getUserPlayrooms(user.id);
+      // Free tier gets one playroom; self-heal if missing (e.g. signed up after the backfill)
+      if (rooms.length === 0) {
+        const created = await createPlayroom(user.id, {
+          name: 'My playroom',
+          slug: 'my-playroom',
+          description: null,
+          logo_url: null,
+          theme: null,
+          background_color: null,
+          position: 0,
+        });
+        rooms = [created];
+      }
+      setPlayrooms(rooms);
+      setPlayroomSpaces(await getPlayroomSpaces(rooms[0].id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load playrooms');
+    } finally {
+      setPlayroomsLoading(false);
+    }
+  };
+
+  const handleEditPlayroom = (playroom: Playroom) => {
+    setEditingPlayroom({
+      id: playroom.id,
+      name: playroom.name,
+      slug: playroom.slug,
+      description: playroom.description || '',
+      logoUrl: playroom.logo_url,
+      logoFile: null,
+      theme: playroom.theme || '',
+      bgColor: playroom.background_color || '',
+    });
+  };
+
+  const handlePlayroomLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (playroomLogoRef.current) playroomLogoRef.current.value = '';
+    if (!file || !editingPlayroom) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image must be under 2MB');
+      return;
+    }
+    if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
+    setEditingPlayroom({ ...editingPlayroom, logoUrl: URL.createObjectURL(file), logoFile: file });
+  };
+
+  const handleSavePlayroom = async () => {
+    if (!editingPlayroom || !user) return;
+    const name = editingPlayroom.name.trim();
+    if (!name) {
+      setError('Give your playroom a name');
+      return;
+    }
+    setError('');
+    setSaving(true);
+    try {
+      const slug = await ensureUniquePlayroomSlug(
+        user.id,
+        slugify(editingPlayroom.slug.trim() || name),
+        editingPlayroom.id
+      );
+      let logoUrl = editingPlayroom.logoUrl;
+      if (editingPlayroom.logoFile) {
+        logoUrl = await uploadPlayroomLogo(user.id, editingPlayroom.id, editingPlayroom.logoFile);
+      }
+      const updated = await updatePlayroom(editingPlayroom.id, {
+        name,
+        slug,
+        description: editingPlayroom.description.trim() || null,
+        logo_url: editingPlayroom.logoFile ? logoUrl : editingPlayroom.logoUrl,
+        theme: editingPlayroom.theme || null,
+        background_color: editingPlayroom.bgColor || null,
+      });
+      if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
+      setPlayrooms((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setEditingPlayroom(null);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save playroom');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddSpaceToPlayroom = async (boardId: string) => {
+    const playroom = playrooms[0];
+    if (!playroom) return;
+    if (playroomSpaces.length >= MAX_PLAYROOM_SPACES) {
+      setError(`A playroom can hold at most ${MAX_PLAYROOM_SPACES} spaces`);
+      return;
+    }
+    setError('');
+    try {
+      await addSpaceToPlayroom(playroom.id, boardId);
+      setPlayroomSpaces(await getPlayroomSpaces(playroom.id));
+      setShowAddSpacePicker(false);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add space');
+    }
+  };
+
+  const handleRemoveSpaceFromPlayroom = async (boardId: string, boardName: string) => {
+    const playroom = playrooms[0];
+    if (!playroom) return;
+    if (!window.confirm(`Remove "${boardName}" from this playroom? The space itself is kept.`)) return;
+    setError('');
+    try {
+      await removeSpaceFromPlayroom(playroom.id, boardId);
+      setPlayroomSpaces((prev) => prev.filter((b) => b.id !== boardId));
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove space');
     }
   };
 
@@ -1008,6 +1163,284 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
         {tab === 'boards' && (
           <div className="profile-tab-content">
+            {/* Playroom section (hidden while editing a space) */}
+            {!editingBoard && (
+              <>
+                <label className="profile-section-label">🛝 Your playroom</label>
+                <p className="profile-hint profile-hint-compact">
+                  Your shareable homepage — a collection of your spaces at @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}.
+                </p>
+                {playroomsLoading ? (
+                  <p className="profile-hint">Loading playroom…</p>
+                ) : editingPlayroom ? (
+                  <>
+                    <label className="profile-field-label">Name</label>
+                    <input
+                      type="text"
+                      className="board-input"
+                      value={editingPlayroom.name}
+                      onChange={(e) => setEditingPlayroom({ ...editingPlayroom, name: e.target.value })}
+                      placeholder="My playroom"
+                      maxLength={60}
+                    />
+
+                    <label className="profile-field-label">URL</label>
+                    <div className="board-slug-row">
+                      <span className="board-slug-prefix">@{profile?.username}/</span>
+                      <input
+                        type="text"
+                        className="board-input board-slug-input"
+                        value={editingPlayroom.slug}
+                        onChange={(e) => setEditingPlayroom({ ...editingPlayroom, slug: slugify(e.target.value) })}
+                        placeholder={slugify(editingPlayroom.name) || 'my-playroom'}
+                        maxLength={50}
+                      />
+                    </div>
+
+                    <label className="profile-field-label">Description (optional)</label>
+                    <textarea
+                      className="board-input board-description-input"
+                      value={editingPlayroom.description}
+                      onChange={(e) => setEditingPlayroom({ ...editingPlayroom, description: e.target.value })}
+                      placeholder="What is this playroom about?"
+                      maxLength={280}
+                      rows={2}
+                    />
+
+                    <label className="profile-field-label">Playroom logo (optional)</label>
+                    <div className="board-logo-row">
+                      {editingPlayroom.logoUrl ? (
+                        <img src={editingPlayroom.logoUrl} alt="Playroom logo preview" className="board-logo-preview" />
+                      ) : (
+                        <span className="board-row-logo-fallback board-logo-preview">
+                          {(editingPlayroom.name || '?')[0].toUpperCase()}
+                        </span>
+                      )}
+                      <div>
+                        <input
+                          ref={playroomLogoRef}
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={handlePlayroomLogoPick}
+                        />
+                        <button
+                          type="button"
+                          className="sign-in-button secondary-button"
+                          onClick={() => playroomLogoRef.current?.click()}
+                        >
+                          {editingPlayroom.logoUrl && !editingPlayroom.logoUrl.startsWith('blob:') ? 'Change logo' : 'Upload logo'}
+                        </button>
+                        {(editingPlayroom.logoUrl || editingPlayroom.logoFile) && (
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => {
+                              if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
+                              setEditingPlayroom({ ...editingPlayroom, logoUrl: null, logoFile: null });
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <label className="profile-field-label">Theme</label>
+                    <div className="board-theme-row">
+                      <button
+                        type="button"
+                        className={`theme-option ${editingPlayroom.theme === '' ? 'selected' : ''}`}
+                        onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: '' })}
+                      >
+                        <span className="theme-name">Use profile theme</span>
+                      </button>
+                      {THEMES.map((themeOption) => (
+                        <button
+                          key={themeOption.id}
+                          type="button"
+                          className={`theme-option ${editingPlayroom.theme === themeOption.id ? 'selected' : ''}`}
+                          onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: themeOption.id })}
+                        >
+                          <span className="theme-icon">{themeOption.icon}</span>
+                          <span className="theme-name">{themeOption.name}</span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className={`theme-option ${editingPlayroom.theme === 'none' ? 'selected' : ''}`}
+                        onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: 'none' })}
+                      >
+                        <span className="theme-name">No theme</span>
+                      </button>
+                    </div>
+
+                    <label className="profile-field-label">Background color (optional)</label>
+                    <div className="color-picker-row">
+                      <input
+                        type="color"
+                        value={editingPlayroom.bgColor || themeBg || '#1e293b'}
+                        onChange={(e) => setEditingPlayroom({ ...editingPlayroom, bgColor: e.target.value })}
+                        className="color-wheel"
+                        aria-label="Pick playroom background color"
+                      />
+                      <input
+                        type="text"
+                        value={editingPlayroom.bgColor}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === '' || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                            setEditingPlayroom({ ...editingPlayroom, bgColor: v });
+                          }
+                        }}
+                        placeholder="Inherit"
+                        maxLength={7}
+                        className="hex-input"
+                        aria-label="Hex color code"
+                      />
+                      {editingPlayroom.bgColor && (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setEditingPlayroom(editingPlayroom ? { ...editingPlayroom, bgColor: '' } : editingPlayroom)}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="board-editor-actions">
+                      <button
+                        type="button"
+                        className="sign-in-button secondary-button"
+                        onClick={() => setEditingPlayroom(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="sign-in-button primary-button"
+                        onClick={handleSavePlayroom}
+                        disabled={saving}
+                      >
+                        {saving ? 'Saving…' : 'Save playroom'}
+                      </button>
+                    </div>
+                  </>
+                ) : playrooms[0] ? (
+                  <>
+                    <div className="board-list">
+                      <div className="board-row">
+                        {playrooms[0].logo_url ? (
+                          <img src={playrooms[0].logo_url} alt="" className="board-row-logo" />
+                        ) : (
+                          <span className="board-row-logo-fallback">
+                            {(playrooms[0].name || '?')[0].toUpperCase()}
+                          </span>
+                        )}
+                        <div className="board-row-info">
+                          <div className="board-row-name">🛝 {playrooms[0].name}</div>
+                          <div className="board-row-slug">@{profile?.username}/{playrooms[0].slug}</div>
+                        </div>
+                        <div className="board-row-actions">
+                          <button
+                            type="button"
+                            className="board-icon-button"
+                            title="Edit playroom"
+                            onClick={() => handleEditPlayroom(playrooms[0])}
+                          >
+                            ✏️
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <label className="profile-field-label" style={{ marginTop: '1rem' }}>
+                      Spaces in this playroom ({playroomSpaces.length} of {MAX_PLAYROOM_SPACES})
+                    </label>
+                    {playroomSpaces.length === 0 ? (
+                      <p className="profile-hint profile-hint-compact">
+                        No spaces yet — add your spaces below to build the feed.
+                      </p>
+                    ) : (
+                      <div className="board-list">
+                        {playroomSpaces.map((space) => (
+                          <div key={space.id} className="board-row">
+                            {space.logo_url ? (
+                              <img src={space.logo_url} alt="" className="board-row-logo" />
+                            ) : (
+                              <span className="board-row-logo-fallback">
+                                {(space.name || '?')[0].toUpperCase()}
+                              </span>
+                            )}
+                            <div className="board-row-info">
+                              <div className="board-row-name">{space.name}</div>
+                              <div className="board-row-slug">@{profile?.username}/{space.slug}</div>
+                            </div>
+                            <div className="board-row-actions">
+                              <button
+                                type="button"
+                                className="board-icon-button board-delete"
+                                title="Remove from playroom"
+                                onClick={() => handleRemoveSpaceFromPlayroom(space.id, space.name)}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {showAddSpacePicker ? (
+                      <div className="playroom-add-space-picker">
+                        {boards.filter((b) => !playroomSpaces.some((s) => s.id === b.id)).length === 0 ? (
+                          <p className="profile-hint profile-hint-compact">
+                            All your spaces are already in this playroom.
+                          </p>
+                        ) : (
+                          boards
+                            .filter((b) => !playroomSpaces.some((s) => s.id === b.id))
+                            .map((b) => (
+                              <div key={b.id} className="board-row">
+                                <div className="board-row-info">
+                                  <div className="board-row-name">{b.name}</div>
+                                </div>
+                                <div className="board-row-actions">
+                                  <button
+                                    type="button"
+                                    className="sign-in-button secondary-button"
+                                    onClick={() => handleAddSpaceToPlayroom(b.id)}
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                        )}
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => setShowAddSpacePicker(false)}
+                          style={{ marginTop: '0.5rem' }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="sign-in-button secondary-button"
+                        onClick={() => setShowAddSpacePicker(true)}
+                        disabled={playroomSpaces.length >= MAX_PLAYROOM_SPACES}
+                        style={{ marginTop: '0.5rem' }}
+                      >
+                        + Add space
+                      </button>
+                    )}
+                  </>
+                ) : null}
+              </>
+            )}
             {!editingBoard ? (
               <>
                 <label className="profile-section-label">Your spaces</label>
@@ -1169,69 +1602,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                       </button>
                     )}
                   </div>
-                </div>
-
-                <label className="profile-field-label">Theme</label>
-                <div className="board-theme-row">
-                  <button
-                    type="button"
-                    className={`theme-option ${editingBoard.theme === '' ? 'selected' : ''}`}
-                    onClick={() => setEditingBoard({ ...editingBoard, theme: '' })}
-                  >
-                    <span className="theme-name">Use profile theme</span>
-                  </button>
-                  {THEMES.map((themeOption) => (
-                    <button
-                      key={themeOption.id}
-                      type="button"
-                      className={`theme-option ${editingBoard.theme === themeOption.id ? 'selected' : ''}`}
-                      onClick={() => setEditingBoard({ ...editingBoard, theme: themeOption.id })}
-                    >
-                      <span className="theme-icon">{themeOption.icon}</span>
-                      <span className="theme-name">{themeOption.name}</span>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={`theme-option ${editingBoard.theme === 'none' ? 'selected' : ''}`}
-                    onClick={() => setEditingBoard({ ...editingBoard, theme: 'none' })}
-                  >
-                    <span className="theme-name">No theme</span>
-                  </button>
-                </div>
-
-                <label className="profile-field-label">Background color (optional)</label>
-                <div className="color-picker-row">
-                  <input
-                    type="color"
-                    value={editingBoard.bgColor || themeBg || '#1e293b'}
-                    onChange={(e) => setEditingBoard({ ...editingBoard, bgColor: e.target.value })}
-                    className="color-wheel"
-                    aria-label="Pick space background color"
-                  />
-                  <input
-                    type="text"
-                    value={editingBoard.bgColor}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === '' || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
-                        setEditingBoard({ ...editingBoard, bgColor: v });
-                      }
-                    }}
-                    placeholder="Inherit"
-                    maxLength={7}
-                    className="hex-input"
-                    aria-label="Hex color code"
-                  />
-                  {editingBoard.bgColor && (
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => setEditingBoard(editingBoard ? { ...editingBoard, bgColor: '' } : editingBoard)}
-                    >
-                      Clear
-                    </button>
-                  )}
                 </div>
 
                 <label className="profile-field-label">Interests in this space</label>

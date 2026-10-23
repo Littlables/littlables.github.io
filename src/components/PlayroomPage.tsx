@@ -240,27 +240,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
             </button>
           </div>
           {playroom.description && <p className="board-page-description">{playroom.description}</p>}
-          {spaces.length > 0 && (
-            <div className="playroom-spaces">
-              {spaces.map((space) => (
-                <button
-                  key={space.id}
-                  type="button"
-                  className="playroom-space-chip"
-                  onClick={() => {
-                    window.history.pushState({}, '', `/@${username}/${space.slug}`);
-                    window.dispatchEvent(new PopStateEvent('popstate'));
-                  }}
-                  title={space.description || space.name}
-                >
-                  {space.logo_url ? (
-                    <img src={space.logo_url} alt="" className="playroom-space-chip-logo" />
-                  ) : null}
-                  {space.name}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         {isOwner && (
           <button type="button" className="sign-in-button secondary-button" onClick={onOpenProfile}>
