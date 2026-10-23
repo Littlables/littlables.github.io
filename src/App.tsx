@@ -21,7 +21,7 @@ import { BoardPage } from './components/BoardPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
-import { fetchAdsForCategory, fetchAdKeywordTags, applyAdKeywordTags } from './services/adsService';
+import { fetchAdsForCategory, fetchAdKeywordTagsForStories, applyAdKeywordTags } from './services/adsService';
 import { matchAdsToStory } from './services/adKeywordMatcher';
 import {
   fetchReactionsForStories,
@@ -246,19 +246,18 @@ export const App: React.FC = () => {
       setAds(categoryAds);
 
       // Keyword-match ads to stories (non-blocking: falls back to rotation if no tags).
-      // Collect all story keywords, fetch relevant tags once, then match per ad slot.
+      // Untagged stories are classified on-demand by the worker; tagged stories
+      // use their existing keywords. One batched call, then match per ad slot.
       try {
-        const allKeywords = new Set<string>();
-        for (const s of displayStories) {
-          const kws = (s as any).interest_keywords || (s as any).interestKeywords || [];
-          for (const k of kws) if (typeof k === 'string') allKeywords.add(k);
-        }
-        const tags = await fetchAdKeywordTags([...allKeywords]);
+        const { tags, storyKeywords } = await fetchAdKeywordTagsForStories(displayStories as any);
         const taggedAds = applyAdKeywordTags(categoryAds, tags);
         const matched: Record<number, AdItem> = {};
         displayStories.forEach((story, index) => {
           if ((index + 1) % 3 !== 0) return; // ad slot after every 3rd story
-          const results = matchAdsToStory(story as any, taggedAds);
+          // Use on-demand classified keywords if story had none
+          const kws = storyKeywords[index] || (story as any).interest_keywords || (story as any).interestKeywords || [];
+          const storyWithKws = { ...(story as any), interest_keywords: kws };
+          const results = matchAdsToStory(storyWithKws, taggedAds);
           if (results.length > 0) {
             // Pick top match, cycling by slot so the same ad doesn't repeat
             const slot = Math.floor(index / 3);

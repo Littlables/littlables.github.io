@@ -408,30 +408,42 @@ let adTagsCache: Record<string, string[]> | null = null;
 let adTagsCacheKey = '';
 
 /**
- * Fetch ad keyword tags from the worker (GET /ads/tags).
- * Pass story keywords to only fetch relevant tags; omit for all.
- * Returns a map of ad_id -> keyword ids. Cached per keyword set.
- * Returns empty object on failure (graceful degradation to category matching).
+ * Fetch ad keyword tags for stories, classifying untagged stories on-demand.
+ * POST /ads/tags-for-stories classifies stories without keywords via embeddings,
+ * then returns ad tags matching any of the stories' keywords, plus per-story keywords.
+ * Cached per story set. Returns empty object on failure.
  */
-export async function fetchAdKeywordTags(filterKeywords?: string[]): Promise<Record<string, string[]>> {
-  const cacheKey = (filterKeywords || []).sort().join(',');
-  if (adTagsCache && adTagsCacheKey === cacheKey) return adTagsCache;
+export async function fetchAdKeywordTagsForStories(
+  stories: { title?: string; description?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[] }[]
+): Promise<{ tags: Record<string, string[]>; storyKeywords: string[][] }> {
+  const cacheKey = stories.map(s => s.title || '').join('|').slice(0, 200);
+  if (adTagsCache && adTagsCacheKey === cacheKey) {
+    return { tags: adTagsCache, storyKeywords: [] };
+  }
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
-    url.pathname = '/ads/tags';
-    if (filterKeywords && filterKeywords.length > 0) {
-      url.searchParams.set('keywords', filterKeywords.slice(0, 20).join(','));
-    }
-    const response = await fetch(url.href, { cache: 'no-cache' });
+    url.pathname = '/ads/tags-for-stories';
+    const payload = {
+      stories: stories.slice(0, 20).map(s => ({
+        title: s.title || '',
+        description: s.description || '',
+        keywords: s.keywords || s.interest_keywords || s.interestKeywords || [],
+      })),
+    };
+    const response = await fetch(url.href, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     if (!response.ok) throw new Error('tags fetch failed');
     const data = await response.json();
     adTagsCache = data?.tags || {};
     adTagsCacheKey = cacheKey;
-    return adTagsCache;
+    return { tags: adTagsCache, storyKeywords: data?.storyKeywords || [] };
   } catch {
     adTagsCache = {};
     adTagsCacheKey = cacheKey;
-    return {};
+    return { tags: {}, storyKeywords: [] };
   }
 }
 

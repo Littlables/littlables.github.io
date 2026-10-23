@@ -2391,6 +2391,68 @@ export default {
         return jsonResponse({ tags: {}, count: 0, error: err.message });
       }
     }
+    // POST /ads/tags-for-stories — classify untagged stories on-demand, then
+    // return ad tags matching any of the stories' keywords.
+    // Body: { stories: [{title, description, keywords?}] }
+    // For stories without keywords, runs the embedding classifier (1 AI call each).
+    // Then queries ad tags with array overlap. Keeps total subrequests low by
+    // batching: N embeddings + 1 Supabase query.
+    if (request.method === 'POST' && pathname === '/ads/tags-for-stories') {
+      try {
+        if (!env.AI) throw new Error('Workers AI not available');
+        const body = await request.json().catch(() => ({}));
+        const stories = Array.isArray(body.stories) ? body.stories.slice(0, 20) : [];
+        if (!stories.length) return jsonResponse({ tags: {}, count: 0 });
+
+        const keywordVectors = await getKeywordEmbeddings(env);
+        const allKeywords = new Set();
+        const storyKeywords = [];
+        // Collect existing keywords; classify stories that lack them.
+        for (const s of stories) {
+          const existing = s.keywords || s.interest_keywords || s.interestKeywords || [];
+          if (Array.isArray(existing) && existing.length > 0) {
+            const kws = existing.filter(k => typeof k === 'string');
+            for (const k of kws) allKeywords.add(k);
+            storyKeywords.push(kws);
+          } else {
+            const text = ((s.title || '') + ' ' + (s.description || '')).trim();
+            const kws = [];
+            if (text) {
+              try {
+                const vector = await embedText(env, text);
+                const matches = classifyStoryKeywords(vector, keywordVectors);
+                for (const m of matches) {
+                  kws.push(m.id);
+                  allKeywords.add(m.id);
+                }
+              } catch {
+                // Skip stories that fail to classify
+              }
+            }
+            storyKeywords.push(kws);
+          }
+        }
+
+        const kwArray = [...allKeywords].slice(0, 20);
+        const params = new URLSearchParams({ select: 'ad_id,keywords' });
+        if (kwArray.length > 0) {
+          params.set('keywords', `ov.{${kwArray.join(',')}}`);
+        }
+        const res = await fetch(
+          supabaseUrl(env, 'ad_keyword_tags', params),
+          { headers: supabaseHeaders(env) }
+        );
+        if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
+        const rows = await res.json();
+        const tags = {};
+        for (const r of (Array.isArray(rows) ? rows : [])) {
+          if (r.ad_id) tags[r.ad_id] = r.keywords || [];
+        }
+        return jsonResponse({ tags, count: Object.keys(tags).length, storyKeywords });
+      } catch (err) {
+        return jsonResponse({ tags: {}, count: 0, error: err.message });
+      }
+    }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();
       const query = (url.searchParams.get('q') || url.searchParams.get('topic') || '').trim();
