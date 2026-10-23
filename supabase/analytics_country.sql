@@ -32,7 +32,8 @@ $$ SELECT COALESCE((SELECT region FROM public.country_regions WHERE country_code
 GRANT EXECUTE ON FUNCTION public.country_to_region(CHAR(2)) TO service_role;
 
 -- Keyword CTR by country and region
-CREATE OR REPLACE VIEW public.keyword_engagement_stats AS
+DROP VIEW IF EXISTS public.keyword_engagement_stats;
+CREATE VIEW public.keyword_engagement_stats AS
 SELECT
   kw AS keyword,
   country_code,
@@ -52,7 +53,8 @@ GROUP BY kw, country_code;
 GRANT SELECT ON public.keyword_engagement_stats TO service_role;
 
 -- Acquisition by country and region
-CREATE OR REPLACE VIEW public.acquisition_stats AS
+DROP VIEW IF EXISTS public.acquisition_stats;
+CREATE VIEW public.acquisition_stats AS
 SELECT
   COALESCE(NULLIF(referrer_domain, ''), '(direct)') AS referrer_domain,
   COALESCE(NULLIF(utm_source, ''), '(none)') AS utm_source,
@@ -68,7 +70,8 @@ GROUP BY 1, 2, 3;
 GRANT SELECT ON public.acquisition_stats TO service_role;
 
 -- Dwell time by country and region
-CREATE OR REPLACE VIEW public.story_dwell_stats AS
+DROP VIEW IF EXISTS public.story_dwell_stats;
+CREATE VIEW public.story_dwell_stats AS
 SELECT
   story_url_hash,
   MAX(story_title) AS story_title,
@@ -85,7 +88,8 @@ GROUP BY story_url_hash, country_code;
 GRANT SELECT ON public.story_dwell_stats TO service_role;
 
 -- Board topics by country and region
-CREATE OR REPLACE VIEW public.board_topic_stats AS
+DROP VIEW IF EXISTS public.board_topic_stats;
+CREATE VIEW public.board_topic_stats AS
 SELECT
   kw AS keyword,
   country_code,
