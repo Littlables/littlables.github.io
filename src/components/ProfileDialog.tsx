@@ -1606,7 +1606,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
                 <label className="profile-field-label">Interests in this space</label>
                 <p className="profile-hint profile-hint-compact">
-                  Pick categories or add your own custom interests.
+                  Pick littlables' interests or add your own.
                 </p>
                 <div className="board-pill-picker">
                   {CATEGORIES.map((cat) => {
