@@ -1,6 +1,31 @@
 -- Ad engagement tracking: impressions and clicks per ad (anonymous, COPPA-safe).
 -- Powers ad CTR analytics for the $10k/month revenue goal.
 
+-- Dependency: country_regions table + country_to_region() function.
+-- (Also created in analytics_country.sql; duplicated here for ordering safety.)
+CREATE TABLE IF NOT EXISTS public.country_regions (
+  country_code CHAR(2) PRIMARY KEY,
+  region TEXT NOT NULL
+);
+
+INSERT INTO public.country_regions (country_code, region) VALUES
+  ('US', 'north-america'), ('CA', 'north-america'), ('MX', 'north-america'),
+  ('GB', 'europe'), ('IE', 'europe'), ('FR', 'europe'), ('DE', 'europe'),
+  ('IT', 'europe'), ('ES', 'europe'), ('NL', 'europe'), ('SE', 'europe'),
+  ('BR', 'south-america'),
+  ('AU', 'oceania'), ('NZ', 'oceania'),
+  ('CN', 'asia'), ('JP', 'asia'), ('IN', 'asia'), ('KR', 'asia'),
+  ('ZA', 'africa'), ('EG', 'africa')
+ON CONFLICT (country_code) DO UPDATE SET region = EXCLUDED.region;
+
+GRANT SELECT ON public.country_regions TO service_role;
+
+CREATE OR REPLACE FUNCTION public.country_to_region(cc CHAR(2))
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS
+$$ SELECT COALESCE((SELECT region FROM public.country_regions WHERE country_code = UPPER(cc)), 'global') $$;
+
+GRANT EXECUTE ON FUNCTION public.country_to_region(CHAR(2)) TO service_role;
+
 CREATE TABLE IF NOT EXISTS public.ad_engagement (
   id BIGSERIAL PRIMARY KEY,
   ad_id TEXT NOT NULL,
