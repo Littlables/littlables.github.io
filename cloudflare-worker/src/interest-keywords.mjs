@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 8;
+export const KEYWORD_DESCRIPTIONS_VERSION = 9;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -101,6 +101,9 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'lego', label: 'LEGO & Building', icon: '🧱', group: 'Arts & Music', description: 'LEGO building: new sets, building challenges, creative constructions' },
   { id: 'photography', label: 'Photography', icon: '📸', group: 'Arts & Music', description: 'photography: cameras, taking great pictures, photo tips for kids' },
   { id: 'fashion', label: 'Fashion', icon: '👗', group: 'Arts & Music', description: 'fashion and style: fun outfits, designers, dress-up, costumes, runway shows' },
+  { id: 'comics', label: 'Comics', icon: '💬', group: 'Arts & Music', description: 'comics and graphic novels: manga, comic books, visual storytelling' },
+  { id: 'theme-parks', label: 'Theme Parks', icon: '🎢', group: 'Arts & Music', description: 'theme park news: new rides, Disney World, roller coasters, planning a park visit' },
+  { id: 'circus', label: 'Circus', icon: '🎪', group: 'Arts & Music', description: 'circus performances: acrobats, clowns, big-top shows' },
 
   // ---- Tech & Games ----
   { id: 'video-games', label: 'Video Games', icon: '🎮', group: 'Tech & Games', description: 'video game news: new game releases, Minecraft, Nintendo, esports tournaments, gaming tips, kid-friendly games' },
@@ -112,14 +115,13 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'electric-cars', label: 'Electric Cars', icon: '🚗', group: 'Tech & Games', description: 'electric vehicles families can buy: EV reviews, charging stations, battery range, going electric' },
   { id: 'board-games', label: 'Board Games', icon: '🎲', group: 'Tech & Games', description: 'tabletop games: board games, card games, puzzles, family game night ideas, chess' },
 
-  // ---- Shows & Fun ----
-  { id: 'family-movies', label: 'Family Movies', icon: '🎬', group: 'Shows & Fun', description: 'family film news: new animated movies, Disney, Pixar, movie night picks' },
-  { id: 'entertainment', label: 'Entertainment', icon: '🌟', group: 'Shows & Fun', description: 'entertainment and pop culture news: celebrities, Hollywood, red carpets, viral stars, showbiz stories' },
-  { id: 'tv-shows', label: 'TV Shows', icon: '📺', group: 'Shows & Fun', description: 'kids\' TV: new shows, cartoons, episodes, what to watch streaming' },
-  { id: 'comics', label: 'Comics', icon: '💬', group: 'Shows & Fun', description: 'comics and graphic novels: manga, comic books, visual storytelling' },
-  { id: 'theme-parks', label: 'Theme Parks', icon: '🎢', group: 'Shows & Fun', description: 'theme park news: new rides, Disney World, roller coasters, planning a park visit' },
-  { id: 'circus', label: 'Circus', icon: '🎪', group: 'Shows & Fun', description: 'circus performances: acrobats, clowns, big-top shows' },
-  { id: 'online-creators', label: 'Online Creators', icon: '🎥', group: 'Shows & Fun', description: 'online video stars: YouTubers, streamers, viral videos, kid creators, family channels' },
+  // ---- Celebrity & Entertainment ----
+  { id: 'family-movies', label: 'Family Movies', icon: '🎬', group: 'Celebrity & Entertainment', description: 'family film news: new animated movies, Disney, Pixar, movie night picks' },
+  { id: 'entertainment', label: 'Entertainment', icon: '🌟', group: 'Celebrity & Entertainment', description: 'entertainment and pop culture news: celebrities, Hollywood, red carpets, viral stars, showbiz stories' },
+  { id: 'tv-shows', label: 'TV Shows', icon: '📺', group: 'Celebrity & Entertainment', description: 'kids\' TV: new shows, cartoons, episodes, what to watch streaming' },
+  { id: 'online-creators', label: 'Online Creators', icon: '🎥', group: 'Celebrity & Entertainment', description: 'online video stars: YouTubers, streamers, viral videos, kid creators, family channels' },
+  { id: 'celebrities', label: 'Celebrities', icon: '⭐', group: 'Celebrity & Entertainment', description: 'celebrity news: famous actors, musicians, athletes, star interviews, red carpet moments' },
+  { id: 'hollywood', label: 'Hollywood', icon: '🎞️', group: 'Celebrity & Entertainment', description: 'Hollywood news: movie studios, film premieres, entertainment industry, blockbusters' },
 
   // ---- Planet & Weather ----
   { id: 'weather', label: 'Weather', icon: '🌤️', group: 'Planet & Weather', description: 'weather stories: forecasts, rain, snow, storms, seasons, tornadoes, weather science' },
