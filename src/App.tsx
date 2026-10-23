@@ -371,6 +371,19 @@ export const App: React.FC = () => {
     }
   };
 
+  // Landing page CTA: signed-in users go to their public profile ("your space"),
+  // signed-out users get the sign-in dialog (account creation).
+  const handleAboutCta = () => {
+    if (profile?.username) {
+      setActiveDialog(null);
+      window.history.pushState({}, '', `/@${profile.username}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      window.scrollTo({ top: 0 });
+    } else {
+      setActiveDialog('signin');
+    }
+  };
+
   const handleHomeRefresh = () => {
     setSelectedStory(null);
     setActiveStoryParam(null);
@@ -507,7 +520,8 @@ export const App: React.FC = () => {
           <main className="news-grid">
             <AboutPage
               onExplore={handleHomeRefresh}
-              onSignIn={() => setActiveDialog('signin')}
+              onSignIn={handleAboutCta}
+              signedIn={!!profile?.username}
             />
           </main>
         ) : boardRoute ? (
@@ -669,7 +683,8 @@ export const App: React.FC = () => {
         id="about"
         isOpen={activeDialog === 'about'}
         onClose={() => setActiveDialog(null)}
-        onSignIn={() => setActiveDialog('signin')}
+        onSignIn={handleAboutCta}
+        signedIn={!!profile?.username}
       />
 
       <InfoDialog

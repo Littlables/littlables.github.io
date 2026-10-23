@@ -6,9 +6,10 @@ interface InfoDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSignIn?: () => void;
+  signedIn?: boolean;
 }
 
-export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onSignIn }) => {
+export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onSignIn, signedIn }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -59,6 +60,7 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onS
         <AboutPage
           onExplore={onClose}
           onSignIn={onSignIn}
+          signedIn={signedIn}
         />
       ) : (
         <div className="disclaimer-body">

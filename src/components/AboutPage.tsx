@@ -3,6 +3,8 @@ import React from 'react';
 interface AboutPageProps {
   onExplore?: () => void;
   onSignIn?: () => void;
+  /** When true, the CTA goes to the user's profile instead of the sign-in dialog. */
+  signedIn?: boolean;
 }
 
 const FEATURES = [
@@ -41,7 +43,7 @@ const FEATURES = [
 const FAQS = [
   {
     q: 'What is Littlables?',
-    a: 'Littlables is a cozy, independent news site that gathers stories about family, animals, arts, tech, the world, and uplifting news into one colorful, easy-to-explore place. Think of it as a little scoop of the world — without the doomscroll.',
+    a: 'Littlables is a special interest sharing and discovery playground — a cozy, independent news site that gathers stories about family, animals, arts, tech, the world, and uplifting news into one colorful, easy-to-explore place. Think of it as a little scoop of the world — without the doomscroll.',
   },
   {
     q: 'Is it free?',
@@ -57,15 +59,15 @@ const FAQS = [
   },
   {
     q: 'What are boards?',
-    a: 'Boards let you group topics into themed collections — each with its own name, logo, colors, and shareable link like @you/pets. Perfect for sharing your interests with friends or followers.',
+    a: 'Boards are your own corners of the playground — group your favorite topics into themed collections, each with its own name, logo, colors, and shareable link like @you/pets. Perfect for sharing your special interests with friends or followers.',
   },
   {
     q: 'Do I need an account?',
-    a: 'Nope — you can read everything without one. An account unlocks your profile, boards, themes, and personalization. Sign in with Google or email, no password needed.',
+    a: 'Nope — you can explore the playground without one. An account lets you create your space: a profile, boards, themes, and personalization. Sign in with Google or email, no password needed.',
   },
 ];
 
-export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn }) => {
+export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn, signedIn }) => {
   return (
     <div className="about-landing">
       {/* Hero */}
@@ -81,10 +83,11 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn }) => 
           }}
         />
         <h1 className="about-hero-title">littlables</h1>
-        <p className="about-hero-tagline">A Little Scoop of the World</p>
+        <p className="about-hero-tagline">A special interest sharing and discovery playground</p>
         <p className="about-hero-sub">
-          Your cozy corner of the internet — curated news for curious families,
-          animal lovers, makers, and optimists.
+          Your special interest curiosity playground — a cozy corner of the
+          internet where curious families, animal lovers, makers, and
+          optimists share and discover what they love.
         </p>
         <div className="about-hero-ctas">
           {onExplore && (
@@ -93,8 +96,8 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn }) => 
             </button>
           )}
           {onSignIn && (
-            <button className="secondary-button about-cta" onClick={onSignIn}>
-              Create your space
+            <button className="sign-in-button secondary-button about-cta" onClick={onSignIn}>
+              {signedIn ? 'Go to your space' : 'Create your space'}
             </button>
           )}
         </div>
