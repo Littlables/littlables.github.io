@@ -21,7 +21,8 @@ import { BoardPage } from './components/BoardPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
-import { fetchAdsForCategory } from './services/adsService';
+import { fetchAdsForCategory, fetchAdKeywordTags, applyAdKeywordTags } from './services/adsService';
+import { matchAdsToStory } from './services/adKeywordMatcher';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -130,6 +131,8 @@ export const App: React.FC = () => {
 
   const [stories, setStories] = useState<NewsItem[]>([]);
   const [ads, setAds] = useState<AdItem[]>([]);
+  // Per-story keyword-matched ads: story index -> matched AdItem (computed after load)
+  const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -241,6 +244,32 @@ export const App: React.FC = () => {
       fetchedStories = displayStories;
       setStories(displayStories);
       setAds(categoryAds);
+
+      // Keyword-match ads to stories (non-blocking: falls back to rotation if no tags).
+      // Collect all story keywords, fetch relevant tags once, then match per ad slot.
+      try {
+        const allKeywords = new Set<string>();
+        for (const s of displayStories) {
+          const kws = (s as any).interest_keywords || (s as any).interestKeywords || [];
+          for (const k of kws) if (typeof k === 'string') allKeywords.add(k);
+        }
+        const tags = await fetchAdKeywordTags([...allKeywords]);
+        const taggedAds = applyAdKeywordTags(categoryAds, tags);
+        const matched: Record<number, AdItem> = {};
+        displayStories.forEach((story, index) => {
+          if ((index + 1) % 3 !== 0) return; // ad slot after every 3rd story
+          const results = matchAdsToStory(story as any, taggedAds);
+          if (results.length > 0) {
+            // Pick top match, cycling by slot so the same ad doesn't repeat
+            const slot = Math.floor(index / 3);
+            matched[index] = results[slot % results.length];
+          }
+        });
+        setStoryAds(matched);
+      } catch {
+        // Matching is optional — rotation fallback in render covers failures
+        setStoryAds({});
+      }
     } catch (err: any) {
       console.error('Error loading stories:', err);
       setError(err?.message || 'Unable to load stories.');
@@ -569,9 +598,10 @@ export const App: React.FC = () => {
 
                 const shouldInsertAd = (index + 1) % 3 === 0;
                 const adIndex = Math.floor(index / 3);
-                const currentAd = customTopicActive
+                // Prefer keyword-matched ad for this story; fall back to rotation.
+                const currentAd = storyAds[index] || (customTopicActive
                   ? (adIndex < ads.length ? ads[adIndex] : null)
-                  : (ads && ads.length > 0 ? ads[adIndex % ads.length] : null);
+                  : (ads && ads.length > 0 ? ads[adIndex % ads.length] : null));
 
                 return (
                   <React.Fragment key={`${story.link}-${index}`}>
