@@ -1648,7 +1648,8 @@ export function getAdminPage() {
       providers: { toggle: 'providers-toggle', arrow: 'providers-arrow', body: 'providers', defaultOpen: false },
       logs: { toggle: 'logs-toggle', arrow: 'logs-arrow', body: 'logs-body', defaultOpen: false },
       decisions: { toggle: 'decisions-toggle', arrow: 'decisions-arrow', body: 'decisions-body', defaultOpen: false },
-      banned: { toggle: 'banned-toggle', arrow: 'banned-arrow', body: 'banned-body', defaultOpen: false }
+      banned: { toggle: 'banned-toggle', arrow: 'banned-arrow', body: 'banned-body', defaultOpen: false },
+      analytics: { toggle: 'analytics-toggle', arrow: 'analytics-arrow', body: 'analytics-body', defaultOpen: false }
     };
 
     function setSectionExpanded(sectionId, expanded, persist = true) {
@@ -1747,7 +1748,7 @@ export function getAdminPage() {
         localStorage.removeItem(STORAGE_ORDER_KEY);
         localStorage.removeItem(STORAGE_COLLAPSED_KEY);
       } catch {}
-      ['summary', 'ai-staging', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned'].forEach((id) => {
+      ['summary', 'ai-staging', 'embedding-validation', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned', 'analytics'].forEach((id) => {
         const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
         if (sec) adminSectionsEl.append(sec);
         setSectionExpanded(id, sectionTargets[id].defaultOpen, false);
