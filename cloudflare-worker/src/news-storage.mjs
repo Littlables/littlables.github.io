@@ -1413,7 +1413,7 @@ export async function searchNewsStories(env, queryText, limit = 100) {
   if (!orFilter) return [];
 
   const params = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,approved_at,removed_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,approved_at,removed_at,decision_action,decision_by,decision_at,previous_approved,previous_removed,interest_keywords',
     or: orFilter,
     order: 'published_at.desc.nullslast,fetched_at.desc',
     limit: String(limit)

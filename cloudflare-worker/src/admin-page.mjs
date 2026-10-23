@@ -2332,6 +2332,16 @@ export function getAdminPage() {
         meta.append(statusSpan);
       }
 
+      // Content keywords badge (interest tags)
+      const storyKws = story.interest_keywords || story.interestKeywords || [];
+      if (Array.isArray(storyKws) && storyKws.length > 0) {
+        const kwSpan = document.createElement('span');
+        kwSpan.className = 'meta-badge-status meta-approved';
+        kwSpan.textContent = '🔖 ' + storyKws.join(', ');
+        kwSpan.title = 'Content keywords';
+        meta.append(kwSpan);
+      }
+
       const details = document.createElement('div');
       details.className = 'story-details';
       details.append(title, meta);
