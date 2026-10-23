@@ -623,7 +623,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
         INTEREST_KEYWORDS.map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1, 0.2, 0.3],
-          model: '@cf/baai/bge-base-en-v1.5:kwv2',
+          model: '@cf/baai/bge-base-en-v1.5:kwv3',
         }))
       );
     }
@@ -700,7 +700,7 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
         INTEREST_KEYWORDS.slice(0, 99).map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1],
-          model: '@cf/baai/bge-base-en-v1.5:kwv2',
+          model: '@cf/baai/bge-base-en-v1.5:kwv3',
         }))
       );
     }

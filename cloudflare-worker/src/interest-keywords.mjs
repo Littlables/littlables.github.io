@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 2;
+export const KEYWORD_DESCRIPTIONS_VERSION = 3;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -34,7 +34,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'mountains', label: 'Mountains', icon: '⛰️', group: 'Animals & Nature', description: 'mountain stories: climbing, peaks, hiking, mountain views and adventures' },
   { id: 'beaches', label: 'Beaches', icon: '🏖️', group: 'Animals & Nature', description: 'beach day stories: sand, seashells, tides, seaside fun, sandcastles' },
   { id: 'deserts', label: 'Deserts', icon: '🏜️', group: 'Animals & Nature', description: 'desert stories: cacti, camels, sand dunes, desert animals, oasis' },
-  { id: 'rainforests', label: 'Rainforests', icon: '🌴', group: 'Animals & Nature', description: 'rainforest stories: jungles, tropical wildlife, canopy, conservation' },
+  { id: 'rainforests', label: 'Rainforests', icon: '🌴', group: 'Animals & Nature', description: 'tropical rainforest nature: jungle ecosystems, canopy wildlife, monkeys, toucans, wild rainforest conservation' },
   { id: 'endangered-species', label: 'Endangered Species', icon: '🦏', group: 'Animals & Nature', description: 'conservation news: endangered animals, protection efforts, saving species from extinction' },
 
   // ---- Science & Discovery ----
