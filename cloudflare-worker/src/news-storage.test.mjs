@@ -881,3 +881,28 @@ test('recordEngagementEvent stores keywords and attribution', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('isInternalRequest filters admin, dev, and localhost traffic', async () => {
+  const { isInternalRequest } = await import('./news-storage.mjs');
+  const req = (referer, origin = '') => ({
+    headers: {
+      get: (name) => {
+        const n = name.toLowerCase();
+        if (n === 'referer') return referer;
+        if (n === 'origin') return origin;
+        return null;
+      },
+    },
+  });
+  // Admin panel
+  assert.equal(isInternalRequest(req('https://hello-ai.cryptokatiee.workers.dev/admin')), true);
+  assert.equal(isInternalRequest(req('https://hello-ai.cryptokatiee.workers.dev/admin/api/ads')), true);
+  // Dev site and localhost
+  assert.equal(isInternalRequest(req('https://dev.littlables.com/')), true);
+  assert.equal(isInternalRequest(req('http://localhost:5173/')), true);
+  assert.equal(isInternalRequest(req('', 'http://127.0.0.1:3000')), true);
+  // Real traffic
+  assert.equal(isInternalRequest(req('https://littlables.com/')), false);
+  assert.equal(isInternalRequest(req('https://www.google.com/')), false);
+  assert.equal(isInternalRequest(req('')), false);
+});

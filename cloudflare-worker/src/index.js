@@ -49,6 +49,7 @@ import {
   recordEngagementEvent,
   recordBoardEvent,
   recordSearchQuery,
+  isInternalRequest,
   STORIES_TABLE,
   supabaseHeaders,
   supabaseUrl
@@ -87,6 +88,8 @@ function jsonResponse(body, status = 200) {
 
 async function handleEngagementEvent(request, env) {
   try {
+    // Never log internal traffic (admin testing, dev site) — it would skew audience stats.
+    if (isInternalRequest(request)) return jsonResponse({ ok: true, reason: 'internal-skipped' }, 200);
     const body = await request.json();
     const result = await recordEngagementEvent(env, {
       url: body.url,
@@ -111,6 +114,7 @@ async function handleEngagementEvent(request, env) {
 
 async function handleBoardEvent(request, env) {
   try {
+    if (isInternalRequest(request)) return jsonResponse({ ok: true, reason: 'internal-skipped' }, 200);
     const body = await request.json();
     const result = await recordBoardEvent(env, {
       sessionId: body.sessionId,
@@ -158,8 +162,9 @@ async function serveNewsFeed(request, env, ctx) {
     const feed = await getStoredKeywordNewsFeed(env, rawCategory);
     const ads = getAds({ query: rawCategory });
     // Log the search query (fire-and-forget — never blocks the response).
+    // Skipped for internal traffic (admin panel, dev site).
     const storyCount = Array.isArray(feed?.stories) ? feed.stories.length : 0;
-    if (ctx?.waitUntil) {
+    if (ctx?.waitUntil && !isInternalRequest(request)) {
       ctx.waitUntil(recordSearchQuery(env, {
         query: rawCategory,
         resultCount: storyCount,
@@ -2221,8 +2226,8 @@ export default {
         }
       }
       const allAds = wantOnlyAwin ? awinAds : [...embedded, ...awinAds];
-      // Log ad searches too (fire-and-forget).
-      if (effectiveQuery && ctx?.waitUntil) {
+      // Log ad searches too (fire-and-forget). Skipped for internal traffic.
+      if (effectiveQuery && ctx?.waitUntil && !isInternalRequest(request)) {
         ctx.waitUntil(recordSearchQuery(env, {
           query: effectiveQuery,
           resultCount: allAds.length,

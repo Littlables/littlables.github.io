@@ -2013,6 +2013,7 @@ export async function recordEngagementEvent(env, { url: storyUrl, title, categor
 
 // ── Search query logging ──
 // Anonymous: query text + result count + country. No user_id, no IP, no session.
+// Internal traffic (admin panel, dev site, localhost) is never logged.
 
 function normalizeSearchQuery(q) {
   return String(q || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -2025,6 +2026,26 @@ function looksLikePii(q) {
   const chars = s.replace(/\s/g, '').length;
   if (chars > 0 && digits / chars > 0.5 && chars >= 7) return true; // phone-ish
   return false;
+}
+
+/**
+ * True if the request comes from an internal surface (admin panel, dev site,
+ * localhost) — its searches/views would pollute audience analytics.
+ */
+export function isInternalRequest(request) {
+  try {
+    const referer = request.headers.get('referer') || '';
+    const origin = request.headers.get('origin') || '';
+    const sources = `${referer} ${origin}`.toLowerCase();
+    // Admin panel
+    if (sources.includes('/admin')) return true;
+    // Dev site and local testing
+    if (sources.includes('dev.littlables.com')) return true;
+    if (sources.includes('localhost') || sources.includes('127.0.0.1')) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export async function recordSearchQuery(env, { query, resultCount, country_code }) {
