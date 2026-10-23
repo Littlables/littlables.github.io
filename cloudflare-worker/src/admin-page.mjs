@@ -1104,7 +1104,7 @@ export function getAdminPage() {
         <h2 id="ai-staging-title">
           <button id="ai-staging-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="ai-staging-body" data-section-toggle="ai-staging">
             <span id="ai-staging-arrow" class="section-arrow" aria-hidden="true">▲</span>
-            <span>AI Picked for You · Staging Queue <span id="ai-staging-count" class="tabular-nums"></span></span>
+            <span>Discovery <span id="ai-staging-count" class="tabular-nums"></span></span>
           </button>
         </h2>
         <div class="section-controls">
@@ -1156,7 +1156,7 @@ export function getAdminPage() {
         <h2 id="pending-title">
           <button id="pending-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="pending-body" data-section-toggle="pending">
             <span id="pending-arrow" class="section-arrow" aria-hidden="true">▲</span>
-            <span>Stories awaiting approval <span id="pending-count"></span></span>
+            <span>Pending Approval <span id="pending-count"></span></span>
           </button>
         </h2>
         <div class="section-controls">
@@ -3006,7 +3006,7 @@ export function getAdminPage() {
       const ai = state.aiCuration || {};
       const stagedCount = Array.isArray(ai.stagedPicks) ? ai.stagedPicks.length : 0;
       if (countEl) {
-        countEl.textContent = stagedCount > 0 ? '(' + stagedCount + ' staged)' : '(0 staged)';
+        countEl.textContent = '(' + stagedCount + ')';
       }
 
       bar.replaceChildren();
