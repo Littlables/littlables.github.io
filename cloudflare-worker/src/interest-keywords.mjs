@@ -18,10 +18,11 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 9;
+export const KEYWORD_DESCRIPTIONS_VERSION = 10;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
+  { id: 'animals-nature', label: 'Animals & Nature', icon: '🌿', group: 'Animals & Nature', description: 'general animals and nature news: wildlife, pets, natural world, conservation' },
   { id: 'ocean-life', label: 'Ocean Life', icon: '🐋', group: 'Animals & Nature', description: 'stories about ocean animals and sea life: whales, dolphins, sharks, coral reefs, tide pools, marine biology discoveries' },
   { id: 'pets', label: 'Pets', icon: '🐶', group: 'Animals & Nature', description: 'pet ownership stories: dogs, cats, puppies, kittens, pet care tips, funny pet moments, adopting pets' },
   { id: 'wildlife', label: 'Wildlife', icon: '🦁', group: 'Animals & Nature', description: 'wild animals in nature: safaris, lions, elephants, national parks, wildlife photography, animal behavior' },
@@ -39,6 +40,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'rivers-lakes', label: 'Rivers & Lakes', icon: '🏞️', group: 'Animals & Nature', description: 'rivers and lakes: waterfalls, ponds, river wildlife, kayaking, lake adventures' },
 
   // ---- Science & Discovery ----
+  { id: 'science-discovery-general', label: 'Science & Discovery', icon: '🔭', group: 'Science & Discovery', description: 'general science news: discoveries, research, exploration, innovation' },
   { id: 'space', label: 'Space', icon: '🚀', group: 'Science & Discovery', description: 'outer space exploration: NASA missions, rockets launching, astronauts living in space, astronomy, distant planets and stars' },
   { id: 'dinosaurs', label: 'Dinosaurs', icon: '🦕', group: 'Science & Discovery', description: 'dinosaur discoveries: fossils, paleontology, T. rex, prehistoric creatures, extinction' },
   { id: 'science', label: 'Science', icon: '🔬', group: 'Science & Discovery', description: 'science news: new discoveries, research studies, how things work, scientists at work' },
@@ -54,6 +56,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'archaeology', label: 'Archaeology', icon: '🏺', group: 'Science & Discovery', description: 'ancient discoveries: mummies, pyramids, buried treasure, old ruins, fossils of human history' },
 
   // ---- Childcare & Family ----
+  { id: 'childcare-family-general', label: 'Childcare & Family', icon: '👨‍👩‍👧‍👦', group: 'Childcare & Family', description: 'general childcare and family news: parenting, kids, family life' },
   { id: 'parenting', label: 'Parenting', icon: '👨‍👩‍👧', group: 'Childcare & Family', description: 'parenting advice: raising babies and kids, parenting tips, family routines' },
   { id: 'education', label: 'Education', icon: '🎓', group: 'Childcare & Family', description: 'school and learning: teachers, classrooms, homework help, studying tips, school news' },
   { id: 'kids-crafts', label: 'Kids Crafts', icon: '🎨', group: 'Childcare & Family', description: 'craft projects for kids: DIY art, coloring, building things, creative rainy-day activities' },
@@ -71,6 +74,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'toys', label: 'Toys', icon: '🧸', group: 'Childcare & Family', description: 'toy news: new toys, toy safety recalls, classic toys, how toys are made' },
 
   // ---- Food ----
+  { id: 'food-general', label: 'Food', icon: '🍽️', group: 'Food', description: 'general food news: cooking, recipes, restaurants, culinary trends' },
   { id: 'food', label: 'Food', icon: '🍎', group: 'Food', description: 'food and cooking: recipes to try, restaurants, chefs, meals, snacks and treats' },
   { id: 'baking', label: 'Baking', icon: '🧁', group: 'Food', description: 'baking projects: cupcakes, cookies, cakes, ovens, frosting, bakeries' },
   { id: 'desserts', label: 'Desserts', icon: '🍦', group: 'Food', description: 'sweet treats: ice cream, candy, milkshakes, dessert recipes' },
@@ -81,6 +85,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'picnics', label: 'Picnics', icon: '🧺', group: 'Food', description: 'outdoor eating: picnics, lunchboxes, packed lunches' },
 
   // ---- Sports & Play ----
+  { id: 'sports-play-general', label: 'Sports & Play', icon: '🏃', group: 'Sports & Play', description: 'general sports news: games, athletics, play, physical activity' },
   { id: 'sports', label: 'Sports', icon: '⚽', group: 'Sports & Play', description: 'youth and pro sports: soccer, basketball, baseball games, athletes, competitions, team spirit' },
   { id: 'swimming', label: 'Swimming', icon: '🏊', group: 'Sports & Play', description: 'swimming stories: pools, swim lessons, swim teams, water safety' },
   { id: 'gymnastics', label: 'Gymnastics', icon: '🤸', group: 'Sports & Play', description: 'gymnastics: tumbling, balance beams, flips, gymnasts competing' },
@@ -93,6 +98,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'fishing', label: 'Fishing', icon: '🎣', group: 'Sports & Play', description: 'fishing trips: lakes, boats, catching fish, fishing with family' },
 
   // ---- Arts & Music ----
+  { id: 'arts-music-general', label: 'Arts & Music', icon: '🎨', group: 'Arts & Music', description: 'general arts and music news: creativity, artistic expression, performances' },
   { id: 'music', label: 'Music', icon: '🎵', group: 'Arts & Music', description: 'music stories: songs, concerts, bands, learning instruments, piano, guitar, young musicians' },
   { id: 'painting', label: 'Painting', icon: '🖌️', group: 'Arts & Music', description: 'painting and art: watercolors, famous paintings, artists, art projects' },
   { id: 'drawing', label: 'Drawing', icon: '✏️', group: 'Arts & Music', description: 'drawing: sketching, cartoons, doodles, learn-to-draw guides' },
@@ -103,6 +109,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'fashion', label: 'Fashion', icon: '👗', group: 'Arts & Music', description: 'fashion and style: fun outfits, designers, dress-up, costumes, runway shows' },
 
   // ---- Tech & Games ----
+  { id: 'tech-games-general', label: 'Tech & Games', icon: '💡', group: 'Tech & Games', description: 'general tech news: gadgets, gaming, innovation, digital world' },
   { id: 'video-games', label: 'Video Games', icon: '🎮', group: 'Tech & Games', description: 'video game news: new game releases, Minecraft, Nintendo, esports tournaments, gaming tips, kid-friendly games' },
   { id: 'coding', label: 'Coding', icon: '💻', group: 'Tech & Games', description: 'learning to code: programming for kids, Scratch, building apps and games' },
   { id: 'apps', label: 'Apps', icon: '📱', group: 'Tech & Games', description: 'app news: educational apps, tablets, phones, screen-time tips for families' },
@@ -113,6 +120,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'board-games', label: 'Board Games', icon: '🎲', group: 'Tech & Games', description: 'tabletop games: board games, card games, puzzles, family game night ideas, chess' },
 
   // ---- Shows & Fun ----
+  { id: 'shows-fun-general', label: 'Shows & Fun', icon: '🎪', group: 'Shows & Fun', description: 'general shows and fun news: entertainment, activities, amusement' },
   { id: 'family-movies', label: 'Family Movies', icon: '🎬', group: 'Shows & Fun', description: 'family film news: new animated movies, Disney, Pixar, movie night picks' },
   { id: 'tv-shows', label: 'TV Shows', icon: '📺', group: 'Shows & Fun', description: 'kids\' TV: new shows, cartoons, episodes, what to watch streaming' },
   { id: 'comics', label: 'Comics', icon: '💬', group: 'Shows & Fun', description: 'comics and graphic novels: manga, comic books, visual storytelling' },
@@ -121,11 +129,13 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'online-creators', label: 'Online Creators', icon: '🎥', group: 'Shows & Fun', description: 'online video stars: YouTubers, streamers, viral videos, kid creators, family channels' },
 
   // ---- Celebrity & Entertainment ----
+  { id: 'celebrity-entertainment-general', label: 'Celebrity & Entertainment', icon: '✨', group: 'Celebrity & Entertainment', description: 'general celebrity and entertainment news: stars, Hollywood, pop culture' },
   { id: 'entertainment', label: 'Entertainment', icon: '🌟', group: 'Celebrity & Entertainment', description: 'entertainment and pop culture news: celebrities, Hollywood, red carpets, viral stars, showbiz stories' },
   { id: 'celebrities', label: 'Celebrities', icon: '⭐', group: 'Celebrity & Entertainment', description: 'celebrity news: famous actors, musicians, athletes, star interviews, red carpet moments' },
   { id: 'hollywood', label: 'Hollywood', icon: '🎞️', group: 'Celebrity & Entertainment', description: 'Hollywood news: movie studios, film premieres, entertainment industry, blockbusters' },
 
   // ---- Planet & Weather ----
+  { id: 'planet-weather-general', label: 'Planet & Weather', icon: '🌎', group: 'Planet & Weather', description: 'general planet and weather news: earth, climate, seasons, environment' },
   { id: 'weather', label: 'Weather', icon: '🌤️', group: 'Planet & Weather', description: 'weather stories: forecasts, rain, snow, storms, seasons, tornadoes, weather science' },
   { id: 'environment', label: 'Environment', icon: '🌍', group: 'Planet & Weather', description: 'planet protection: conservation, recycling, climate action, pollution cleanup, Earth Day' },
   { id: 'gardening', label: 'Gardening', icon: '🌱', group: 'Planet & Weather', description: 'gardening with kids: planting seeds, growing vegetables, flowers, garden projects' },
@@ -135,6 +145,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'clouds', label: 'Clouds', icon: '☁️', group: 'Planet & Weather', description: 'cloud watching: cloud shapes, types of clouds, sky science' },
 
   // ---- Travel & Places ----
+  { id: 'travel-places-general', label: 'Travel & Places', icon: '🧳', group: 'Travel & Places', description: 'general travel news: destinations, adventures, exploring places' },
   { id: 'travel', label: 'Travel', icon: '✈️', group: 'Travel & Places', description: 'family travel: vacations, airplanes, hotels, tourist attractions, trip planning' },
   { id: 'camping', label: 'Camping', icon: '🏕️', group: 'Travel & Places', description: 'camping trips: tents, campfires, campgrounds, sleeping under the stars' },
   { id: 'road-trips', label: 'Road Trips', icon: '🚙', group: 'Travel & Places', description: 'road trip stories: car rides, highways, rest stops, scenic drives' },
@@ -144,6 +155,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'world-cultures', label: 'World Cultures', icon: '🌏', group: 'Travel & Places', description: 'kids around the world: traditions, festivals, daily life in other countries, cultural celebrations' },
 
   // ---- Holidays ----
+  { id: 'holidays-general', label: 'Holidays', icon: '🎉', group: 'Holidays', description: 'general holiday news: celebrations, traditions, festive events' },
   { id: 'holidays', label: 'Holidays', icon: '🎄', group: 'Holidays', description: 'holiday celebrations: traditions, festivals, family gatherings' },
   { id: 'christmas', label: 'Christmas', icon: '🎅', group: 'Holidays', description: 'Christmas stories: Santa, gifts, trees, holiday spirit, Christmas morning' },
   { id: 'halloween', label: 'Halloween', icon: '🎃', group: 'Holidays', description: 'Halloween fun: costumes, trick-or-treating, pumpkins, spooky (not scary) stories' },
@@ -152,6 +164,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'new-year', label: 'New Year', icon: '🎆', group: 'Holidays', description: 'New Year: fireworks, resolutions, countdowns, fresh starts' },
 
   // ---- Community & Life ----
+  { id: 'community-life-general', label: 'Community & Life', icon: '🏘️', group: 'Community & Life', description: 'general community news: people, volunteering, local heroes, daily life' },
   { id: 'community-heroes', label: 'Community Heroes', icon: '🤝', group: 'Community & Life', description: 'local heroes: neighbors helping neighbors, volunteers, acts of kindness, community projects' },
   { id: 'health', label: 'Health', icon: '🩺', group: 'Community & Life', description: 'health news: doctors, wellness, exercise, nutrition, how to stay healthy' },
   { id: 'money', label: 'Money & Saving', icon: '💰', group: 'Community & Life', description: 'money skills: saving, allowance, kid entrepreneurs, how money works' },
@@ -175,6 +188,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'government', label: 'Government', icon: '🏢', group: 'Politics', excluded: true, description: 'government and policy news: new laws, government decisions, public policy, regulations' },
 
   // ---- Countries ----
+  { id: 'countries-general', label: 'Countries', icon: '🌐', group: 'Countries', description: 'general country news: nations around the world, international stories' },
   // Geographic grouping: tag stories by the country they are about/from.
   // Powers country boards today; pairs with the planned region/country_code
   // columns for per-country content serving later.
