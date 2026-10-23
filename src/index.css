@@ -2275,7 +2275,16 @@ body.story-modal-open {
   color: var(--news-text-secondary, #94a3b8);
 }
 
-/* Space picker within the playroom section */
+/* Spaces section on the playroom page */
+.playroom-spaces-section {
+  grid-column: 1 / -1;
+  margin-bottom: 0.5rem;
+}
+.playroom-spaces-section .space-section-title {
+  margin-bottom: 0.75rem;
+}
+
+/* Space picker within the playroom section of the dialog */
 .playroom-add-space-picker {
   margin-top: 0.5rem;
   padding: 0.75rem;
