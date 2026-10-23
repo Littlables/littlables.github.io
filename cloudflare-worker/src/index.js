@@ -53,7 +53,7 @@ import {
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories } from './embedding-classifier.mjs';
-import { getInterestKeyword, INTEREST_KEYWORDS } from './interest-keywords.mjs';
+import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
@@ -1008,6 +1008,75 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('News story interest-keywords update failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story keywords' }, 502);
+    }
+  }
+
+  // LLM keyword tagging: have the model read the story and pick the keywords
+  // that actually fit (judged by meaning, not word association), then store
+  // them. Used from the validation list's "AI tags" button to correct
+  // embedding misfires. Budget: 1 story fetch + 1 LLM call + 1 PATCH.
+  const llmKwMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/llm-keywords$/);
+  if (llmKwMatch && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story keyword tagging must be requested from the admin origin' }, 403);
+    }
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    try {
+      const storyId = llmKwMatch[1];
+      const storyQuery = new URLSearchParams({ id: `eq.${storyId}`, select: 'id,title,description' });
+      const storyRes = await fetch(supabaseUrl(env, STORIES_TABLE, storyQuery), {
+        headers: supabaseHeaders(env),
+      });
+      if (!storyRes.ok) throw new Error(`Story lookup failed (HTTP ${storyRes.status})`);
+      const storyRows = await storyRes.json();
+      if (!Array.isArray(storyRows) || storyRows.length === 0) {
+        return jsonResponse({ error: 'Story was not found' }, 404);
+      }
+      const story = storyRows[0];
+      const keywordList = INTEREST_KEYWORDS.map((k) => `${k.id}: ${k.label}`).join('\n');
+      const prompt =
+        'You are tagging a family-friendly news story with topic keywords.\n\n' +
+        `Title: ${story.title || ''}\n` +
+        `Description: ${(story.description || '').slice(0, 1200)}\n\n` +
+        'Pick up to 3 keywords from this list that best describe what the story is ACTUALLY about. ' +
+        'Judge by meaning, not by words in the text — a passing mention of a person, brand, or object does not count. ' +
+        'For example, a story mentioning Elon Musk and Starlink is about satellites and geopolitics, not electric cars; ' +
+        'a story about a broken office globe is about history, not outer space.\n\n' +
+        `${keywordList}\n\n` +
+        'Respond with ONLY a JSON array of keyword ids, e.g. ["space", "science"]. If none fit well, respond with [].';
+      const aiRes = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: 200,
+        temperature: 0.1,
+      });
+      const rawText = typeof aiRes === 'string' ? aiRes : (aiRes?.response || '');
+      const jsonMatch = rawText.match(/\[[\s\S]*?\]/);
+      let picked = [];
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) picked = parsed;
+        } catch { /* fall through to empty */ }
+      }
+      const clean = normalizeInterestKeywords(picked);
+      const result = await setStoryInterestKeywords(env, storyId, clean);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not store LLM keywords' }, 502);
+      return jsonResponse({
+        id: Number(storyId),
+        interest_keywords: result.interestKeywords,
+        llm_picks: (result.interestKeywords || []).map((id) => {
+          const kw = getInterestKeyword(id);
+          return kw ? { id: kw.id, label: kw.label, icon: kw.icon } : { id };
+        }),
+      });
+    } catch (err) {
+      console.error('LLM keyword tagging failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'LLM keyword tagging failed' }, 502);
     }
   }
 

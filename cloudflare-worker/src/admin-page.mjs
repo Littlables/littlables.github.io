@@ -5306,6 +5306,28 @@ export function getAdminPage() {
                 }
                 var kwBtn = mkBtn('Keywords', 'secondary small-btn');
                 kwBtn.addEventListener('click', function () { toggleKeywordPicker(row, m, actions, kwBtn, rowBtns); });
+                var aiBtn = mkBtn('🤖 AI tags', 'secondary small-btn');
+                aiBtn.addEventListener('click', function () {
+                  aiBtn.disabled = true;
+                  var originalLabel = aiBtn.textContent;
+                  aiBtn.textContent = 'Thinking…';
+                  fetch('/admin/api/stories/' + m.id + '/llm-keywords', { method: 'POST' })
+                    .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                    .then(function (out) {
+                      if (!out.ok) throw new Error(out.data.error || 'AI tagging failed');
+                      patchValidationRow(m.id, {
+                        interestKeywords: out.data.interest_keywords,
+                        keywordMatches: [],
+                      });
+                    })
+                    .catch(function (err) {
+                      if (validateStatus) validateStatus.textContent = 'AI tagging failed: ' + (err.message || 'unknown error');
+                    })
+                    .finally(function () {
+                      aiBtn.disabled = false;
+                      aiBtn.textContent = originalLabel;
+                    });
+                });
                 row.appendChild(actions);
                 validationRowRegistry.set(Number(m.id), { m: m, row: row, render: createValidationRow });
                 return row;

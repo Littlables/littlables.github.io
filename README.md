@@ -60,7 +60,13 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 - **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs` (100 keywords in 12 groups)
 - **Trigger:** Same validation run as #4 (no extra AI calls per story — the story embedding is reused)
 - **What it does:** Tags stories with up to 3 interest keywords at cosine similarity ≥ 0.45. Keywords are a cross-cutting layer — never shown as categories. Stored in the `interest_keywords` column; served via `GET /feed?keyword=` for custom boards and hand-editable in the admin panel (grouped picker).
-- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled in chunks of 40 per run. Tagging is all-or-nothing — it waits until all 100 vectors exist, so stories are never tagged against a partial set.
+- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled 25/run as a standalone warmup step. Tagging is all-or-nothing — it waits until all 100 vectors exist. Vectors are keyed by `KEYWORD_DESCRIPTIONS_VERSION`; bumping it recomputes them when descriptions are sharpened.
+
+### 6. LLM keyword correction
+- **Model:** `@cf/meta/llama-3.1-8b-instruct`
+- **Location:** `cloudflare-worker/src/index.js` → `POST /admin/api/stories/:id/llm-keywords`
+- **Trigger:** Manual via the "🤖 AI tags" button on each validation-list row
+- **What it does:** Reads the story's title + description and picks up to 3 keywords from the 100-keyword list by meaning (not word association — e.g. a Musk/Starlink story gets satellite/geopolitics-appropriate tags, not electric cars). Corrects embedding misfires; the row updates in place. Budget: 1 story fetch + 1 LLM call + 1 PATCH per click.
 
 ## Cloudflare Worker news providers
 

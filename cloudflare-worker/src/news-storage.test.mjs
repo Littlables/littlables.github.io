@@ -623,7 +623,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
         INTEREST_KEYWORDS.map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1, 0.2, 0.3],
-          model: '@cf/baai/bge-base-en-v1.5',
+          model: '@cf/baai/bge-base-en-v1.5:kwv2',
         }))
       );
     }
@@ -653,6 +653,40 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
   }
 });
 
+test('getPersistedKeywordEmbeddings ignores vectors from an older description version', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  // All 100 stored, but with the v1 model string -> treated as missing
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      if (options && options.method === 'POST') return Response.json([]);
+      return Response.json(
+        INTEREST_KEYWORDS.map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [0.1],
+          model: '@cf/baai/bge-base-en-v1.5',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => ({ data: [[0.2]] }) },
+  };
+  try {
+    const result = await getPersistedKeywordEmbeddings(aiEnv);
+    // One chunk (25) backfilled with the new version; still incomplete
+    assert.equal(result.complete, false);
+    assert.equal(result.done, 25);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
 test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-nothing', async () => {
   clearKeywordVectorCache();
   const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
@@ -666,7 +700,7 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
         INTEREST_KEYWORDS.slice(0, 99).map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1],
-          model: '@cf/baai/bge-base-en-v1.5',
+          model: '@cf/baai/bge-base-en-v1.5:kwv2',
         }))
       );
     }

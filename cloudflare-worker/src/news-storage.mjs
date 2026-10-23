@@ -1,6 +1,10 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL } from './embedding-classifier.mjs';
+
+// Stored keyword vectors are keyed by description version: when descriptions
+// are sharpened, old vectors stop matching and get recomputed.
+const KEYWORD_VECTOR_MODEL = `${EMBEDDING_MODEL}:kwv${KEYWORD_DESCRIPTIONS_VERSION}`;
 
 export const STORIES_TABLE = 'news_stories';
 const SYNC_TABLE = 'news_provider_sync';
@@ -148,7 +152,7 @@ export async function getPersistedKeywordEmbeddings(env) {
     const rows = await readRows(res, 'Keyword embeddings lookup');
     for (const row of rows) {
       if (
-        row.model === EMBEDDING_MODEL &&
+        row.model === KEYWORD_VECTOR_MODEL &&
         Array.isArray(row.embedding) &&
         row.embedding.length > 0
       ) {
@@ -171,7 +175,7 @@ export async function getPersistedKeywordEmbeddings(env) {
     chunk.forEach((kw, j) => {
       if (vectors[j]) {
         map.set(kw.id, vectors[j]);
-        upserts.push({ keyword_id: kw.id, embedding: vectors[j], model: EMBEDDING_MODEL });
+        upserts.push({ keyword_id: kw.id, embedding: vectors[j], model: KEYWORD_VECTOR_MODEL });
       }
     });
     if (upserts.length > 0) {
