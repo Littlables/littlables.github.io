@@ -21,8 +21,7 @@ import { BoardPage } from './components/BoardPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
-import { fetchAdsForCategory, fetchAdKeywordTagsForStories, applyAdKeywordTags } from './services/adsService';
-import { matchAdsToStory } from './services/adKeywordMatcher';
+import { fetchAdsForCategory, fetchMatchedAdIds } from './services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -245,23 +244,27 @@ export const App: React.FC = () => {
       setStories(displayStories);
       setAds(categoryAds);
 
-      // Keyword-match ads to stories (non-blocking: falls back to rotation if no tags).
-      // Untagged stories are classified on-demand by the worker; tagged stories
-      // use their existing keywords. One batched call, then match per ad slot.
+      // Keyword-match ads to stories server-side (non-blocking).
+      // Worker classifies untagged stories, ranks ads, returns ad IDs.
+      // Frontend looks up ad content by ID from the JSON cache.
+      // Falls back to rotation when matching fails or returns nothing.
       try {
-        const { tags, storyKeywords } = await fetchAdKeywordTagsForStories(displayStories as any);
-        const taggedAds = applyAdKeywordTags(categoryAds, tags);
+        const matches = await fetchMatchedAdIds(displayStories as any);
+        // Build ad lookup by ID from the fetched pool
+        const adById = new Map<string, AdItem>();
+        for (const ad of categoryAds) {
+          if (ad.id) adById.set(ad.id, ad);
+        }
         const matched: Record<number, AdItem> = {};
         displayStories.forEach((story, index) => {
           if ((index + 1) % 3 !== 0) return; // ad slot after every 3rd story
-          // Use on-demand classified keywords if story had none
-          const kws = storyKeywords[index] || (story as any).interest_keywords || (story as any).interestKeywords || [];
-          const storyWithKws = { ...(story as any), interest_keywords: kws };
-          const results = matchAdsToStory(storyWithKws, taggedAds);
-          if (results.length > 0) {
+          const adIds = matches[index] || [];
+          if (adIds.length > 0) {
             // Pick top match, cycling by slot so the same ad doesn't repeat
             const slot = Math.floor(index / 3);
-            matched[index] = results[slot % results.length];
+            const adId = adIds[slot % adIds.length];
+            const ad = adById.get(adId);
+            if (ad) matched[index] = ad;
           }
         });
         setStoryAds(matched);

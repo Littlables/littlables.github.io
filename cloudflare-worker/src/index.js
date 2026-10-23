@@ -69,6 +69,7 @@ import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
+import { matchAdsToStory } from './ad-keyword-matcher.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -2397,17 +2398,22 @@ export default {
     // For stories without keywords, runs the embedding classifier (1 AI call each).
     // Then queries ad tags with array overlap. Keeps total subrequests low by
     // batching: N embeddings + 1 Supabase query.
-    if (request.method === 'POST' && pathname === '/ads/tags-for-stories') {
+    // POST /ads/match — match ads to stories server-side.
+    // Body: { stories: [{title, description, keywords?}] }
+    // Classifies untagged stories via embeddings, queries ad_keyword_tags,
+    // ranks via matchAdsToStory, returns ranked ad IDs per story index.
+    // Frontend looks up ad content by ID from its JSON cache.
+    // Response: { matches: { [storyIndex]: [adId, ...] } }
+    if (request.method === 'POST' && pathname === '/ads/match') {
       try {
         if (!env.AI) throw new Error('Workers AI not available');
         const body = await request.json().catch(() => ({}));
         const stories = Array.isArray(body.stories) ? body.stories.slice(0, 20) : [];
-        if (!stories.length) return jsonResponse({ tags: {}, count: 0 });
+        if (!stories.length) return jsonResponse({ matches: {} });
 
         const keywordVectors = await getKeywordEmbeddings(env);
         const allKeywords = new Set();
         const storyKeywords = [];
-        // Collect existing keywords; classify stories that lack them.
         for (const s of stories) {
           const existing = s.keywords || s.interest_keywords || s.interestKeywords || [];
           if (Array.isArray(existing) && existing.length > 0) {
@@ -2444,13 +2450,29 @@ export default {
         );
         if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
         const rows = await res.json();
-        const tags = {};
-        for (const r of (Array.isArray(rows) ? rows : [])) {
-          if (r.ad_id) tags[r.ad_id] = r.keywords || [];
-        }
-        return jsonResponse({ tags, count: Object.keys(tags).length, storyKeywords });
+
+        const ads = (Array.isArray(rows) ? rows : [])
+          .filter(r => r.ad_id)
+          .map(r => ({ id: r.ad_id, keywords: r.keywords || [] }));
+
+        const { EXCLUDED_KEYWORD_IDS } = await import('./interest-keywords.mjs');
+        const matches = {};
+        stories.forEach((s, idx) => {
+          const kws = storyKeywords[idx];
+          if (!kws || kws.length === 0 || ads.length === 0) return;
+          const ranked = matchAdsToStory(
+            { interest_keywords: kws },
+            ads,
+            { excludedKeywordIds: EXCLUDED_KEYWORD_IDS }
+          );
+          if (ranked.length > 0) {
+            matches[idx] = ranked.map(a => a.id);
+          }
+        });
+
+        return jsonResponse({ matches });
       } catch (err) {
-        return jsonResponse({ tags: {}, count: 0, error: err.message });
+        return jsonResponse({ matches: {}, error: err.message });
       }
     }
     if (request.method === 'GET' && pathname === '/ads') {

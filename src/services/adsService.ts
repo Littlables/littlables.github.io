@@ -408,21 +408,18 @@ let adTagsCache: Record<string, string[]> | null = null;
 let adTagsCacheKey = '';
 
 /**
- * Fetch ad keyword tags for stories, classifying untagged stories on-demand.
- * POST /ads/tags-for-stories classifies stories without keywords via embeddings,
- * then returns ad tags matching any of the stories' keywords, plus per-story keywords.
- * Cached per story set. Returns empty object on failure.
+ * Match ads to stories server-side.
+ * POST /ads/match classifies untagged stories, queries the tags table,
+ * ranks via matchAdsToStory, and returns ranked ad IDs per story index.
+ * Frontend looks up ad content by ID from its JSON cache.
+ * Returns { [storyIndex]: adId[] }. Empty on failure (fallback to rotation).
  */
-export async function fetchAdKeywordTagsForStories(
+export async function fetchMatchedAdIds(
   stories: { title?: string; description?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[] }[]
-): Promise<{ tags: Record<string, string[]>; storyKeywords: string[][] }> {
-  const cacheKey = stories.map(s => s.title || '').join('|').slice(0, 200);
-  if (adTagsCache && adTagsCacheKey === cacheKey) {
-    return { tags: adTagsCache, storyKeywords: [] };
-  }
+): Promise<Record<number, string[]>> {
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
-    url.pathname = '/ads/tags-for-stories';
+    url.pathname = '/ads/match';
     const payload = {
       stories: stories.slice(0, 20).map(s => ({
         title: s.title || '',
@@ -435,15 +432,11 @@ export async function fetchAdKeywordTagsForStories(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) throw new Error('tags fetch failed');
+    if (!response.ok) throw new Error('match failed');
     const data = await response.json();
-    adTagsCache = data?.tags || {};
-    adTagsCacheKey = cacheKey;
-    return { tags: adTagsCache, storyKeywords: data?.storyKeywords || [] };
+    return data?.matches || {};
   } catch {
-    adTagsCache = {};
-    adTagsCacheKey = cacheKey;
-    return { tags: {}, storyKeywords: [] };
+    return {};
   }
 }
 
