@@ -17,6 +17,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog } from './components/SignInDialog';
 import { ProfileDialog } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
+import { BoardPage } from './components/BoardPage';
 import { SpaceRoutePage } from './components/SpaceRoutePage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
@@ -54,6 +55,26 @@ function parseBoardFromUrl(): { username: string; slug: string } | null {
   if (typeof window === 'undefined') return null;
   const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/?$/i);
   return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
+}
+
+/** Extracts a `@username/spaces/spaceslug` direct space route, e.g. `/@katie/spaces/cozy-reads`. */
+function parseSpaceFromUrl(): { username: string; slug: string } | null {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/spaces\/([a-z0-9-]{1,50})\/?$/i);
+  return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
+}
+
+/** Extracts a `@username/playroomslug/spaceslug` playroom-context space route. */
+function parsePlayroomSpaceFromUrl(): { username: string; playroom: string; space: string } | null {
+  if (typeof window === 'undefined') return null;
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/([a-z0-9-]{1,50})\/?$/i);
+  if (!match) return null;
+  if (match[2].toLowerCase() === 'spaces') return null; // reserved for the direct space route
+  return {
+    username: match[1].toLowerCase(),
+    playroom: match[2].toLowerCase(),
+    space: match[3].toLowerCase(),
+  };
 }
 
 /** True when on the standalone `/about` landing page. */
@@ -137,6 +158,8 @@ export const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
   const [boardRoute, setBoardRoute] = useState<{ username: string; slug: string } | null>(() => parseBoardFromUrl());
+  const [spaceRoute, setSpaceRoute] = useState<{ username: string; slug: string } | null>(() => parseSpaceFromUrl());
+  const [playroomSpaceRoute, setPlayroomSpaceRoute] = useState<{ username: string; playroom: string; space: string } | null>(() => parsePlayroomSpaceFromUrl());
   const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
   // Board branding shown in the header while viewing a board page
   const [boardBrand, setBoardBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
@@ -195,12 +218,32 @@ export const App: React.FC = () => {
       setAboutRoute(urlAbout);
       if (urlAbout) {
         setBoardRoute(null);
+        setSpaceRoute(null);
+        setPlayroomSpaceRoute(null);
+        setProfileRoute(null);
+        return;
+      }
+      const urlPlayroomSpace = parsePlayroomSpaceFromUrl();
+      setPlayroomSpaceRoute(urlPlayroomSpace);
+      if (urlPlayroomSpace) {
+        setBoardRoute(null);
+        setSpaceRoute(null);
+        setProfileRoute(null);
+        return;
+      }
+      const urlSpace = parseSpaceFromUrl();
+      setSpaceRoute(urlSpace);
+      if (urlSpace) {
+        setBoardRoute(null);
+        setPlayroomSpaceRoute(null);
         setProfileRoute(null);
         return;
       }
       const urlBoard = parseBoardFromUrl();
       setBoardRoute(urlBoard);
       if (urlBoard) {
+        setSpaceRoute(null);
+        setPlayroomSpaceRoute(null);
         setProfileRoute(null);
         return;
       }
@@ -524,6 +567,23 @@ export const App: React.FC = () => {
               signedIn={!!profile?.username}
             />
           </main>
+        ) : playroomSpaceRoute ? (
+          <BoardPage
+            username={playroomSpaceRoute.username}
+            slug={playroomSpaceRoute.space}
+            playroomSlug={playroomSpaceRoute.playroom}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+            onBrand={setBoardBrand}
+          />
+        ) : spaceRoute ? (
+          <BoardPage
+            username={spaceRoute.username}
+            slug={spaceRoute.slug}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+            onBrand={setBoardBrand}
+          />
         ) : boardRoute ? (
           <SpaceRoutePage
             username={boardRoute.username}

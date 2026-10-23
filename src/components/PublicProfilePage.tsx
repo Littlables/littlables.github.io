@@ -194,7 +194,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
                     type="button"
                     className="space-board-card"
                     onClick={() => {
-                      window.history.pushState({}, '', `/@${profile.username}/${board.slug}`);
+                      window.history.pushState({}, '', `/@${profile.username}/spaces/${board.slug}`);
                       window.dispatchEvent(new PopStateEvent('popstate'));
                     }}
                   >

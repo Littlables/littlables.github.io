@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
 import { Profile, useAuth } from '../contexts/AuthContext';
 import { Board, getBoardBySlug } from '../services/boardService';
+import { Playroom, getPlayroomBySlug } from '../services/playroomService';
 import { fetchNewsFeed, fetchKeywordFeed } from '../services/newsService';
 import {
   fetchReactionsForStories,
@@ -15,6 +16,8 @@ import type { NewsItem, NewsCategory, ReactionCounts, ReactionType } from '../ty
 interface BoardPageProps {
   username: string;
   slug: string;
+  /** When set, the space is viewed inside this playroom: its theme applies + a back link shows. */
+  playroomSlug?: string;
   onHome: () => void;
   onOpenProfile: () => void;
   onBrand: (brand: { name: string; logoUrl: string | null } | null) => void;
@@ -25,25 +28,28 @@ const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow
 export const BoardPage: React.FC<BoardPageProps> = ({
   username,
   slug,
+  playroomSlug,
   onHome,
   onOpenProfile,
   onBrand,
 }) => {
   const { user, profile: viewerProfile } = useAuth();
   const [board, setBoard] = useState<Board | null>(null);
+  const [playroom, setPlayroom] = useState<Playroom | null>(null);
   const [owner, setOwner] = useState<Profile | null>(null);
   const [stories, setStories] = useState<NewsItem[]>([]);
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Fetch the board + its owner
+  // Fetch the board + its owner (+ the playroom when in playroom context)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setNotFound(false);
       setBoard(null);
+      setPlayroom(null);
       try {
         const result = await getBoardBySlug(username, slug);
         if (cancelled) return;
@@ -62,6 +68,10 @@ export const BoardPage: React.FC<BoardPageProps> = ({
             .maybeSingle();
           if (!cancelled && ownerProfile) setOwner(ownerProfile as Profile);
         }
+        if (playroomSlug) {
+          const pr = await getPlayroomBySlug(username, playroomSlug);
+          if (!cancelled && pr) setPlayroom(pr.playroom);
+        }
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
@@ -73,19 +83,22 @@ export const BoardPage: React.FC<BoardPageProps> = ({
       onBrand(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username, slug]);
+  }, [username, slug, playroomSlug]);
 
-  // Apply the board's theme + background (falling back to the owner's), restore on unmount.
-  // A board theme of 'none' means: use whatever theme the viewer has selected.
-  // If the viewer has enabled "always use my theme", skip board/owner theming entirely.
+  // Apply the theme + background, restore on unmount.
+  // In playroom context the playroom's theme wins (spaces are themeless feeds);
+  // otherwise the board's theme, falling back to the owner's.
+  // A theme of 'none' means: use whatever theme the viewer has selected.
+  // If the viewer has enabled "always use my theme", skip theming entirely.
   useEffect(() => {
     if (!board) return;
     const root = document.documentElement;
     const prevTheme = root.getAttribute('data-theme');
     const prevBg = root.style.getPropertyValue('--news-bg');
     const useViewerTheme = viewerProfile?.use_viewer_theme_for_boards === true;
-    const theme = useViewerTheme ? null : (board.theme === 'none' ? null : (board.theme || owner?.theme));
-    const bg = useViewerTheme ? null : (board.background_color || owner?.background_color);
+    const themeSource = playroomSlug ? playroom : board;
+    const theme = useViewerTheme ? null : (themeSource?.theme === 'none' ? null : (themeSource?.theme || owner?.theme));
+    const bg = useViewerTheme ? null : ((playroomSlug ? playroom?.background_color : board.background_color) || owner?.background_color);
     if (theme && VALID_THEMES.includes(theme)) root.setAttribute('data-theme', theme);
     if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) root.style.setProperty('--news-bg', bg);
     return () => {
@@ -93,7 +106,7 @@ export const BoardPage: React.FC<BoardPageProps> = ({
       if (prevBg) root.style.setProperty('--news-bg', prevBg);
       else root.style.removeProperty('--news-bg');
     };
-  }, [board, owner, viewerProfile?.use_viewer_theme_for_boards]);
+  }, [board, playroom, owner, playroomSlug, viewerProfile?.use_viewer_theme_for_boards]);
 
   // Fetch stories for the board's pills, merged + deduped
   useEffect(() => {
@@ -224,6 +237,20 @@ export const BoardPage: React.FC<BoardPageProps> = ({
             </button>
           </div>
           {board.description && <p className="board-page-description">{board.description}</p>}
+          {playroom && (
+            <div className="board-page-owner" style={{ marginTop: '0.35rem' }}>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  window.history.pushState({}, '', `/@${username}/${playroom.slug}`);
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+              >
+                ← Back to 🛝 {playroom.name}
+              </button>
+            </div>
+          )}
         </div>
         {isOwner && (
           <button type="button" className="sign-in-button secondary-button" onClick={onOpenProfile}>

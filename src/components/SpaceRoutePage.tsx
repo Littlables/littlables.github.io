@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getPlayroomBySlug } from '../services/playroomService';
 import { PlayroomPage } from './PlayroomPage';
-import { BoardPage } from './BoardPage';
 
 interface SpaceRoutePageProps {
   username: string;
@@ -12,29 +11,36 @@ interface SpaceRoutePageProps {
 }
 
 /**
- * Resolves `/@username/<slug>`: a playroom slug wins, otherwise falls back
- * to the board (space) page. Keeps old `/@user/<boardslug>` links working.
+ * Resolves the legacy `/@username/<slug>` route: a playroom slug renders the
+ * playroom page; anything else redirects to the canonical `/@username/spaces/<slug>`
+ * space URL (which 404s if it's not a space either).
  */
 export const SpaceRoutePage: React.FC<SpaceRoutePageProps> = (props) => {
   const { username, slug } = props;
-  const [kind, setKind] = useState<'playroom' | 'board' | null>(null);
+  const [isPlayroom, setIsPlayroom] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setKind(null);
+    setIsPlayroom(null);
+    const redirectToSpace = () => {
+      window.history.replaceState({}, '', `/@${username}/spaces/${slug}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    };
     getPlayroomBySlug(username, slug)
       .then((result) => {
-        if (!cancelled) setKind(result ? 'playroom' : 'board');
+        if (cancelled) return;
+        if (result) setIsPlayroom(true);
+        else redirectToSpace();
       })
       .catch(() => {
-        if (!cancelled) setKind('board');
+        if (!cancelled) redirectToSpace();
       });
     return () => {
       cancelled = true;
     };
   }, [username, slug]);
 
-  if (kind === null) {
+  if (!isPlayroom) {
     return (
       <main className="news-grid">
         <div className="news-loading-skeleton" role="status">
@@ -44,10 +50,7 @@ export const SpaceRoutePage: React.FC<SpaceRoutePageProps> = (props) => {
     );
   }
 
-  if (kind === 'playroom') {
-    return <PlayroomPage {...props} />;
-  }
-  return <BoardPage {...props} />;
+  return <PlayroomPage {...props} />;
 };
 
 export default SpaceRoutePage;
