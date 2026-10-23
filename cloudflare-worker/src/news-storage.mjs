@@ -106,14 +106,11 @@ export async function getStoredNewsFeed(env, category) {
       // it has no override (NULL display_categories) and its assigned category
       // matches, or when its display_categories list contains this category.
       // (The PATCH endpoint normalizes empty lists to NULL, so is.null is enough.)
-      const categoryOr = `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`;
-      if (exclusionNotAnd) {
-        params.set('and', `(${categoryOr},${exclusionNotAnd})`);
-      } else {
-        params.set('or', categoryOr);
-      }
-    } else if (exclusionNotAnd) {
-      params.set('not', `and=(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
+      params.set('or', `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`);
+    }
+    if (exclusionNotAnd) {
+      // PostgREST ANDs top-level params: (category match) AND NOT (tagged AND overlaps excluded)
+      params.set('not.and', `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
     }
     return params;
   };
