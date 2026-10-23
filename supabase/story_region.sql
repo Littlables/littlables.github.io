@@ -1,6 +1,7 @@
 -- Story region/country classification.
 -- Stores where each story is from: country_code (ISO) + region (broad).
 -- 'global' region = no clear country (world news, science, etc.).
+-- Forced re-run 2026-10-23: ensure columns exist.
 
 -- Dependency: country_regions table (also in analytics_country.sql; duplicated for ordering safety).
 CREATE TABLE IF NOT EXISTS public.country_regions (
