@@ -1132,7 +1132,7 @@ export function getAdminPage() {
         <h2 id="embedding-validation-title">
           <button id="embedding-validation-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="embedding-validation-body" data-section-toggle="embedding-validation">
             <span id="embedding-validation-arrow" class="section-arrow" aria-hidden="true">▲</span>
-            <span>Embedding Category Validation <span id="embedding-validation-count"></span></span>
+            <span>Classify <span id="embedding-validation-count"></span></span>
           </button>
         </h2>
       </div>
@@ -5539,7 +5539,7 @@ export function getAdminPage() {
             }
           }
           const countEl = document.getElementById('embedding-validation-count');
-          if (countEl) countEl.textContent = allMismatches.length ? '(' + allMismatches.length + ' mismatches)' : '';
+          if (countEl) countEl.textContent = allMismatches.length ? '(' + allMismatches.length + ')' : '';
         } catch (err) {
           if (validateStatus) validateStatus.textContent = 'Error: ' + (err.message || 'Validation failed');
         } finally {
