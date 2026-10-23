@@ -21,7 +21,6 @@ interface PlayroomPageProps {
   username: string;
   slug: string;
   onHome: () => void;
-  onOpenProfile: () => void;
   onBrand: (brand: { name: string; logoUrl: string | null } | null) => void;
 }
 
@@ -31,10 +30,9 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   username,
   slug,
   onHome,
-  onOpenProfile,
   onBrand,
 }) => {
-  const { user, profile: viewerProfile } = useAuth();
+  const { profile: viewerProfile } = useAuth();
   const [playroom, setPlayroom] = useState<Playroom | null>(null);
   const [owner, setOwner] = useState<Profile | null>(null);
   const [spaces, setSpaces] = useState<Board[]>([]);
@@ -186,8 +184,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     if (item.link) window.open(item.link, '_blank', 'noopener');
   }, []);
 
-  const isOwner = !!user && !!owner && user.id === owner.id;
-
   if (loading) {
     return (
       <main className="news-grid">
@@ -225,7 +221,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           <div className="board-page-logo-fallback">{(playroom.name || '?')[0].toUpperCase()}</div>
         )}
         <div>
-          <h1 className="board-page-title">🛝 {playroom.name}</h1>
+          <h1 className="board-page-title">{playroom.name}</h1>
           {spaces.length > 0 && (
             <div className="news-category-container playroom-space-pills">
               <nav className="news-category-bar" aria-label="Spaces in this playroom">
@@ -263,11 +259,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           </div>
           {playroom.description && <p className="board-page-description">{playroom.description}</p>}
         </div>
-        {isOwner && (
-          <button type="button" className="sign-in-button secondary-button" onClick={onOpenProfile}>
-            ✏️ Edit playroom
-          </button>
-        )}
       </div>
 
       {stories.length === 0 ? (
