@@ -41,6 +41,7 @@ export interface AdItem {
   url?: string;
   category?: string;
   network?: string;
+  keywords?: string[];
 }
 
 export interface ReactionCounts {

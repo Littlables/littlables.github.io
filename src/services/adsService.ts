@@ -402,3 +402,58 @@ export function getRandomAds(ads: AdItem[], count: number = 2): AdItem[] {
   const mixed = deprioritizeVrChatAds(shuffleArray(ads));
   return mixed.slice(0, count);
 }
+
+/** Cached ad keyword tags: ad_id -> keyword ids. Fetched once per session. */
+let adTagsCache: Record<string, string[]> | null = null;
+
+/**
+ * Fetch all ad keyword tags from the worker (GET /ads/tags).
+ * Returns a map of ad_id -> keyword ids. Cached after first fetch.
+ * Returns empty object on failure (graceful degradation to category matching).
+ */
+export async function fetchAdKeywordTags(): Promise<Record<string, string[]>> {
+  if (adTagsCache) return adTagsCache;
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads/tags';
+    const response = await fetch(url.href, { cache: 'no-cache' });
+    if (!response.ok) throw new Error('tags fetch failed');
+    const data = await response.json();
+    adTagsCache = data?.tags || {};
+    return adTagsCache;
+  } catch {
+    adTagsCache = {};
+    return {};
+  }
+}
+
+/**
+ * Merge keyword tags onto ads by ID (mutates copies, not the originals).
+ */
+export function applyAdKeywordTags(ads: AdItem[], tags: Record<string, string[]>): AdItem[] {
+  return ads.map((ad) => {
+    if (!ad.id || !tags[ad.id]) return ad;
+    return { ...ad, keywords: tags[ad.id] };
+  });
+}
+
+/**
+ * Get keyword-matched ads for a story, best match first.
+ * Falls back to the input order (category-based) when no keywords match.
+ */
+export async function getMatchedAdsForStory(
+  story: { interest_keywords?: string[]; interestKeywords?: string[]; category?: string },
+  ads: AdItem[],
+  count: number = 2
+): Promise<AdItem[]> {
+  if (!ads || !ads.length) return [];
+  const tags = await fetchAdKeywordTags();
+  const taggedAds = applyAdKeywordTags(ads, tags);
+  const { matchAdsToStory } = await import('./adKeywordMatcher');
+  const matched = matchAdsToStory(story, taggedAds);
+  if (matched.length > 0) {
+    return matched.slice(0, count);
+  }
+  // No keyword matches: fall back to shuffled category ads
+  return getRandomAds(ads, count);
+}
