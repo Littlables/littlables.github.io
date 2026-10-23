@@ -47,7 +47,7 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(response.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
   const page = await response.text();
   assert.match(page, /Verifying GitHub session/);
-  assert.match(page, /Stories awaiting approval/);
+  assert.match(page, /Pending Approval/);
   assert.match(page, /Approve/);
   assert.match(page, /Disapprove/);
   assert.match(page, /Ignore/);
