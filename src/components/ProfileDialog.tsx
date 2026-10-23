@@ -1626,10 +1626,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     );
                   })}
                 </div>
-                <label className="profile-field-label" style={{ marginTop: '0.75rem' }}>Keyword interests</label>
-                <p className="profile-hint profile-hint-compact">
-                  Cross-cutting interests for custom spaces — never shown as categories.
-                </p>
                 {INTEREST_KEYWORD_GROUPS.map((group: string) => (
                   <div key={group} style={{ marginBottom: '0.5rem' }}>
                     <div className="profile-hint profile-hint-compact" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
