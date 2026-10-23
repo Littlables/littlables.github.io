@@ -87,9 +87,11 @@ export async function getStoredNewsFeed(env, category) {
   // visible in the admin panel, and available via keyword feeds for boards.
   // NULL interest_keywords must pass explicitly: NOT (NULL ov x) is NULL,
   // which would wrongly filter out untagged stories.
+  // PostgREST does not allow `not.` inside an or=(...) logic tree, so we use
+  // De Morgan's law: NOT (x NOT NULL AND x OVERLAPS {...}) == (x IS NULL OR NOT x OVERLAPS {...})
   const excludedIds = [...EXCLUDED_KEYWORD_IDS];
-  const exclusionOr = excludedIds.length > 0
-    ? `(interest_keywords.is.null,not.interest_keywords.ov.{${excludedIds.join(',')}})`
+  const exclusionNotAnd = excludedIds.length > 0
+    ? `not.and=(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`
     : null;
   const makeQuery = approved => {
     const params = new URLSearchParams({
@@ -105,13 +107,13 @@ export async function getStoredNewsFeed(env, category) {
       // matches, or when its display_categories list contains this category.
       // (The PATCH endpoint normalizes empty lists to NULL, so is.null is enough.)
       const categoryOr = `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`;
-      if (exclusionOr) {
-        params.set('and', `(${categoryOr},${exclusionOr})`);
+      if (exclusionNotAnd) {
+        params.set('and', `(${categoryOr},${exclusionNotAnd})`);
       } else {
         params.set('or', categoryOr);
       }
-    } else if (exclusionOr) {
-      params.set('or', exclusionOr);
+    } else if (exclusionNotAnd) {
+      params.set('not', `and=(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
     }
     return params;
   };

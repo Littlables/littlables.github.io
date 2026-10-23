@@ -62,8 +62,8 @@ test('stored feed query returns normalized publisher story shape', async () => {
     const feed = await getStoredNewsFeed(env, 'childcare');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
-    // Category OR nested inside AND with the exclusion filter.
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === '((and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare}),(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news,politics,elections,government}))'));
+    // Category OR nested inside AND with the exclusion filter (De Morgan form).
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === '((and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare}),not.and=(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,politics,elections,government}))'));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
     assert.equal(feed.provider, 'supabase');
@@ -104,7 +104,7 @@ test('getStoredNewsFeed excludes flagged keywords from the all category', async 
     await getStoredNewsFeed(env, 'all');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl =>
-      requestUrl.searchParams.get('or') === '(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news,politics,elections,government})'
+      requestUrl.searchParams.get('not') === 'and=(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,politics,elections,government})'
     ));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
   } finally {
