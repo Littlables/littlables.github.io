@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 5;
+export const KEYWORD_DESCRIPTIONS_VERSION = 6;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -162,6 +162,31 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'stocks', label: 'Stocks', icon: '📈', group: 'Flagged', excluded: true, description: 'stock market news: stock prices, investing, VIX index, market sell-offs, shareholder news' },
   { id: 'cryptocurrency', label: 'Crypto', icon: '₿', group: 'Flagged', excluded: true, description: 'cryptocurrency news: Bitcoin, crypto prices, blockchain coins, crypto markets' },
   { id: 'business-news', label: 'Business News', icon: '💼', group: 'Flagged', excluded: true, description: 'corporate business news: earnings reports, mergers and acquisitions, company layoffs, CEO announcements' },
+
+  // ---- Countries ----
+  // Geographic grouping: tag stories by the country they are about/from.
+  // Powers country boards today; pairs with the planned region/country_code
+  // columns for per-country content serving later.
+  { id: 'country-us', label: 'United States', icon: '🇺🇸', group: 'Countries', description: 'stories about the United States: American news, US cities, states, American culture' },
+  { id: 'country-uk', label: 'United Kingdom', icon: '🇬🇧', group: 'Countries', description: 'stories about the United Kingdom: Britain, England, London, British culture and news' },
+  { id: 'country-canada', label: 'Canada', icon: '🇨🇦', group: 'Countries', description: 'stories about Canada: Canadian news, Toronto, Vancouver, Canadian culture and wildlife' },
+  { id: 'country-australia', label: 'Australia', icon: '🇦🇺', group: 'Countries', description: 'stories about Australia: Sydney, the outback, kangaroos, Australian news and culture' },
+  { id: 'country-nz', label: 'New Zealand', icon: '🇳🇿', group: 'Countries', description: 'stories about New Zealand: Kiwi culture, Auckland, New Zealand landscapes and news' },
+  { id: 'country-ireland', label: 'Ireland', icon: '🇮🇪', group: 'Countries', description: 'stories about Ireland: Dublin, Irish culture, music, and news' },
+  { id: 'country-france', label: 'France', icon: '🇫🇷', group: 'Countries', description: 'stories about France: Paris, French culture, food, art, and news' },
+  { id: 'country-germany', label: 'Germany', icon: '🇩🇪', group: 'Countries', description: 'stories about Germany: Berlin, German engineering, culture, and news' },
+  { id: 'country-italy', label: 'Italy', icon: '🇮🇹', group: 'Countries', description: 'stories about Italy: Rome, Venice, Italian food, art, history, and news' },
+  { id: 'country-spain', label: 'Spain', icon: '🇪🇸', group: 'Countries', description: 'stories about Spain: Madrid, Barcelona, Spanish culture, festivals, and news' },
+  { id: 'country-netherlands', label: 'Netherlands', icon: '🇳🇱', group: 'Countries', description: 'stories about the Netherlands: Amsterdam, tulips, windmills, Dutch culture and news' },
+  { id: 'country-sweden', label: 'Sweden', icon: '🇸🇪', group: 'Countries', description: 'stories about Sweden: Stockholm, Swedish design, nature, and news' },
+  { id: 'country-china', label: 'China', icon: '🇨🇳', group: 'Countries', description: 'stories about China: Beijing, Shanghai, pandas, Chinese culture and news' },
+  { id: 'country-japan', label: 'Japan', icon: '🇯🇵', group: 'Countries', description: 'stories about Japan: Tokyo, Kyoto, cherry blossoms, anime, Japanese culture and news' },
+  { id: 'country-india', label: 'India', icon: '🇮🇳', group: 'Countries', description: 'stories about India: Mumbai, Delhi, Diwali, Indian culture, food, and news' },
+  { id: 'country-korea', label: 'South Korea', icon: '🇰🇷', group: 'Countries', description: 'stories about South Korea: Seoul, K-pop, Korean food, technology, and news' },
+  { id: 'country-mexico', label: 'Mexico', icon: '🇲🇽', group: 'Countries', description: 'stories about Mexico: Mexico City, tacos, Day of the Dead, Mexican culture and news' },
+  { id: 'country-brazil', label: 'Brazil', icon: '🇧🇷', group: 'Countries', description: 'stories about Brazil: Rio de Janeiro, the Amazon, carnival, football, and news' },
+  { id: 'country-south-africa', label: 'South Africa', icon: '🇿🇦', group: 'Countries', description: 'stories about South Africa: Cape Town, safaris, wildlife, and news' },
+  { id: 'country-egypt', label: 'Egypt', icon: '🇪🇬', group: 'Countries', description: 'stories about Egypt: pyramids, the Nile, ancient history, and news' },
 ]);
 
 export const INTEREST_KEYWORD_IDS = new Set(INTEREST_KEYWORDS.map((k) => k.id));
