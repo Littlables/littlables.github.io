@@ -359,6 +359,79 @@ export function clearProviderCooldownState(providerId) {
   providerCooldownMemory.delete(providerId);
 }
 
+/**
+ * Persist a provider cooldown to the DB so it survives worker restarts.
+ * Fire-and-forget: call without awaiting, or via ctx.waitUntil.
+ */
+export async function persistProviderCooldown(env, providerId, cooldownData = {}) {
+  try {
+    const url = supabaseUrl(env, 'news_provider_sync', new URLSearchParams({
+      on_conflict: 'provider'
+    }));
+    const body = {
+      provider: providerId,
+      cooldown_until: cooldownData.cooldownUntil || null,
+      rate_limit_reset_at: cooldownData.rateLimitResetAt || null,
+      status: 'rate_limited',
+      last_error: cooldownData.lastError || null,
+      updated_at: new Date().toISOString()
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...supabaseHeaders(env),
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      console.warn(`Failed to persist cooldown for ${providerId}: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`Failed to persist cooldown for ${providerId}:`, err.message);
+  }
+}
+
+/**
+ * Load active cooldowns from DB into memory (call on worker startup or when
+ * in-memory is empty). Returns count loaded.
+ */
+export async function loadProviderCooldownsFromDb(env) {
+  try {
+    const params = new URLSearchParams({
+      select: 'provider,cooldown_until,rate_limit_reset_at,last_error',
+      cooldown_until: `gt.${new Date().toISOString()}`
+    });
+    const res = await fetch(supabaseUrl(env, 'news_provider_sync', params), {
+      headers: supabaseHeaders(env)
+    });
+    if (!res.ok) return 0;
+    const rows = await res.json();
+    let loaded = 0;
+    for (const row of rows) {
+      if (row.provider && row.cooldown_until) {
+        providerCooldownMemory.set(row.provider, {
+          provider: row.provider,
+          cooldownUntil: row.cooldown_until,
+          rateLimitResetAt: row.rate_limit_reset_at || null,
+          retryAfterSeconds: null,
+          rateLimitRemaining: null,
+          lastError: row.last_error || null,
+          failoverProvider: null,
+          failoverCategories: [],
+          recordedAt: new Date().toISOString()
+        });
+        loaded++;
+      }
+    }
+    return loaded;
+  } catch (err) {
+    console.warn('Failed to load cooldowns from DB:', err.message);
+    return 0;
+  }
+}
+
 export function getAutoSyncState() {
   const lastRunMs = autoSyncStateMemory.lastRunAt ? Date.parse(autoSyncStateMemory.lastRunAt) : NaN;
   const nextRunMs = Number.isFinite(lastRunMs)

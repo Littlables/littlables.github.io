@@ -37,6 +37,7 @@ import {
   getProviderCooldownState,
   setProviderCooldownState,
   clearProviderCooldownState,
+  persistProviderCooldown,
   getAutoSyncState,
   setAutoSyncState,
   recordNewsProviderFetchLog,
@@ -462,6 +463,12 @@ async function executeProviderSync(provider, updatedBy, env, {
             failoverProvider,
             failoverCategories
           });
+          // Persist to DB so cooldown survives worker restarts (fire-and-forget)
+          persistProviderCooldown(env, provider, {
+            cooldownUntil,
+            rateLimitResetAt: windowInfo.rateLimitResetAt,
+            lastError: message
+          }).catch(() => {});
 
           await recordNewsProviderFetchLog(env, {
             provider,
