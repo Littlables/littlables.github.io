@@ -2466,7 +2466,9 @@ export default {
             { excludedKeywordIds: EXCLUDED_KEYWORD_IDS }
           );
           if (ranked.length > 0) {
-            matches[idx] = ranked.map(a => a.id);
+            // Use the frontend's original story index when provided
+            const key = s._index != null ? s._index : idx;
+            matches[key] = ranked.map(a => a.id);
           }
         });
 

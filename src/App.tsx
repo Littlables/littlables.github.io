@@ -245,28 +245,31 @@ export const App: React.FC = () => {
       setAds(categoryAds);
 
       // Keyword-match ads to stories server-side (non-blocking).
-      // Worker classifies untagged stories, ranks ads, returns ad IDs.
+      // Only ad-slot stories (every 3rd) are sent — no need to classify the rest.
+      // Worker classifies untagged stories, ranks ads, returns ad IDs by story index.
       // Frontend looks up ad content by ID from the JSON cache.
       // Falls back to rotation when matching fails or returns nothing.
       try {
-        const matches = await fetchMatchedAdIds(displayStories as any);
+        const adSlotStories = displayStories
+          .map((story, index) => ({ story, index }))
+          .filter(({ index }) => (index + 1) % 3 === 0)
+          .map(({ story, index }) => ({ ...(story as any), _index: index }));
+        const matches = await fetchMatchedAdIds(adSlotStories as any);
         // Build ad lookup by ID from the fetched pool
         const adById = new Map<string, AdItem>();
         for (const ad of categoryAds) {
           if (ad.id) adById.set(ad.id, ad);
         }
         const matched: Record<number, AdItem> = {};
-        displayStories.forEach((story, index) => {
-          if ((index + 1) % 3 !== 0) return; // ad slot after every 3rd story
+        for (const { index } of adSlotStories.map(s => ({ index: (s as any)._index }))) {
           const adIds = matches[index] || [];
           if (adIds.length > 0) {
-            // Pick top match, cycling by slot so the same ad doesn't repeat
             const slot = Math.floor(index / 3);
             const adId = adIds[slot % adIds.length];
             const ad = adById.get(adId);
             if (ad) matched[index] = ad;
           }
-        });
+        }
         setStoryAds(matched);
       } catch {
         // Matching is optional — rotation fallback in render covers failures
