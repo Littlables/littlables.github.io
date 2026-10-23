@@ -408,6 +408,30 @@ let adTagsCache: Record<string, string[]> | null = null;
 let adTagsCacheKey = '';
 
 /**
+ * Fetch keyword tags for ads matching the given story keywords.
+ * Hits GET /ads/tags?keywords=... on the worker; results are cached
+ * per keyword-set for the session. Returns {} on failure.
+ */
+export async function fetchAdKeywordTags(keywords: string[]): Promise<Record<string, string[]>> {
+  const key = [...keywords].sort().join(',');
+  if (adTagsCache && adTagsCacheKey === key) return adTagsCache;
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads/tags';
+    if (keywords.length) url.searchParams.set('keywords', keywords.join(','));
+    const response = await fetch(url.href);
+    if (!response.ok) throw new Error('tags fetch failed');
+    const data = await response.json();
+    const tags: Record<string, string[]> = data?.tags || {};
+    adTagsCache = tags;
+    adTagsCacheKey = key;
+    return tags;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Match ads to stories server-side.
  * POST /ads/match classifies untagged stories, queries the tags table,
  * ranks via matchAdsToStory, and returns ranked ad IDs per story index.

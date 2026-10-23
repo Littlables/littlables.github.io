@@ -1692,12 +1692,20 @@ body.story-modal-open {
 
 .profile-tabs {
   flex-shrink: 0;
+  /* If tabs ever overflow (narrow phones), let the bar scroll sideways
+     instead of squeezing or clipping the tab buttons. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.profile-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .profile-tab-content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
@@ -1736,13 +1744,15 @@ body.story-modal-open {
 
 .profile-tab {
   background: none;
-  border: none;
+  border: 1px solid transparent;
   color: var(--news-text-secondary, #94a3b8);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  padding: 0.5rem 0.9rem;
+  padding: 0.4rem 0.65rem;
   border-radius: 0.5rem;
   cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .profile-tab:hover {
@@ -2062,6 +2072,7 @@ body.story-modal-open {
 }
 
 .profile-footer {
+  flex-shrink: 0;
   margin: 1rem -1.5rem -1.5rem;
   padding: 1rem 1.5rem;
   border-top: 1px solid var(--news-border, #334155);
