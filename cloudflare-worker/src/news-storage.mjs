@@ -24,7 +24,14 @@ export function supabaseUrl(env, table, query = '') {
 }
 
 async function readRows(response, context) {
-  if (!response.ok) throw new Error(`${context} failed (HTTP ${response.status})`);
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.text();
+      detail = ` - ${body.slice(0, 500)}`;
+    } catch {}
+    throw new Error(`${context} failed (HTTP ${response.status})${detail}`);
+  }
   const rows = await response.json();
   if (!Array.isArray(rows)) throw new Error(`${context} returned an invalid response`);
   return rows;
