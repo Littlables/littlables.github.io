@@ -1,5 +1,5 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, deriveStoryRegion } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL } from './embedding-classifier.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
@@ -53,7 +53,10 @@ function normalizeStory(row) {
     // Interest keywords (cross-cutting tags, never shown as categories).
     interestKeywords: Array.isArray(row.interest_keywords) && row.interest_keywords.length > 0
       ? row.interest_keywords.filter(k => typeof k === 'string')
-      : null
+      : null,
+    // Geographic classification: ISO country code + broad region ('global' = no clear country).
+    countryCode: row.country_code || null,
+    region: row.region || 'global'
   };
 }
 
@@ -84,7 +87,7 @@ export async function getStoredNewsFeed(env, category) {
     : null;
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,interest_keywords,region,country_code,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       order: 'published_at.desc.nullslast,fetched_at.desc',
@@ -268,7 +271,7 @@ export function clearKeywordVectorCache() {
 export async function getStoriesByKeyword(env, keyword) {
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,interest_keywords,region,country_code,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       'interest_keywords': `cs.{${keyword}}`,
@@ -742,10 +745,11 @@ export async function setStoryInterestKeywords(env, storyId, keywords) {
     return { ok: false, interestKeywords: null, error: 'Unknown interest keyword' };
   }
   const query = new URLSearchParams({ id: `eq.${storyId}`, select: 'id' });
+  const { country_code, region } = deriveStoryRegion(clean || []);
   const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
     method: 'PATCH',
     headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
-    body: JSON.stringify({ interest_keywords: clean })
+    body: JSON.stringify({ interest_keywords: clean, country_code, region })
   });
   const rows = await readRows(response, 'Story interest-keywords update');
   if (rows.length !== 1) return { ok: false, interestKeywords: null, error: 'Story was not found' };

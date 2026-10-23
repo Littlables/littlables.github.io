@@ -232,3 +232,67 @@ export function normalizeInterestKeywords(keywords) {
   }
   return seen.size > 0 ? [...seen] : null;
 }
+
+/**
+ * Country keyword id -> ISO 3166-1 alpha-2 code.
+ * Used to derive a story's country_code from its interest keywords.
+ */
+export const COUNTRY_KEYWORD_TO_ISO = {
+  'country-us': 'US',
+  'country-uk': 'GB',
+  'country-canada': 'CA',
+  'country-australia': 'AU',
+  'country-nz': 'NZ',
+  'country-ireland': 'IE',
+  'country-france': 'FR',
+  'country-germany': 'DE',
+  'country-italy': 'IT',
+  'country-spain': 'ES',
+  'country-netherlands': 'NL',
+  'country-sweden': 'SE',
+  'country-china': 'CN',
+  'country-japan': 'JP',
+  'country-india': 'IN',
+  'country-korea': 'KR',
+  'country-mexico': 'MX',
+  'country-brazil': 'BR',
+  'country-south-africa': 'ZA',
+  'country-egypt': 'EG',
+};
+
+/**
+ * Derive a story's ISO country code from its interest keywords.
+ * Returns the first matching country keyword's ISO code, or null.
+ */
+export function deriveCountryFromKeywords(keywords) {
+  if (!Array.isArray(keywords)) return null;
+  for (const kw of keywords) {
+    const iso = COUNTRY_KEYWORD_TO_ISO[kw];
+    if (iso) return iso;
+  }
+  return null;
+}
+
+/**
+ * ISO country code -> broad region. Mirrors the country_regions SQL table.
+ * Keep in sync when adding new country keywords.
+ */
+export const COUNTRY_TO_REGION = {
+  US: 'north-america', CA: 'north-america', MX: 'north-america',
+  GB: 'europe', IE: 'europe', FR: 'europe', DE: 'europe', IT: 'europe',
+  ES: 'europe', NL: 'europe', SE: 'europe',
+  BR: 'south-america',
+  AU: 'oceania', NZ: 'oceania',
+  CN: 'asia', JP: 'asia', IN: 'asia', KR: 'asia',
+  ZA: 'africa', EG: 'africa',
+};
+
+/**
+ * Derive { country_code, region } from a story's interest keywords.
+ * Returns { country_code: null, region: 'global' } when no country keyword matches.
+ */
+export function deriveStoryRegion(keywords) {
+  const iso = deriveCountryFromKeywords(keywords);
+  if (!iso) return { country_code: null, region: 'global' };
+  return { country_code: iso, region: COUNTRY_TO_REGION[iso] || 'global' };
+}

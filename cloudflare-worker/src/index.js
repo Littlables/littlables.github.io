@@ -59,7 +59,7 @@ import {
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories } from './embedding-classifier.mjs';
-import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords } from './interest-keywords.mjs';
+import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
@@ -1445,7 +1445,12 @@ async function serveAdmin(request, env) {
             if (r.mismatch) patch.display_categories = [r.embeddingCategory];
           }
           if (r.keywordsClassified) {
-            patch.interest_keywords = r.keywordMatches.map((m) => m.id);
+            const kwIds = r.keywordMatches.map((m) => m.id);
+            patch.interest_keywords = kwIds;
+            // Derive story country/region from country keywords
+            const { country_code, region } = deriveStoryRegion(kwIds);
+            patch.country_code = country_code;
+            patch.region = region;
           }
           if (Object.keys(patch).length === 0) continue;
           const updateRes = await fetch(

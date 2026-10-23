@@ -72,6 +72,8 @@ test('stored feed query returns normalized publisher story shape', async () => {
       category: 'childcare',
       displayCategories: null,
       interestKeywords: null,
+      countryCode: null,
+      region: 'global',
       title: 'Family story',
       link: 'https://publisher.example/family',
       image: 'https://images.example/family.jpg',
@@ -608,13 +610,18 @@ test('setStoryInterestKeywords validates, dedupes, and clears keyword tags', asy
     let result = await setStoryInterestKeywords(env, 99, ['Space', 'food', 'space']);
     assert.equal(result.ok, true);
     assert.deepEqual(result.interestKeywords, ['space', 'food']);
-    assert.deepEqual(requestBody, { interest_keywords: ['space', 'food'] });
+    assert.deepEqual(requestBody, { interest_keywords: ['space', 'food'], country_code: null, region: 'global' });
+
+    // Country keyword derives region
+    result = await setStoryInterestKeywords(env, 99, ['country-japan', 'space']);
+    assert.equal(result.ok, true);
+    assert.deepEqual(requestBody, { interest_keywords: ['country-japan', 'space'], country_code: 'JP', region: 'asia' });
 
     // Empty list clears the tags (NULL, not empty array)
     result = await setStoryInterestKeywords(env, 99, []);
     assert.equal(result.ok, true);
     assert.equal(result.interestKeywords, null);
-    assert.deepEqual(requestBody, { interest_keywords: null });
+    assert.deepEqual(requestBody, { interest_keywords: null, country_code: null, region: 'global' });
 
     // Unknown keywords are rejected, nothing is written
     result = await setStoryInterestKeywords(env, 99, ['space', 'nonsense']);
@@ -905,4 +912,17 @@ test('isInternalRequest filters admin, dev, and localhost traffic', async () => 
   assert.equal(isInternalRequest(req('https://littlables.com/')), false);
   assert.equal(isInternalRequest(req('https://www.google.com/')), false);
   assert.equal(isInternalRequest(req('')), false);
+});
+
+test('deriveStoryRegion maps country keywords to ISO and region', async () => {
+  const { deriveStoryRegion, deriveCountryFromKeywords } = await import('./interest-keywords.mjs');
+  assert.equal(deriveCountryFromKeywords(['dinosaurs', 'country-japan']), 'JP');
+  assert.equal(deriveCountryFromKeywords(['country-uk']), 'GB');
+  assert.equal(deriveCountryFromKeywords(['dinosaurs']), null);
+  assert.equal(deriveCountryFromKeywords(null), null);
+  assert.deepEqual(deriveStoryRegion(['country-japan']), { country_code: 'JP', region: 'asia' });
+  assert.deepEqual(deriveStoryRegion(['country-us']), { country_code: 'US', region: 'north-america' });
+  assert.deepEqual(deriveStoryRegion(['country-brazil']), { country_code: 'BR', region: 'south-america' });
+  assert.deepEqual(deriveStoryRegion(['dinosaurs']), { country_code: null, region: 'global' });
+  assert.deepEqual(deriveStoryRegion([]), { country_code: null, region: 'global' });
 });
