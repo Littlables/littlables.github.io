@@ -1494,6 +1494,13 @@ async function serveAdmin(request, env) {
             label: m.label,
             confidence: m.confidence,
           })),
+          // Derive country/region from keywords for display (works even if DB columns don't exist yet)
+          ...(() => {
+            try {
+              const { country_code, region } = deriveStoryRegion(r.interestKeywords || []);
+              return { countryCode: country_code, region };
+            } catch { return { countryCode: null, region: 'global' }; }
+          })(),
         })));
         offset += stories.length;
 

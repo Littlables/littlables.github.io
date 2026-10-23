@@ -5310,6 +5310,16 @@ export function getAdminPage() {
                   }
                   meta.appendChild(kwBadge);
                 }
+                // Country/region badge (derived from keywords)
+                if (m.countryCode || m.region) {
+                  var regionBadge = document.createElement('span');
+                  regionBadge.className = 'meta-badge-status';
+                  var regionLabel = m.region === 'global' ? '🌍 Global' : (m.countryCode ? m.countryCode + ' · ' + m.region : m.region);
+                  regionBadge.textContent = '📍 ' + regionLabel;
+                  regionBadge.style.borderColor = '#60a5fa';
+                  regionBadge.style.color = '#93c5fd';
+                  meta.appendChild(regionBadge);
+                }
                 details.appendChild(meta);
 
                 var main = document.createElement('div');
