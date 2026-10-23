@@ -554,10 +554,13 @@ export const App: React.FC = () => {
           isAdmin={isAdmin}
         />
 
-        <CategoryNav
-          currentCategory={category}
-          onSelectCategory={handleSelectCategory}
-        />
+        {/* Category nav is hidden on profile/playroom/space pages — those show curated feeds, not the main feed. */}
+        {!profileRoute && !boardRoute && !spaceRoute && !playroomSpaceRoute && (
+          <CategoryNav
+            currentCategory={category}
+            onSelectCategory={handleSelectCategory}
+          />
+        )}
 
         {aboutRoute ? (
           <main className="news-grid">

@@ -399,6 +399,21 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   };
 
   // ---- Interests (pills) ----
+  const togglePill = (pillId: string) => {
+    setPills((prev) => {
+      const exists = prev.find((p) => p.id === pillId);
+      if (exists) {
+        return prev.filter((p) => p.id !== pillId);
+      }
+      const allPills: PillConfig[] = [
+        ...CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })),
+        ...prev.filter((p) => p.type !== 'category'),
+      ];
+      const ordered = allPills.filter((p) => prev.some((pp) => pp.id === p.id) || p.id === pillId);
+      return ordered;
+    });
+  };
+
   /** Snapshot a board's topics as match keywords for a board interest pill. */
   const boardInterestKeywords = (board: Board): string => {
     const terms: string[] = [];
@@ -993,6 +1008,23 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 );
               })}
               {pills.length === 0 && <p className="profile-hint">No interests selected — add some below.</p>}
+            </div>
+
+            <label className="profile-section-label">Available spaces</label>
+            <div className="pill-toggle-grid">
+              {CATEGORIES.map((cat) => {
+                const active = pills.some((p) => p.id === cat.id);
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    className={`pill-toggle ${active ? 'active' : ''}`}
+                    onClick={() => togglePill(cat.id)}
+                  >
+                    <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
+                  </button>
+                );
+              })}
             </div>
 
             {boards.length > 0 && (
