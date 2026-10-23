@@ -66,7 +66,7 @@ import {
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
-import { validateStoryCategories } from './embedding-classifier.mjs';
+import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 
@@ -1607,6 +1607,64 @@ async function serveAdmin(request, env) {
       return jsonResponse({ id: adId, updated: true, ad: updated });
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update ad' }, 500);
+    }
+  }
+
+  // Auto-tag ads with interest keywords using the embedding classifier.
+  // POST /admin/api/ads/auto-tag { ads: [{id, title, description}], offset }
+  // Processes 15 ads per invocation (15 AI calls, well under the 50 subrequest limit).
+  // Client loops with offset until done=true.
+  if (url.pathname === '/admin/api/ads/auto-tag' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Ad auto-tag must be requested from the admin origin' }, 403);
+    }
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI not available' }, 503);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      const ads = Array.isArray(payload.ads) ? payload.ads : [];
+      const offset = Math.max(0, parseInt(payload.offset, 10) || 0);
+      const CHUNK = 15;
+      const batch = ads.slice(offset, offset + CHUNK);
+
+      const keywordVectors = await getKeywordEmbeddings(env);
+      if (!keywordVectors || keywordVectors.size === 0) {
+        return jsonResponse({
+          error: 'Keyword vectors not warmed up',
+          warmupNeeded: true,
+          done: false,
+          progress: { done: offset, total: ads.length }
+        }, 503);
+      }
+
+      const results = [];
+      for (const ad of batch) {
+        const text = `${ad.title || ''} ${ad.description || ''}`.trim();
+        if (!text) {
+          results.push({ id: ad.id, keywords: [] });
+          continue;
+        }
+        try {
+          const vector = await embedText(env, text);
+          const matches = classifyStoryKeywords(vector, keywordVectors);
+          results.push({
+            id: ad.id,
+            keywords: matches.map(m => ({ id: m.id, label: m.label, confidence: m.confidence }))
+          });
+        } catch (err) {
+          results.push({ id: ad.id, keywords: [], error: err.message });
+        }
+      }
+
+      const newOffset = offset + batch.length;
+      return jsonResponse({
+        results,
+        done: newOffset >= ads.length,
+        progress: { done: newOffset, total: ads.length }
+      });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Auto-tag failed' }, 500);
     }
   }
 

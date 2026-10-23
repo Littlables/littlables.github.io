@@ -1245,6 +1245,17 @@ export function getAdminPage() {
           </div>
           <div id="awin-sync-log" class="awin-log" hidden></div>
         </div>
+        <div id="ad-tag-panel" class="awin-panel" style="margin-top: 12px;">
+          <div class="awin-panel-row">
+            <div>
+              <strong>Keyword auto-tag</strong>
+              <span id="ad-tag-status" class="muted">Tag ads with interest keywords via embedding classifier</span>
+            </div>
+            <button id="ad-tag-btn" type="button" class="small-btn">🏷️ Auto-tag ads</button>
+          </div>
+          <div id="ad-tag-log" class="awin-log" hidden></div>
+          <div id="ad-tag-results" hidden></div>
+        </div>
         <div class="filter-bar">
           <input id="ad-search-input" class="custom-input" type="search" placeholder="Search ads by title, sponsor, network, CTA..." aria-label="Search ads" style="flex: 1; min-width: 200px;">
           <label class="provider-toolbar" for="ads-network-filter">
@@ -3067,6 +3078,84 @@ export function getAdminPage() {
 
     document.getElementById('awin-sync-btn').addEventListener('click', runAwinSync);
     loadAwinStatus();
+
+    // Ad keyword auto-tag
+    document.getElementById('ad-tag-btn').addEventListener('click', runAdAutoTag);
+
+    async function runAdAutoTag() {
+      const btn = document.getElementById('ad-tag-btn');
+      const status = document.getElementById('ad-tag-status');
+      const log = document.getElementById('ad-tag-log');
+      const resultsDiv = document.getElementById('ad-tag-results');
+      btn.disabled = true;
+      log.hidden = false;
+      log.textContent = 'Fetching ads...';
+      resultsDiv.hidden = true;
+      resultsDiv.innerHTML = '';
+
+      try {
+        // Get all ads from the admin endpoint
+        const adsRes = await fetch('/admin/api/ads', { credentials: 'include' });
+        if (!adsRes.ok) throw new Error('Failed to fetch ads');
+        const adsData = await adsRes.json();
+        const ads = (adsData.ads || []).map(a => ({
+          id: a.id,
+          title: a.title || a.name || '',
+          description: a.description || a.desc || ''
+        })).filter(a => a.title);
+
+        if (!ads.length) {
+          status.textContent = 'No ads found';
+          log.textContent = 'No ads to tag.';
+          btn.disabled = false;
+          return;
+        }
+
+        status.textContent = 'Tagging ' + ads.length + ' ads...';
+        let offset = 0;
+        const allResults = [];
+
+        while (true) {
+          log.textContent = 'Tagging... (' + offset + '/' + ads.length + ')';
+          const res = await fetch('/admin/api/ads/auto-tag', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ads, offset })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Auto-tag failed');
+          }
+          allResults.push(...(data.results || []));
+          offset = data.progress.done;
+          if (data.done) break;
+        }
+
+        // Display results
+        status.textContent = 'Tagged ' + allResults.length + ' ads';
+        log.textContent = 'Done! ' + allResults.length + ' ads tagged. Review below, then copy the keywords into the ad JSON files.';
+        resultsDiv.hidden = false;
+        const html = ['<div style="max-height: 400px; overflow-y: auto; margin-top: 8px;">'];
+        html.push('<table style="width: 100%; font-size: 12px;"><tr><th style="text-align:left">Ad</th><th style="text-align:left">Keywords</th></tr>');
+        for (const r of allResults) {
+          const ad = ads.find(a => a.id === r.id);
+          const kwStr = (r.keywords || []).map(k => k.label + ' (' + k.confidence.toFixed(2) + ')').join(', ') || '—';
+          html.push('<tr><td>' + escapeHtml(ad?.title || r.id) + '</td><td>' + escapeHtml(kwStr) + '</td></tr>');
+        }
+        html.push('</table></div>');
+        resultsDiv.innerHTML = html.join('');
+      } catch (err) {
+        status.textContent = 'Error';
+        log.textContent = 'Error: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
 
     /* ============================================================================
      * AI DAILY STORY CURATION & STAGING QUEUE (5 Stories/Category · 3x/Day)
