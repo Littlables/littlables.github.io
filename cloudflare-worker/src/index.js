@@ -1447,10 +1447,10 @@ async function serveAdmin(request, env) {
           if (r.keywordsClassified) {
             const kwIds = r.keywordMatches.map((m) => m.id);
             patch.interest_keywords = kwIds;
-            // Derive story country/region from country keywords
-            const { country_code, region } = deriveStoryRegion(kwIds);
-            patch.country_code = country_code;
-            patch.region = region;
+            // Country/region derivation disabled until story_region migration is confirmed.
+            // const { country_code, region } = deriveStoryRegion(kwIds);
+            // patch.country_code = country_code;
+            // patch.region = region;
           }
           if (Object.keys(patch).length === 0) continue;
           const updateRes = await fetch(

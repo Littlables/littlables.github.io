@@ -743,11 +743,12 @@ export async function setStoryInterestKeywords(env, storyId, keywords) {
     return { ok: false, interestKeywords: null, error: 'Unknown interest keyword' };
   }
   const query = new URLSearchParams({ id: `eq.${storyId}`, select: 'id' });
-  const { country_code, region } = deriveStoryRegion(clean || []);
+  // Country/region disabled until story_region migration is confirmed.
+  // const { country_code, region } = deriveStoryRegion(clean || []);
   const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
     method: 'PATCH',
     headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
-    body: JSON.stringify({ interest_keywords: clean, country_code, region })
+    body: JSON.stringify({ interest_keywords: clean })
   });
   const rows = await readRows(response, 'Story interest-keywords update');
   if (rows.length !== 1) return { ok: false, interestKeywords: null, error: 'Story was not found' };

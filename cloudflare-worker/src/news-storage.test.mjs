@@ -610,18 +610,18 @@ test('setStoryInterestKeywords validates, dedupes, and clears keyword tags', asy
     let result = await setStoryInterestKeywords(env, 99, ['Space', 'food', 'space']);
     assert.equal(result.ok, true);
     assert.deepEqual(result.interestKeywords, ['space', 'food']);
-    assert.deepEqual(requestBody, { interest_keywords: ['space', 'food'], country_code: null, region: 'global' });
+    assert.deepEqual(requestBody, { interest_keywords: ['space', 'food'] });
 
     // Country keyword derives region
     result = await setStoryInterestKeywords(env, 99, ['country-japan', 'space']);
     assert.equal(result.ok, true);
-    assert.deepEqual(requestBody, { interest_keywords: ['country-japan', 'space'], country_code: 'JP', region: 'asia' });
+    assert.deepEqual(requestBody, { interest_keywords: ['country-japan', 'space'] });
 
     // Empty list clears the tags (NULL, not empty array)
     result = await setStoryInterestKeywords(env, 99, []);
     assert.equal(result.ok, true);
     assert.equal(result.interestKeywords, null);
-    assert.deepEqual(requestBody, { interest_keywords: null, country_code: null, region: 'global' });
+    assert.deepEqual(requestBody, { interest_keywords: null });
 
     // Unknown keywords are rejected, nothing is written
     result = await setStoryInterestKeywords(env, 99, ['space', 'nonsense']);
