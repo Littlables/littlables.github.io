@@ -2014,7 +2014,7 @@ async function runWorkersAiImageModel(prompt, seed, env) {
   try {
     rawResult = await env.AI.run(IMAGE_MODEL, {
       prompt,
-      num_steps: 4,
+      num_steps: 8,
       ...(Number.isFinite(seed) ? { seed } : {})
     });
   } catch (primaryErr) {
