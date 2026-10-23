@@ -2113,7 +2113,8 @@ export function getAdminPage() {
             errBox.append(row);
           };
 
-          addErrRow('Topic', failed.category || 'all');
+          addErrRow('Provider', provider.name || provider.id);
+          addErrRow('Interest', failed.category || 'all');
           if (failed.requestUrl) {
             // Split endpoint from query string for readability
             let endpoint = failed.requestUrl;
