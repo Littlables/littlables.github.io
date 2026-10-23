@@ -1579,7 +1579,27 @@ async function serveAdmin(request, env) {
         console.error('Admin Awin ads fetch failed:', err.message);
       }
     }
-    return jsonResponse({ ads: [...embedded, ...awinAds] });
+    const allAds = [...embedded, ...awinAds];
+    // Attach keyword tags from ad_keyword_tags (best effort)
+    try {
+      const tagsRes = await fetch(
+        supabaseUrl(env, 'ad_keyword_tags', new URLSearchParams({ select: 'ad_id,keywords' })),
+        { headers: supabaseHeaders(env) }
+      );
+      if (tagsRes.ok) {
+        const tagRows = await tagsRes.json().catch(() => []);
+        const tagMap = {};
+        for (const r of (Array.isArray(tagRows) ? tagRows : [])) {
+          if (r.ad_id) tagMap[r.ad_id] = r.keywords || [];
+        }
+        for (const ad of allAds) {
+          if (ad.id && tagMap[ad.id]) ad.keywords = tagMap[ad.id];
+        }
+      }
+    } catch {
+      // Tags are optional — ads work without them
+    }
+    return jsonResponse({ ads: allAds });
   }
 
   if (url.pathname === '/admin/api/ads' && request.method === 'POST') {

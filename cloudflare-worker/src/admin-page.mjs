@@ -2855,6 +2855,14 @@ export function getAdminPage() {
         ctaSpan.textContent = 'CTA: ' + (ad.cta || 'Learn More →');
 
         meta.append(sponsor, network, catSpan, ctaSpan);
+        // Keyword tags badge
+        if (Array.isArray(ad.keywords) && ad.keywords.length > 0) {
+          const kwSpan = document.createElement('span');
+          kwSpan.className = 'meta-badge-status meta-approved';
+          kwSpan.textContent = '🔖 ' + ad.keywords.join(', ');
+          kwSpan.title = 'Interest keywords for ad matching';
+          meta.append(kwSpan);
+        }
         details.append(title, meta);
         row.append(details);
 
