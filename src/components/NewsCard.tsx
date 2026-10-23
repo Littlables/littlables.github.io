@@ -8,7 +8,7 @@ import {
   shareStoryWithImage
 } from '../services/urlService';
 import { t } from '../constants/translations';
-import { trackStoryClick } from '../services/trackingService';
+import { trackStoryClick, trackStoryView, trackStoryEngagementClick } from '../services/trackingService';
 
 interface NewsCardProps {
   item: NewsItem;
@@ -39,6 +39,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [imageLoaded, setImageLoaded] = useState<boolean>(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const viewTrackedRef = useRef(false);
 
   useEffect(() => {
     if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
@@ -47,6 +49,31 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       setImageLoaded(false);
     }
   }, [imageUrl]);
+
+  // Track view when card becomes visible (IntersectionObserver, once per mount)
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || viewTrackedRef.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      trackStoryView(item, effectiveCategory);
+      viewTrackedRef.current = true;
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !viewTrackedRef.current) {
+            viewTrackedRef.current = true;
+            trackStoryView(item, effectiveCategory);
+            observer.disconnect();
+          }
+        }
+      },
+      { threshold: 0.5 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [item.link]);
 
   const isVotedLove = hasUserReacted(storyId, 'love');
   const isVotedMind = hasUserReacted(storyId, 'mind');
@@ -67,6 +94,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   const handleStoryLinkClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     trackStoryClick(item);
+    trackStoryEngagementClick(item, effectiveCategory);
   };
 
   const handleCardClick = (e: React.MouseEvent<HTMLElement>) => {
@@ -74,6 +102,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     if (target.closest('.news-read-more-btn') || target.closest('button')) {
       return;
     }
+    trackStoryEngagementClick(item, effectiveCategory);
     onOpenStory(item, index);
   };
 
@@ -105,6 +134,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
 
   return (
     <article
+      ref={cardRef}
       className="news-card news-card-clickable"
       tabIndex={0}
       role="article"

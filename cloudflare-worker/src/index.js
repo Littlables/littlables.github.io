@@ -47,6 +47,7 @@ import {
   runAiStoryCuration,
   bulkDecideNewsStories,
   recordEngagementEvent,
+  recordBoardEvent,
   STORIES_TABLE,
   supabaseHeaders,
   supabaseUrl
@@ -92,6 +93,28 @@ async function handleEngagementEvent(request, env) {
       category: body.category,
       eventType: body.eventType,
       sessionId: body.sessionId,
+      keywords: body.keywords,
+      referrer_domain: body.referrer_domain,
+      utm_source: body.utm_source,
+      utm_medium: body.utm_medium,
+      utm_campaign: body.utm_campaign,
+      // Country from Cloudflare IP geolocation (free, no permission needed).
+      country_code: request.cf?.country || null,
+      dwell_seconds: body.dwell_seconds,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
+}
+
+async function handleBoardEvent(request, env) {
+  try {
+    const body = await request.json();
+    const result = await recordBoardEvent(env, {
+      sessionId: body.sessionId,
+      keywordIds: body.keywordIds,
+      categoryIds: body.categoryIds,
     });
     return jsonResponse(result, 200);
   } catch (err) {
@@ -2160,6 +2183,9 @@ export default {
     }
     if (request.method === 'POST' && pathname === '/api/engagement') {
       return handleEngagementEvent(request, env);
+    }
+    if (request.method === 'POST' && pathname === '/api/analytics/board') {
+      return handleBoardEvent(request, env);
     }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();

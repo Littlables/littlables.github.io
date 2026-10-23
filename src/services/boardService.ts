@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './supabaseService';
 import type { PillConfig } from '../contexts/AuthContext';
+import { trackBoardCreated } from './trackingService';
 
 export interface Board {
   id: string;
@@ -101,6 +102,8 @@ export async function createBoard(userId: string, input: BoardInput): Promise<Bo
     .select()
     .single();
   if (error) throw error;
+  // Anonymous analytics: which pills users build boards from (no user_id, no name)
+  trackBoardCreated(input.pills || []);
   return data as Board;
 }
 

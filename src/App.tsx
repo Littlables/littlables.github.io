@@ -26,6 +26,7 @@ import {
   subscribeToReactions,
   getStoryId
 } from './services/supabaseService';
+import { trackStoryDwell } from './services/trackingService';
 import {
   parseTopicFromUrl,
   parseStoryFromUrl,
@@ -145,6 +146,8 @@ export const App: React.FC = () => {
   // and persists even if the dialog that triggered it is closed
   const [toast, setToast] = useState<{ key: number; message: string; kind: 'success' | 'error' } | null>(null);
   const toastTimer = React.useRef<number | null>(null);
+  // Dwell tracking: when a story preview opens and in which category
+  const dwellStartRef = React.useRef<{ item: NewsItem; category: string; startedAt: number } | null>(null);
   const notify = useCallback((message: string, kind: 'success' | 'error' = 'success') => {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     setToast({ key: Date.now(), message, kind });
@@ -358,6 +361,8 @@ export const App: React.FC = () => {
 
   const handleOpenStory = (item: NewsItem, index: number) => {
     setSelectedStory({ item, index });
+    // Start dwell timer for this story preview
+    dwellStartRef.current = { item, category, startedAt: Date.now() };
     if (typeof window !== 'undefined') {
       const storyHref = getStoryHref(item, category);
       window.history.pushState({ topic: category, story: item.link }, '', storyHref);
@@ -366,6 +371,13 @@ export const App: React.FC = () => {
   };
 
   const handleCloseStory = () => {
+    // Send dwell time if the preview was open long enough
+    const dwell = dwellStartRef.current;
+    if (dwell) {
+      const seconds = (Date.now() - dwell.startedAt) / 1000;
+      trackStoryDwell(dwell.item, seconds, dwell.category);
+      dwellStartRef.current = null;
+    }
     setSelectedStory(null);
     setActiveStoryParam(null);
     if (typeof window !== 'undefined') {

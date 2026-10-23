@@ -1976,9 +1976,14 @@ function hashUrl(url) {
   return 'h' + Math.abs(hash).toString(36);
 }
 
-export async function recordEngagementEvent(env, { url: storyUrl, title, category, eventType, sessionId }) {
+export async function recordEngagementEvent(env, { url: storyUrl, title, category, eventType, sessionId, keywords, referrer_domain, utm_source, utm_medium, utm_campaign, country_code, dwell_seconds }) {
   if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
-  if (!storyUrl || !['view', 'click'].includes(eventType)) return { ok: false, reason: 'invalid' };
+  if (!storyUrl || !['view', 'click', 'dwell'].includes(eventType)) return { ok: false, reason: 'invalid' };
+
+  // Normalize keywords to known ids only (defensive: frontend could send anything).
+  const cleanKeywords = Array.isArray(keywords)
+    ? [...new Set(keywords.filter((k) => typeof k === 'string' && INTEREST_KEYWORD_IDS.has(k)).slice(0, 10))]
+    : null;
 
   try {
     const res = await fetch(supabaseUrl(env, 'story_engagement'), {
@@ -1991,6 +1996,43 @@ export async function recordEngagementEvent(env, { url: storyUrl, title, categor
         category: String(category || 'all').slice(0, 50),
         event_type: eventType,
         session_id: String(sessionId || '').slice(0, 64) || null,
+        keywords: cleanKeywords,
+        referrer_domain: String(referrer_domain || '').slice(0, 120) || null,
+        utm_source: String(utm_source || '').slice(0, 120) || null,
+        utm_medium: String(utm_medium || '').slice(0, 120) || null,
+        utm_campaign: String(utm_campaign || '').slice(0, 120) || null,
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+        dwell_seconds: eventType === 'dwell' ? Math.max(0, Math.min(600, Math.round(Number(dwell_seconds) || 0))) : null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// ── Board creation analytics ──
+// Anonymous: pills only, no user_id, no board name.
+
+export async function recordBoardEvent(env, { sessionId, keywordIds, categoryIds }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  const cleanKeywords = Array.isArray(keywordIds)
+    ? [...new Set(keywordIds.filter((k) => typeof k === 'string' && INTEREST_KEYWORD_IDS.has(k)).slice(0, 20))]
+    : null;
+  const cleanCategories = Array.isArray(categoryIds)
+    ? [...new Set(categoryIds.filter((c) => typeof c === 'string').slice(0, 20))]
+    : null;
+  if ((!cleanKeywords || cleanKeywords.length === 0) && (!cleanCategories || cleanCategories.length === 0)) {
+    return { ok: false, reason: 'no-pills' };
+  }
+  try {
+    const res = await fetch(supabaseUrl(env, 'board_analytics'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        session_id: String(sessionId || '').slice(0, 64) || null,
+        keyword_ids: cleanKeywords,
+        category_ids: cleanCategories,
       }),
     });
     return { ok: res.ok };

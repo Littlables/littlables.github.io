@@ -796,3 +796,88 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
     clearKeywordVectorCache();
   }
 });
+
+test('titleSimilarity detects near-duplicate titles', async () => {
+  const { titleSimilarity, findNearDuplicates, hashUrl } = await import('./news-storage.mjs');
+
+  // Identical titles
+  assert.equal(titleSimilarity('Breaking: New Study Shows Coffee Is Great', 'Breaking: New Study Shows Coffee Is Great'), 1);
+
+  // Near-duplicates (same story, slightly different headline)
+  const sim1 = titleSimilarity(
+    'Scientists Discover New Species of Frog in Amazon Rainforest',
+    'New Frog Species Discovered by Scientists in the Amazon'
+  );
+  assert.ok(sim1 >= 0.5, `Expected high similarity, got ${sim1}`);
+
+  // Different stories
+  const sim2 = titleSimilarity(
+    'Local Bakery Wins Award for Best Sourdough',
+    'NASA Launches New Mars Rover Mission'
+  );
+  assert.ok(sim2 < 0.3, `Expected low similarity, got ${sim2}`);
+
+  // Empty titles
+  assert.equal(titleSimilarity('', ''), 0);
+  assert.equal(titleSimilarity('Hello World Test', ''), 0);
+});
+
+test('findNearDuplicates filters duplicate stories', async () => {
+  const { findNearDuplicates } = await import('./news-storage.mjs');
+
+  const existing = [
+    { id: 1, title: 'Scientists Discover New Species of Frog in Amazon Rainforest', link: 'https://example.com/frog' },
+  ];
+  const candidates = [
+    { id: 2, title: 'Scientists Discover New Frog Species in Amazon Rainforest', link: 'https://other.com/frog2' },
+    { id: 3, title: 'Local Bakery Wins Award for Best Sourdough', link: 'https://example.com/bakery' },
+    { id: 4, title: 'Exact Same Story', link: 'https://example.com/frog' }, // same URL
+  ];
+
+  const dups = findNearDuplicates(candidates, existing, 0.7);
+  assert.equal(dups.length, 2); // id 2 (similar title) and id 4 (same URL)
+  assert.ok(dups.some(d => d.candidate.id === 2 && d.reason === 'similar-title'));
+  assert.ok(dups.some(d => d.candidate.id === 4 && d.reason === 'same-url'));
+});
+
+test('hashUrl produces consistent hashes', async () => {
+  const { hashUrl } = await import('./news-storage.mjs');
+  const h1 = hashUrl('https://example.com/story');
+  const h2 = hashUrl('https://example.com/story');
+  const h3 = hashUrl('https://example.com/other');
+  assert.equal(h1, h2);
+  assert.notEqual(h1, h3);
+  assert.ok(h1.startsWith('h'));
+});
+
+test('recordEngagementEvent stores keywords and attribution', async () => {
+  const { recordEngagementEvent } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  let sentBody = null;
+  globalThis.fetch = async (input, options) => {
+    sentBody = JSON.parse(options.body);
+    return Response.json({});
+  };
+  const testEnv = { ...env, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'sk-test' };
+  try {
+    const result = await recordEngagementEvent(testEnv, {
+      url: 'https://example.com/story',
+      title: 'Test Story',
+      category: 'animals',
+      eventType: 'click',
+      sessionId: 'sess123',
+      keywords: ['dinosaurs', 'not-a-keyword', 'space'],
+      referrer_domain: 'google.com',
+      utm_source: 'newsletter',
+      country_code: 'us',
+    });
+    assert.equal(result.ok, true);
+    // Only known keyword ids are stored; unknown ones dropped.
+    assert.deepEqual(sentBody.keywords, ['dinosaurs', 'space']);
+    assert.equal(sentBody.referrer_domain, 'google.com');
+    assert.equal(sentBody.utm_source, 'newsletter');
+    assert.equal(sentBody.country_code, 'US');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
