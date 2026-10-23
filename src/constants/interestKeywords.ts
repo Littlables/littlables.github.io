@@ -150,6 +150,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "cryptocurrency", label: "Crypto", icon: "₿", group: "Flagged", excluded: true },
   { id: "business-news", label: "Business News", icon: "💼", group: "Flagged", excluded: true },
   { id: "clickbait", label: "Clickbait", icon: "🎣", group: "Flagged", excluded: true },
+  { id: "death", label: "Death", icon: "⚫", group: "Flagged", excluded: true },
   { id: "politics", label: "Politics", icon: "🏛️", group: "Politics", excluded: true },
   { id: "elections", label: "Elections", icon: "🗳️", group: "Politics", excluded: true },
   { id: "government", label: "Government", icon: "🏢", group: "Politics", excluded: true },
