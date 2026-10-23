@@ -25,9 +25,9 @@ export function getAdminLoginPage() {
 }
 
 export function getAdminPage() {
-  // Interest keyword options for the validation list picker (id/label/icon/group only).
+  // Interest keyword options for the validation list picker (id/label/icon/group/excluded).
   const keywordOptionsJson = JSON.stringify(
-    INTEREST_KEYWORDS.map((k) => ({ id: k.id, label: k.label, icon: k.icon, group: k.group }))
+    INTEREST_KEYWORDS.map((k) => ({ id: k.id, label: k.label, icon: k.icon, group: k.group, excluded: k.excluded === true }))
   );
   return `<!doctype html>
 <html lang="en">
@@ -5231,8 +5231,18 @@ export function getAdminPage() {
                   });
                   kwBadge.textContent = '🔖 ' + kws.map(function (id) {
                     var label = kwLabel(id);
+                    var kw = (window.LITTLABLES_KEYWORDS || []).find(function (k) { return k.id === id; });
+                    if (kw && kw.excluded) label = '🚫 ' + label;
                     return kwConf[id] != null ? label + ' (' + Number(kwConf[id]).toFixed(2) + ')' : label;
                   }).join(', ');
+                  // Flagged keywords hide the story from front-page feeds.
+                  if (kws.some(function (id) {
+                    var kw = (window.LITTLABLES_KEYWORDS || []).find(function (k) { return k.id === id; });
+                    return kw && kw.excluded;
+                  })) {
+                    kwBadge.style.borderColor = '#f87171';
+                    kwBadge.style.color = '#fca5a5';
+                  }
                   meta.appendChild(kwBadge);
                 }
                 details.appendChild(meta);

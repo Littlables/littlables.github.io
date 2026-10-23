@@ -57,16 +57,17 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 
 ### 5. Interest keyword tagging
 - **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
-- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs` (110 keywords in 12 groups)
+- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs` (113 keywords in 12 groups)
 - **Trigger:** Same validation run as #4 (no extra AI calls per story — the story embedding is reused)
 - **What it does:** Tags stories with up to 3 interest keywords at cosine similarity ≥ 0.45. Keywords are a cross-cutting layer — never shown as categories. Stored in the `interest_keywords` column; served via `GET /feed?keyword=` for custom boards and hand-editable in the admin panel (grouped picker).
-- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled 25/run as a standalone warmup step. Tagging is all-or-nothing — it waits until all 110 vectors exist. Vectors are keyed by `KEYWORD_DESCRIPTIONS_VERSION`; bumping it recomputes them when descriptions are sharpened.
+- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled 25/run as a standalone warmup step. Tagging is all-or-nothing — it waits until all 113 vectors exist. Vectors are keyed by `KEYWORD_DESCRIPTIONS_VERSION`; bumping it recomputes them when descriptions are sharpened.
+- **Flagged (excluded) keywords:** Keywords with `excluded: true` (currently `stocks`, `cryptocurrency`, `business-news` in the "Flagged" group) label content we don't want on the front page. They classify normally and show with 🚫 styling in the admin panel, but `getStoredNewsFeed()` filters out any story carrying one from all category feeds including "all" (`not.ov` + explicit NULL pass-through). They remain available via `GET /feed?keyword=` so custom boards can still use them. No auto-ban — flagging is labeling only.
 
 ### 6. LLM keyword correction
 - **Model:** `@cf/meta/llama-3.2-3b-instruct`
 - **Location:** `cloudflare-worker/src/index.js` → `POST /admin/api/stories/:id/llm-keywords`
 - **Trigger:** Manual via the "🤖 AI tags" button on each validation-list row
-- **What it does:** Reads the story's title + description and picks up to 3 keywords from the 110-keyword list by meaning (not word association — e.g. a Musk/Starlink story gets satellite/geopolitics-appropriate tags, not electric cars). Corrects embedding misfires; the row updates in place. Budget: 1 story fetch + 1 LLM call + 1 PATCH per click.
+- **What it does:** Reads the story's title + description and picks up to 3 keywords from the 113-keyword list by meaning (not word association — e.g. a Musk/Starlink story gets satellite/geopolitics-appropriate tags, not electric cars). Corrects embedding misfires; the row updates in place. Budget: 1 story fetch + 1 LLM call + 1 PATCH per click.
 
 ## Cloudflare Worker news providers
 

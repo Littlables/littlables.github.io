@@ -1,5 +1,5 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL } from './embedding-classifier.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
@@ -73,6 +73,15 @@ export function effectiveDisplayCategories(row) {
 }
 
 export async function getStoredNewsFeed(env, category) {
+  // Stories tagged with an excluded ("Flagged") keyword never appear in
+  // front-page category feeds (including "all"). They are still classifiable,
+  // visible in the admin panel, and available via keyword feeds for boards.
+  // NULL interest_keywords must pass explicitly: NOT (NULL ov x) is NULL,
+  // which would wrongly filter out untagged stories.
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const exclusionOr = excludedIds.length > 0
+    ? `(interest_keywords.is.null,not.interest_keywords.ov.{${excludedIds.join(',')}})`
+    : null;
   const makeQuery = approved => {
     const params = new URLSearchParams({
       select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
@@ -86,7 +95,14 @@ export async function getStoredNewsFeed(env, category) {
       // it has no override (NULL display_categories) and its assigned category
       // matches, or when its display_categories list contains this category.
       // (The PATCH endpoint normalizes empty lists to NULL, so is.null is enough.)
-      params.set('or', `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`);
+      const categoryOr = `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`;
+      if (exclusionOr) {
+        params.set('and', `(${categoryOr},${exclusionOr})`);
+      } else {
+        params.set('or', categoryOr);
+      }
+    } else if (exclusionOr) {
+      params.set('or', exclusionOr);
     }
     return params;
   };

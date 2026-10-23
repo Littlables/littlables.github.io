@@ -5,6 +5,9 @@
  * never shown as categories in the nav or homepage sections — they exist for
  * classification and custom boards.
  *
+ * Keywords flagged excluded:true are hidden from front-page category feeds
+ * (including "all") but remain available for custom boards.
+ *
  * GENERATED from cloudflare-worker/src/interest-keywords.mjs — do not edit by hand.
  */
 export interface InterestKeyword {
@@ -12,6 +15,7 @@ export interface InterestKeyword {
   label: string;
   icon: string;
   group: string;
+  excluded?: boolean;
 }
 
 export const INTEREST_KEYWORDS: InterestKeyword[] = [
@@ -125,4 +129,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "volunteering", label: "Volunteering", icon: "💝", group: "Community & Life" },
   { id: "big-feelings", label: "Big Feelings", icon: "💛", group: "Community & Life" },
   { id: "records", label: "Records & Firsts", icon: "🏆", group: "Community & Life" },
+  { id: "stocks", label: "Stocks", icon: "📈", group: "Flagged", excluded: true },
+  { id: "cryptocurrency", label: "Crypto", icon: "₿", group: "Flagged", excluded: true },
+  { id: "business-news", label: "Business News", icon: "💼", group: "Flagged", excluded: true },
 ];

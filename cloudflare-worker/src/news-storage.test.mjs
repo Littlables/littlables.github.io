@@ -61,7 +61,9 @@ test('stored feed query returns normalized publisher story shape', async () => {
     const feed = await getStoredNewsFeed(env, 'childcare');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === '(and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare})'));
+    // Category OR nested inside AND with the exclusion filter.
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === '((and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare}),(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news}))'));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
     assert.equal(feed.provider, 'supabase');
     assert.deepEqual(feed.items[0], {
@@ -90,8 +92,46 @@ test('stored feed query returns normalized publisher story shape', async () => {
   }
 });
 
-test('provider update claim calls the service-only atomic lock RPC', async () => {
+test('getStoredNewsFeed excludes flagged keywords from the all category', async () => {
   const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    await getStoredNewsFeed(env, 'all');
+    assert.equal(requestUrls.length, 2);
+    assert.ok(requestUrls.every(requestUrl =>
+      requestUrl.searchParams.get('or') === '(interest_keywords.is.null,not.interest_keywords.ov.{stocks,cryptocurrency,business-news})'
+    ));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByKeyword does not exclude flagged keywords (boards stay available)', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    await getStoriesByKeyword(env, 'stocks');
+    assert.ok(requestUrls.length >= 1);
+    assert.ok(requestUrls.every(requestUrl => {
+      const params = requestUrl.searchParams;
+      return !params.get('or')?.includes('not.interest_keywords')
+        && !params.get('and')?.includes('not.interest_keywords');
+    }));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider update claim calls the service-only atomic lock RPC', async () => {  const originalFetch = globalThis.fetch;
   let requestUrl;
   let requestBody;
   globalThis.fetch = async (input, options) => {
@@ -623,7 +663,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
         INTEREST_KEYWORDS.map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1, 0.2, 0.3],
-          model: '@cf/baai/bge-base-en-v1.5:kwv4',
+          model: '@cf/baai/bge-base-en-v1.5:kwv5',
         }))
       );
     }
@@ -700,7 +740,7 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
         INTEREST_KEYWORDS.slice(0, INTEREST_KEYWORDS.length - 1).map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1],
-          model: '@cf/baai/bge-base-en-v1.5:kwv4',
+          model: '@cf/baai/bge-base-en-v1.5:kwv5',
         }))
       );
     }

@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 4;
+export const KEYWORD_DESCRIPTIONS_VERSION = 5;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -154,9 +154,28 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'volunteering', label: 'Volunteering', icon: '💝', group: 'Community & Life', description: 'giving back: volunteering, charity drives, fundraisers, helping causes' },
   { id: 'big-feelings', label: 'Big Feelings', icon: '💛', group: 'Community & Life', description: 'understanding emotions: managing big feelings, calming down, mindfulness for kids, being kind to yourself' },
   { id: 'records', label: 'Records & Firsts', icon: '🏆', group: 'Community & Life', description: 'amazing achievements: world records, incredible firsts, extraordinary feats by kids and everyday people' },
+
+  // ---- Flagged (excluded from front-page feeds) ----
+  // These keywords label content we do NOT want on the front page (it never
+  // shows in category feeds, including "all"). They still classify normally,
+  // show distinctly in the admin panel, and ARE available for custom boards.
+  { id: 'stocks', label: 'Stocks', icon: '📈', group: 'Flagged', excluded: true, description: 'stock market news: stock prices, investing, VIX index, market sell-offs, shareholder news' },
+  { id: 'cryptocurrency', label: 'Crypto', icon: '₿', group: 'Flagged', excluded: true, description: 'cryptocurrency news: Bitcoin, crypto prices, blockchain coins, crypto markets' },
+  { id: 'business-news', label: 'Business News', icon: '💼', group: 'Flagged', excluded: true, description: 'corporate business news: earnings reports, mergers and acquisitions, company layoffs, CEO announcements' },
 ]);
 
 export const INTEREST_KEYWORD_IDS = new Set(INTEREST_KEYWORDS.map((k) => k.id));
+
+/** Ids of keywords flagged as excluded from front-page feeds. */
+export const EXCLUDED_KEYWORD_IDS = new Set(
+  INTEREST_KEYWORDS.filter((k) => k.excluded === true).map((k) => k.id)
+);
+
+/** True when the keyword is flagged as excluded from front-page feeds. */
+export function isExcludedKeyword(id) {
+  const kw = getInterestKeyword(id);
+  return kw !== null && kw.excluded === true;
+}
 
 /** Ordered group names for picker sections. */
 export const INTEREST_KEYWORD_GROUPS = Object.freeze(
