@@ -176,3 +176,22 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "country-south-africa", label: "South Africa", icon: "🇿🇦", group: "Countries" },
   { id: "country-egypt", label: "Egypt", icon: "🇪🇬", group: "Countries" },
 ];
+
+export const INTEREST_KEYWORD_GROUPS: string[] = [
+  "Animals & Nature",
+  "Science & Discovery",
+  "Childcare & Family",
+  "Food",
+  "Sports & Play",
+  "Arts & Music",
+  "Tech & Games",
+  "Shows & Fun",
+  "Celebrity & Entertainment",
+  "Planet & Weather",
+  "Travel & Places",
+  "Holidays",
+  "Community & Life",
+  "Flagged",
+  "Politics",
+  "Countries",
+];

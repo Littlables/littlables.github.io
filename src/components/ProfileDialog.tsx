@@ -1185,7 +1185,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 <p className="profile-hint profile-hint-compact">
                   Cross-cutting topics for custom boards — never shown as categories.
                 </p>
-                {INTEREST_KEYWORD_GROUPS.map((group) => (
+                {INTEREST_KEYWORD_GROUPS.map((group: string) => (
                   <div key={group} style={{ marginBottom: '0.5rem' }}>
                     <div className="profile-hint profile-hint-compact" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
                       {group}
