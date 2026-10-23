@@ -1322,6 +1322,9 @@ async function serveAdmin(request, env) {
           storeError: null,
           mismatches: [],
           results: [],
+          warmingUp: true,
+          warmupDone: kwStatus.done,
+          warmupTotal: kwStatus.total,
           status: `Warming up keyword vectors (${kwStatus.done}/${kwStatus.total}) — run validation again to continue.${debugBits.length ? ' [' + debugBits.join('; ') + ']' : ''}`,
         });
       }

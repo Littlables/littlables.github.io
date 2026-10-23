@@ -5028,7 +5028,8 @@ export function getAdminPage() {
         try {
           let totalStored = 0;
           let storeError = null;
-          let warmupStatus = null;
+          let warmupRounds = 0;
+          const MAX_WARMUP_ROUNDS = 12;
           while (totalValidated < totalRequested) {
             const remaining = totalRequested - totalValidated;
             if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
@@ -5039,13 +5040,19 @@ export function getAdminPage() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Validation failed');
+            if (data.warmingUp) {
+              // Keyword vectors are still backfilling: keep going automatically
+              // until they are complete, then story validation proceeds.
+              warmupRounds += 1;
+              if (warmupRounds > MAX_WARMUP_ROUNDS) {
+                throw new Error('Keyword warmup is not progressing' + (data.status ? ' — ' + data.status : '') + '. Check the worker logs.');
+              }
+              if (validateStatus) validateStatus.textContent = 'Warming up keyword vectors (' + data.warmupDone + '/' + data.warmupTotal + ')…';
+              continue;
+            }
             totalValidated += data.validated;
             totalStored += data.stored || 0;
             if (data.storeError && !storeError) storeError = data.storeError;
-            if (data.status) {
-              warmupStatus = data.status;
-              break;
-            }
             allMismatches = allMismatches.concat(data.mismatches || []);
             allValidatedStories = allValidatedStories.concat(data.results || []);
             if (data.validated === 0) break;
@@ -5054,7 +5061,6 @@ export function getAdminPage() {
             let msg = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
             msg += ' (' + totalStored + ' stored)';
             if (storeError) msg += ' Error: ' + storeError;
-            if (warmupStatus) msg = warmupStatus;
             validateStatus.textContent = msg;
           }
           if (validateResults) {
