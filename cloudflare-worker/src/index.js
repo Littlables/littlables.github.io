@@ -50,6 +50,7 @@ import {
   recordBoardEvent,
   recordSearchQuery,
   isInternalRequest,
+  getAnalyticsStats,
   STORIES_TABLE,
   supabaseHeaders,
   supabaseUrl
@@ -1299,6 +1300,14 @@ async function serveAdmin(request, env) {
     const category = url.searchParams.get('category') || 'all';
     const limit = Number(url.searchParams.get('limit') || 100);
     return jsonResponse(getNewsProviderFetchLogs({ provider, status, category, limit }));
+  }
+
+  if (url.pathname === '/admin/api/analytics' && request.method === 'GET') {
+    const type = url.searchParams.get('type') || 'search';
+    const country = url.searchParams.get('country') || '';
+    const region = url.searchParams.get('region') || '';
+    const limit = Number(url.searchParams.get('limit') || 50);
+    return jsonResponse(await getAnalyticsStats(env, { type, country, region, limit }));
   }
 
   if (url.pathname === '/admin/api/logs/clear' && request.method === 'POST') {

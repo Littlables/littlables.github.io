@@ -2159,3 +2159,47 @@ export function findNearDuplicates(candidates, existingStories, threshold = 0.7)
 }
 
 export { hashUrl };
+
+// ── Analytics dashboard data ──
+// Reads the stats views for the admin panel. Admin-only (checked in index.js).
+
+const ANALYTICS_VIEWS = {
+  search: 'search_query_stats',
+  search_gaps: 'search_zero_result_queries',
+  keywords: 'keyword_engagement_stats',
+  boards: 'board_topic_stats',
+  acquisition: 'acquisition_stats',
+  dwell: 'story_dwell_stats',
+};
+
+/**
+ * Fetch analytics stats for the admin dashboard.
+ * @param {object} env
+ * @param {object} opts - { type, country, region, limit }
+ */
+export async function getAnalyticsStats(env, { type, country, region, limit = 50 } = {}) {
+  const view = ANALYTICS_VIEWS[type];
+  if (!view) return { ok: false, reason: 'unknown-type' };
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+
+  const params = new URLSearchParams();
+  params.set('select', '*');
+  params.set('order', type === 'search_gaps' || type === 'search' ? 'searches.desc' : type === 'keywords' ? 'views.desc' : type === 'boards' ? 'boards_built.desc' : type === 'dwell' ? 'dwell_events.desc' : 'sessions.desc');
+  const cleanCountry = String(country || '').toUpperCase().slice(0, 2);
+  const cleanRegion = String(region || '').toLowerCase().slice(0, 30);
+  if (cleanCountry) params.set('country_code', `eq.${cleanCountry}`);
+  if (cleanRegion && cleanRegion !== 'all') params.set('region', `eq.${cleanRegion}`);
+  params.set('limit', String(Math.min(200, Math.max(1, Number(limit) || 50))));
+
+  // No country/region filter = all rows; frontend groups as needed.
+  try {
+    const res = await fetch(supabaseUrl(env, view, params.toString()), {
+      headers: supabaseHeaders(env),
+    });
+    if (!res.ok) return { ok: false, reason: `http-${res.status}` };
+    const rows = await res.json();
+    return { ok: true, type, rows };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}

@@ -1403,6 +1403,53 @@ export function getAdminPage() {
         <div id="banned-pagination" class="pagination-bar"></div>
       </div>
     </section>
+
+    <!-- ANALYTICS SECTION -->
+    <section aria-labelledby="analytics-title" class="admin-card-section" data-section-id="analytics">
+      <div class="section-header">
+        <h2 id="analytics-title">
+          <button id="analytics-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="analytics-body" data-section-toggle="analytics">
+            <span id="analytics-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>Analytics</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="analytics-body" class="section-body" hidden>
+        <p class="admin-hint">Anonymous audience stats from the last 30 days. Your own testing (admin panel, dev site) is excluded.</p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+          <label class="admin-hint" style="margin: 0;" for="analytics-region">Region:</label>
+          <select id="analytics-region" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="">All regions</option>
+            <option value="north-america">North America</option>
+            <option value="europe">Europe</option>
+            <option value="asia">Asia</option>
+            <option value="oceania">Oceania</option>
+            <option value="south-america">South America</option>
+            <option value="africa">Africa</option>
+            <option value="global">Global / unknown</option>
+          </select>
+          <label class="admin-hint" style="margin: 0;" for="analytics-country">Country:</label>
+          <select id="analytics-country" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="">All countries</option>
+          </select>
+          <button id="analytics-refresh" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">Refresh</button>
+          <span id="analytics-status" class="admin-hint"></span>
+        </div>
+        <div id="analytics-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <button type="button" class="analytics-tab sign-in-button" data-analytics-tab="search" style="width: auto; padding: 0.5rem 1rem;">Searches</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="search_gaps" style="width: auto; padding: 0.5rem 1rem;">Content gaps</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="keywords" style="width: auto; padding: 0.5rem 1rem;">Keyword CTR</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="boards" style="width: auto; padding: 0.5rem 1rem;">Boards</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="acquisition" style="width: auto; padding: 0.5rem 1rem;">Traffic</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="dwell" style="width: auto; padding: 0.5rem 1rem;">Dwell time</button>
+        </div>
+        <div id="analytics-results" aria-live="polite"></div>
+      </div>
+    </section>
   </main>
 
   <!-- UNIFIED PREVIEW DIALOG (Single Close Button inside Preview Actions) -->
@@ -5491,6 +5538,168 @@ export function getAdminPage() {
 
     restoreSectionLayout();
     refreshData();
+
+    // ── Analytics dashboard ──
+    (function initAnalytics() {
+      var regionSel = document.getElementById('analytics-region');
+      var countrySel = document.getElementById('analytics-country');
+      var refreshBtn = document.getElementById('analytics-refresh');
+      var statusEl = document.getElementById('analytics-status');
+      var resultsEl = document.getElementById('analytics-results');
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('.analytics-tab'));
+      if (!regionSel || !resultsEl) return;
+      var activeTab = 'search';
+
+      // Populate country dropdown from the Countries keyword group
+      try {
+        var countries = (LITTLABLES_KEYWORDS || []).filter(function (k) { return k.group === 'Countries'; });
+        countries.sort(function (a, b) { return a.label.localeCompare(b.label); });
+        countries.forEach(function (k) {
+          // id is like 'country-us' -> 'US'
+          var code = (k.id || '').replace(/^country-/, '').toUpperCase();
+          var opt = document.createElement('option');
+          opt.value = code;
+          opt.textContent = k.icon + ' ' + k.label;
+          countrySel.appendChild(opt);
+        });
+      } catch (e) { /* ignore */ }
+
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      function renderTable(cols, rows) {
+        if (!rows || rows.length === 0) {
+          return '<p class="admin-hint">No data yet — check back after real traffic flows in.</p>';
+        }
+        var html = '<div style="overflow-x: auto;"><table class="admin-table"><thead><tr>';
+        cols.forEach(function (c) { html += '<th>' + esc(c.label) + '</th>'; });
+        html += '</tr></thead><tbody>';
+        rows.forEach(function (r) {
+          html += '<tr>';
+          cols.forEach(function (c) {
+            var v = r[c.key];
+            if (c.format === 'pct' && typeof v === 'number') v = (v * 100).toFixed(1) + '%';
+            if (c.format === 'num' && typeof v === 'number') v = v.toLocaleString();
+            html += '<td>' + esc(v) + '</td>';
+          });
+          html += '</tr>';
+        });
+        return html + '</tbody></table></div>';
+      }
+
+      var TAB_CONFIG = {
+        search: {
+          label: 'Top searches',
+          cols: [
+            { key: 'query', label: 'Query' },
+            { key: 'searches', label: 'Searches', format: 'num' },
+            { key: 'avg_results', label: 'Avg results', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        search_gaps: {
+          label: 'Searches with no results (content gaps)',
+          cols: [
+            { key: 'query', label: 'Query' },
+            { key: 'searches', label: 'Searches', format: 'num' },
+            { key: 'avg_results', label: 'Avg results' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        keywords: {
+          label: 'Keyword click-through rate',
+          cols: [
+            { key: 'keyword', label: 'Keyword' },
+            { key: 'views', label: 'Views', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'ctr', label: 'CTR', format: 'pct' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        boards: {
+          label: 'Board topics built',
+          cols: [
+            { key: 'keyword', label: 'Keyword' },
+            { key: 'boards_built', label: 'Boards built', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        acquisition: {
+          label: 'Traffic sources',
+          cols: [
+            { key: 'referrer_domain', label: 'Referrer' },
+            { key: 'utm_source', label: 'UTM source' },
+            { key: 'sessions', label: 'Sessions', format: 'num' },
+            { key: 'views', label: 'Views', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        dwell: {
+          label: 'Reading time per story',
+          cols: [
+            { key: 'story_title', label: 'Story' },
+            { key: 'dwell_events', label: 'Reads', format: 'num' },
+            { key: 'avg_dwell_seconds', label: 'Avg seconds', format: 'num' },
+            { key: 'median_dwell_seconds', label: 'Median seconds', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+      };
+
+      function setActiveTab(name) {
+        activeTab = name;
+        tabs.forEach(function (t) {
+          var isActive = t.getAttribute('data-analytics-tab') === name;
+          t.classList.toggle('sign-in-button', isActive);
+          t.classList.toggle('primary-button', isActive);
+        });
+        loadAnalytics();
+      }
+
+      async function loadAnalytics() {
+        var cfg = TAB_CONFIG[activeTab];
+        if (statusEl) statusEl.textContent = 'Loading…';
+        try {
+          var params = new URLSearchParams({
+            type: activeTab,
+            region: regionSel.value,
+            country: countrySel.value,
+            limit: '100',
+          });
+          var res = await fetch('/admin/api/analytics?' + params.toString(), { credentials: 'same-origin' });
+          var data = await res.json();
+          if (!data.ok) throw new Error(data.reason || 'Request failed');
+          resultsEl.innerHTML = '<h3 style="margin: 0 0 0.5rem;">' + esc(cfg.label) + '</h3>' + renderTable(cfg.cols, data.rows);
+          if (statusEl) statusEl.textContent = '';
+        } catch (err) {
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'failed');
+        }
+      }
+
+      tabs.forEach(function (t) {
+        t.addEventListener('click', function () { setActiveTab(t.getAttribute('data-analytics-tab')); });
+      });
+      if (refreshBtn) refreshBtn.addEventListener('click', loadAnalytics);
+      if (regionSel) regionSel.addEventListener('change', loadAnalytics);
+      if (countrySel) countrySel.addEventListener('change', loadAnalytics);
+      // Load when the section is first opened
+      var toggle = document.getElementById('analytics-toggle');
+      if (toggle) toggle.addEventListener('click', function () {
+        var body = document.getElementById('analytics-body');
+        if (body && !body.hidden && !resultsEl.innerHTML) loadAnalytics();
+      });
+      // Style the first tab as active
+      setActiveTab('search');
+    })();
+
     setInterval(refreshStoryAges, 1000);
     setInterval(() => {
       if (state.providers.some((provider) => provider.status === 'running')) refreshData();
