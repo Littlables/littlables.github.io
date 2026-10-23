@@ -150,6 +150,36 @@ let cachedKeywordVectors = null;
  *
  * @returns {Promise<{vectors: Map<string,number[]>|null, complete: boolean, done: number, total: number}>}
  */
+/**
+ * Read-only warmup status: how many keyword vectors are stored, without
+ * triggering a backfill round. 1 Supabase lookup, 0 AI calls — safe to
+ * poll for progress display.
+ */
+export async function getKeywordVectorStatus(env) {
+  const total = INTEREST_KEYWORDS.length;
+  if (cachedKeywordVectors) {
+    return { complete: true, done: total, total };
+  }
+  let done = 0;
+  try {
+    const params = new URLSearchParams({ select: 'keyword_id,model' });
+    const res = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, params), {
+      headers: supabaseHeaders(env),
+    });
+    const rows = await readRows(res, 'Keyword vector status check');
+    const seen = new Set();
+    for (const row of rows) {
+      if (row.model === KEYWORD_VECTOR_MODEL && !seen.has(row.keyword_id)) {
+        seen.add(row.keyword_id);
+        done++;
+      }
+    }
+  } catch (err) {
+    console.warn('Keyword vector status check failed:', err?.message || err);
+  }
+  return { complete: done === total, done, total };
+}
+
 export async function getPersistedKeywordEmbeddings(env) {
   const total = INTEREST_KEYWORDS.length;
   if (cachedKeywordVectors) {

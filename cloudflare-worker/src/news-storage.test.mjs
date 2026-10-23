@@ -15,6 +15,7 @@ import {
   setStoryInterestKeywords,
   getStoriesByKeyword,
   getPersistedKeywordEmbeddings,
+  getKeywordVectorStatus,
   clearKeywordVectorCache,
   undoNewsStoryDecision,
   updateNewsStory,
@@ -687,6 +688,40 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
     const cached = await getPersistedKeywordEmbeddings(aiEnv);
     assert.equal(cached.vectors, map);
     assert.equal(fetches, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('getKeywordVectorStatus reports stored count without backfilling', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  let aiCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      // Half the keywords stored with the current version.
+      return Response.json(
+        INTEREST_KEYWORDS.slice(0, Math.floor(INTEREST_KEYWORDS.length / 2)).map((kw) => ({
+          keyword_id: kw.id,
+          model: '@cf/baai/bge-base-en-v1.5:kwv5',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => { aiCalls++; return { data: [[0.2]] }; } },
+  };
+  try {
+    const status = await getKeywordVectorStatus(aiEnv);
+    assert.equal(status.complete, false);
+    assert.equal(status.done, Math.floor(INTEREST_KEYWORDS.length / 2));
+    assert.equal(status.total, INTEREST_KEYWORDS.length);
+    assert.equal(aiCalls, 0, 'status check must not call AI');
   } finally {
     globalThis.fetch = originalFetch;
     clearKeywordVectorCache();

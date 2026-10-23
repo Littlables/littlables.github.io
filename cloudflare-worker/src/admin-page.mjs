@@ -5030,6 +5030,21 @@ export function getAdminPage() {
           let storeError = null;
           let warmupRounds = 0;
           const MAX_WARMUP_ROUNDS = 12;
+          // Fast warmup status check first (1 DB read, 0 AI calls) so progress
+          // shows immediately instead of waiting for a slow backfill round.
+          try {
+            const chkRes = await fetch('/admin/api/stories/validate-categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ warmup_check: true }),
+            });
+            const chk = await chkRes.json();
+            if (chkRes.ok && chk.warmingUp && validateStatus) {
+              validateStatus.textContent = 'Warming up keyword vectors (' + chk.warmupDone + '/' + chk.warmupTotal + ')…';
+            }
+          } catch (chkErr) {
+            // Non-fatal: the main loop will surface warmup state anyway.
+          }
           while (totalValidated < totalRequested) {
             const remaining = totalRequested - totalValidated;
             if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';

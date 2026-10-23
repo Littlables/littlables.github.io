@@ -28,6 +28,7 @@ import {
   setStoryInterestKeywords,
   getStoriesByKeyword,
   getPersistedKeywordEmbeddings,
+  getKeywordVectorStatus,
   OVERRIDABLE_CATEGORIES,
   effectiveDisplayCategories,
   upsertNewsStories,
@@ -1304,6 +1305,18 @@ async function serveAdmin(request, env) {
       const allMismatches = [];
       const allResults = [];
       let offset = 0;
+
+      // Lightweight warmup status check: 1 Supabase lookup, 0 AI calls.
+      // Lets the UI show "Warming up (N/113)…" immediately instead of
+      // waiting for the first slow backfill round to return.
+      if (body.warmup_check === true) {
+        const kwCheck = await getKeywordVectorStatus(env);
+        return jsonResponse({
+          warmingUp: !kwCheck.complete,
+          warmupDone: kwCheck.done,
+          warmupTotal: kwCheck.total,
+        });
+      }
 
       // Interest keyword vectors are loaded from Supabase (embedded once and
       // persisted) and reused for every story — no per-story AI cost.
