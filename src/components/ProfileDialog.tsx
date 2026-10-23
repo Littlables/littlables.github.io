@@ -645,7 +645,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     { id: 'avatar', label: 'Avatar' },
     { id: 'interests', label: 'Interests' },
     { id: 'theme', label: 'Theme' },
-    { id: 'boards', label: 'Spaces' },
+    { id: 'boards', label: 'Playrooms' },
   ];
 
   return (
