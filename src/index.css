@@ -2275,13 +2275,19 @@ body.story-modal-open {
   color: var(--news-text-secondary, #94a3b8);
 }
 
-/* Spaces section on the playroom page */
-.playroom-spaces-section {
-  grid-column: 1 / -1;
-  margin-bottom: 0.5rem;
+/* Space pills under the playroom name (reuse category pill styles) */
+.playroom-space-pills {
+  margin-top: 0.15rem;
+  margin-bottom: 0;
 }
-.playroom-spaces-section .space-section-title {
-  margin-bottom: 0.75rem;
+.playroom-space-pills .news-category-bar {
+  padding: 0.3rem 0 0.4rem 0;
+}
+.playroom-space-pill-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  object-fit: cover;
 }
 
 /* Space picker within the playroom section of the dialog */
