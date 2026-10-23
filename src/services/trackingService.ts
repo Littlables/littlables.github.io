@@ -297,3 +297,54 @@ export function trackBoardCreated(pills: BoardPill[]) {
     // Silently ignore
   }
 }
+
+// ── Ad engagement tracking ──
+// Anonymous ad impressions/clicks for revenue analytics.
+
+function sendAdEvent(
+  eventType: 'view' | 'click',
+  ad: { id?: string; title?: string; sponsor?: string; url?: string; category?: string; network?: string },
+  extra?: { storyUrlHash?: string }
+) {
+  if (typeof window === 'undefined') return;
+  const adId = ad.id || ad.url || '';
+  if (!adId) return;
+  try {
+    const payload = {
+      adId: String(adId).slice(0, 200),
+      adTitle: String(ad.title || '').slice(0, 500),
+      network: String(ad.network || getAdNetwork(ad.url, ad.sponsor) || '').slice(0, 50),
+      category: String(ad.category || '').slice(0, 50),
+      storyUrlHash: extra?.storyUrlHash || null,
+      eventType,
+      sessionId: getSessionId(),
+    };
+    const body = JSON.stringify(payload);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(`${WORKER_URL}/api/ad-engagement`, new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch(`${WORKER_URL}/api/ad-engagement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Silently ignore
+  }
+}
+
+/**
+ * Record an ad impression (card became visible). Callers should dedupe.
+ */
+export function trackAdView(ad: { id?: string; title?: string; sponsor?: string; url?: string; category?: string; network?: string }) {
+  sendAdEvent('view', ad);
+}
+
+/**
+ * Record an ad click. Call alongside the existing Umami tracking.
+ */
+export function trackAdEngagementClick(ad: { id?: string; title?: string; sponsor?: string; url?: string; category?: string; network?: string }) {
+  sendAdEvent('click', ad);
+}

@@ -51,6 +51,7 @@ import {
   recordSearchQuery,
   isInternalRequest,
   getAnalyticsStats,
+  recordAdEvent,
   STORIES_TABLE,
   supabaseHeaders,
   supabaseUrl
@@ -121,6 +122,26 @@ async function handleBoardEvent(request, env) {
       sessionId: body.sessionId,
       keywordIds: body.keywordIds,
       categoryIds: body.categoryIds,
+      country_code: request.cf?.country || null,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
+}
+
+async function handleAdEvent(request, env) {
+  try {
+    if (isInternalRequest(request)) return jsonResponse({ ok: true, reason: 'internal-skipped' }, 200);
+    const body = await request.json();
+    const result = await recordAdEvent(env, {
+      adId: body.adId,
+      adTitle: body.adTitle,
+      network: body.network,
+      category: body.category,
+      storyUrlHash: body.storyUrlHash,
+      eventType: body.eventType,
+      sessionId: body.sessionId,
       country_code: request.cf?.country || null,
     });
     return jsonResponse(result, 200);
@@ -2211,6 +2232,9 @@ export default {
     }
     if (request.method === 'POST' && pathname === '/api/analytics/board') {
       return handleBoardEvent(request, env);
+    }
+    if (request.method === 'POST' && pathname === '/api/ad-engagement') {
+      return handleAdEvent(request, env);
     }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();

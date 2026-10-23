@@ -1446,6 +1446,8 @@ export function getAdminPage() {
           <button type="button" class="analytics-tab" data-analytics-tab="boards" style="width: auto; padding: 0.5rem 1rem;">Boards</button>
           <button type="button" class="analytics-tab" data-analytics-tab="acquisition" style="width: auto; padding: 0.5rem 1rem;">Traffic</button>
           <button type="button" class="analytics-tab" data-analytics-tab="dwell" style="width: auto; padding: 0.5rem 1rem;">Dwell time</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="ads" style="width: auto; padding: 0.5rem 1rem;">Ad CTR</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="ad_networks" style="width: auto; padding: 0.5rem 1rem;">Ad networks</button>
         </div>
         <div id="analytics-results" aria-live="polite"></div>
       </div>
@@ -5648,6 +5650,30 @@ export function getAdminPage() {
             { key: 'dwell_events', label: 'Reads', format: 'num' },
             { key: 'avg_dwell_seconds', label: 'Avg seconds', format: 'num' },
             { key: 'median_dwell_seconds', label: 'Median seconds', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        ads: {
+          label: 'Ad click-through rate',
+          cols: [
+            { key: 'ad_title', label: 'Ad' },
+            { key: 'network', label: 'Network' },
+            { key: 'impressions', label: 'Impressions', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'ctr', label: 'CTR', format: 'pct' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        ad_networks: {
+          label: 'Ad performance by network',
+          cols: [
+            { key: 'network', label: 'Network' },
+            { key: 'ads', label: 'Ads', format: 'num' },
+            { key: 'impressions', label: 'Impressions', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'ctr', label: 'CTR', format: 'pct' },
             { key: 'country_code', label: 'Country' },
             { key: 'region', label: 'Region' },
           ],

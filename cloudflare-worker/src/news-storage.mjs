@@ -2170,6 +2170,8 @@ const ANALYTICS_VIEWS = {
   boards: 'board_topic_stats',
   acquisition: 'acquisition_stats',
   dwell: 'story_dwell_stats',
+  ads: 'ad_engagement_stats',
+  ad_networks: 'ad_network_stats',
 };
 
 /**
@@ -2184,7 +2186,7 @@ export async function getAnalyticsStats(env, { type, country, region, limit = 50
 
   const params = new URLSearchParams();
   params.set('select', '*');
-  params.set('order', type === 'search_gaps' || type === 'search' ? 'searches.desc' : type === 'keywords' ? 'views.desc' : type === 'boards' ? 'boards_built.desc' : type === 'dwell' ? 'dwell_events.desc' : 'sessions.desc');
+  params.set('order', type === 'search_gaps' || type === 'search' ? 'searches.desc' : type === 'keywords' ? 'views.desc' : type === 'boards' ? 'boards_built.desc' : type === 'dwell' ? 'dwell_events.desc' : type === 'ads' || type === 'ad_networks' ? 'impressions.desc' : 'sessions.desc');
   const cleanCountry = String(country || '').toUpperCase().slice(0, 2);
   const cleanRegion = String(region || '').toLowerCase().slice(0, 30);
   if (cleanCountry) params.set('country_code', `eq.${cleanCountry}`);
@@ -2199,6 +2201,33 @@ export async function getAnalyticsStats(env, { type, country, region, limit = 50
     if (!res.ok) return { ok: false, reason: `http-${res.status}` };
     const rows = await res.json();
     return { ok: true, type, rows };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// ── Ad engagement tracking ──
+// Anonymous impressions/clicks per ad. Powers revenue analytics.
+
+export async function recordAdEvent(env, { adId, adTitle, network, category, storyUrlHash, eventType, sessionId, country_code }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  if (!adId || !['view', 'click'].includes(eventType)) return { ok: false, reason: 'invalid' };
+  try {
+    const res = await fetch(supabaseUrl(env, 'ad_engagement'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        ad_id: String(adId).slice(0, 200),
+        ad_title: String(adTitle || '').slice(0, 500),
+        network: String(network || '').slice(0, 50) || null,
+        category: String(category || '').slice(0, 50) || null,
+        story_url_hash: String(storyUrlHash || '').slice(0, 100) || null,
+        event_type: eventType,
+        session_id: String(sessionId || '').slice(0, 64) || null,
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+      }),
+    });
+    return { ok: res.ok };
   } catch (err) {
     return { ok: false, reason: String(err?.message || err) };
   }

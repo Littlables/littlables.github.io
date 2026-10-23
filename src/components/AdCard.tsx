@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AdItem, NewsCategory } from '../types';
 import { t } from '../constants/translations';
-import { getAdNetwork, trackAdClick } from '../services/trackingService';
+import { getAdNetwork, trackAdClick, trackAdView, trackAdEngagementClick } from '../services/trackingService';
 import { isValidCategory } from '../services/urlService';
 
 interface AdCardProps {
@@ -13,6 +13,33 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   const adPushedRef = useRef(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const viewTrackedRef = useRef(false);
+
+  // Track impression when ad becomes visible (once per mount)
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || viewTrackedRef.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      trackAdView(ad);
+      viewTrackedRef.current = true;
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !viewTrackedRef.current) {
+            viewTrackedRef.current = true;
+            trackAdView(ad);
+            observer.disconnect();
+          }
+        }
+      },
+      { threshold: 0.5 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ad.id || ad.url]);
 
   useEffect(() => {
     if (!adPushedRef.current && typeof window !== 'undefined') {
@@ -37,6 +64,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   const handleCardClick = (e: React.MouseEvent) => {
     if (ad.url && ad.url !== '#') {
       trackAdClick(ad);
+      trackAdEngagementClick(ad);
       const target = e.target as HTMLElement;
       // If user clicked directly on an <a> element, let native link behavior handle it
       if (target.closest('a')) return;
@@ -47,6 +75,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   const handleLinkClick = () => {
     if (ad.url && ad.url !== '#') {
       trackAdClick(ad);
+      trackAdEngagementClick(ad);
     }
   };
 
@@ -54,6 +83,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     if ((e.key === 'Enter' || e.key === ' ') && ad.url && ad.url !== '#') {
       e.preventDefault();
       trackAdClick(ad);
+      trackAdEngagementClick(ad);
       window.open(ad.url, '_blank', 'noopener,noreferrer');
     }
   };
@@ -65,6 +95,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
 
   return (
     <article
+      ref={cardRef}
       className="news-card news-card-ad"
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
