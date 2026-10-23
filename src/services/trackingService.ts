@@ -228,11 +228,11 @@ export function trackStoryEngagementClick(item: NewsItem, category?: string) {
 
 /**
  * Record dwell time on a story (seconds the preview was open).
- * Only sends if >= 3s; worker caps at 600s.
+ * Only sends if >= 2s; worker caps at 600s.
  */
 export function trackStoryDwell(item: NewsItem, dwellSeconds: number, category?: string) {
   const secs = Math.round(dwellSeconds);
-  if (secs < 3 || typeof window === 'undefined' || !item.link || item.link === '#') return;
+  if (secs < 2 || typeof window === 'undefined' || !item.link || item.link === '#') return;
   try {
     const payload = {
       url: item.link,
