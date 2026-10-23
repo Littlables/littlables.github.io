@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 3;
+export const KEYWORD_DESCRIPTIONS_VERSION = 4;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -36,6 +36,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'deserts', label: 'Deserts', icon: '🏜️', group: 'Animals & Nature', description: 'desert stories: cacti, camels, sand dunes, desert animals, oasis' },
   { id: 'rainforests', label: 'Rainforests', icon: '🌴', group: 'Animals & Nature', description: 'tropical rainforest nature: jungle ecosystems, canopy wildlife, monkeys, toucans, wild rainforest conservation' },
   { id: 'endangered-species', label: 'Endangered Species', icon: '🦏', group: 'Animals & Nature', description: 'conservation news: endangered animals, protection efforts, saving species from extinction' },
+  { id: 'rivers-lakes', label: 'Rivers & Lakes', icon: '🏞️', group: 'Animals & Nature', description: 'rivers and lakes: waterfalls, ponds, river wildlife, kayaking, lake adventures' },
 
   // ---- Science & Discovery ----
   { id: 'space', label: 'Space', icon: '🚀', group: 'Science & Discovery', description: 'outer space exploration: NASA missions, rockets launching, astronauts living in space, astronomy, distant planets and stars' },
@@ -50,6 +51,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'experiments', label: 'Experiments', icon: '🧪', group: 'Science & Discovery', description: 'hands-on science: experiments to try, science fair projects, chemistry reactions' },
   { id: 'moon', label: 'The Moon', icon: '🌙', group: 'Science & Discovery', description: 'the Moon: lunar missions, moon landings, moon phases, astronauts walking on the Moon' },
   { id: 'planets', label: 'Planets', icon: '🪐', group: 'Science & Discovery', description: 'planet stories: the solar system, Jupiter, Saturn, Mars rovers, distant exoplanets' },
+  { id: 'archaeology', label: 'Archaeology', icon: '🏺', group: 'Science & Discovery', description: 'ancient discoveries: mummies, pyramids, buried treasure, old ruins, fossils of human history' },
 
   // ---- Kids & Family ----
   { id: 'parenting', label: 'Parenting', icon: '👨‍👩‍👧', group: 'Kids & Family', description: 'parenting advice: raising babies and kids, parenting tips, family routines' },
@@ -64,6 +66,9 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'playgrounds', label: 'Playgrounds', icon: '🛝', group: 'Kids & Family', description: 'playground fun: slides, swings, parks, new playgrounds opening' },
   { id: 'birthday-parties', label: 'Birthday Parties', icon: '🎂', group: 'Kids & Family', description: 'birthday celebrations: parties, cake, presents, party games and themes' },
   { id: 'summer-camp', label: 'Summer Camp', icon: '🔥', group: 'Kids & Family', description: 'camp stories: summer camp activities, campfires, cabins, making camp friends' },
+  { id: 'teens', label: 'Teens & Tweens', icon: '🧑‍🎤', group: 'Kids & Family', description: 'teen life: high school, friendships, growing up, teen achievements and milestones' },
+  { id: 'collecting', label: 'Collecting', icon: '🃏', group: 'Kids & Family', description: 'collecting hobbies: trading cards, stamps, coins, rocks and shells, prized collections' },
+  { id: 'toys', label: 'Toys', icon: '🧸', group: 'Kids & Family', description: 'toy news: new toys, toy safety recalls, classic toys, how toys are made' },
 
   // ---- Food ----
   { id: 'food', label: 'Food', icon: '🍎', group: 'Food', description: 'food and cooking: recipes to try, restaurants, chefs, meals, snacks and treats' },
@@ -81,7 +86,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'gymnastics', label: 'Gymnastics', icon: '🤸', group: 'Sports & Play', description: 'gymnastics: tumbling, balance beams, flips, gymnasts competing' },
   { id: 'dance', label: 'Dance', icon: '💃', group: 'Sports & Play', description: 'dance stories: ballet, hip hop, recitals, dance classes and performances' },
   { id: 'martial-arts', label: 'Martial Arts', icon: '🥋', group: 'Sports & Play', description: 'martial arts training: karate, taekwondo, discipline, belt tests' },
-  { id: 'olympics', label: 'Olympics', icon: '🏅', group: 'Sports & Play', description: 'Olympic games: gold medals, world records, athletes competing for their countries' },
+  { id: 'olympics', label: 'Olympics', icon: '🏅', group: 'Sports & Play', description: 'Olympic and Paralympic games: gold medals, world records, athletes competing for their countries' },
   { id: 'biking', label: 'Biking', icon: '🚲', group: 'Sports & Play', description: 'cycling stories: bike rides, bike trails, learning to ride, bike safety' },
   { id: 'skateboarding', label: 'Skateboarding', icon: '🛹', group: 'Sports & Play', description: 'skateboarding: skate parks, tricks, scooters' },
   { id: 'hiking', label: 'Hiking', icon: '🥾', group: 'Sports & Play', description: 'hiking adventures: trails, backpacks, nature walks, scenic viewpoints' },
@@ -95,9 +100,10 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'magic', label: 'Magic', icon: '🪄', group: 'Arts & Music', description: 'magic tricks: magicians, illusions, learn-a-trick guides, magic shows' },
   { id: 'lego', label: 'LEGO & Building', icon: '🧱', group: 'Arts & Music', description: 'LEGO building: new sets, building challenges, creative constructions' },
   { id: 'photography', label: 'Photography', icon: '📸', group: 'Arts & Music', description: 'photography: cameras, taking great pictures, photo tips for kids' },
+  { id: 'fashion', label: 'Fashion', icon: '👗', group: 'Arts & Music', description: 'fashion and style: fun outfits, designers, dress-up, costumes, runway shows' },
 
   // ---- Tech & Games ----
-  { id: 'video-games', label: 'Video Games', icon: '🎮', group: 'Tech & Games', description: 'video game news: new game releases, Minecraft, Nintendo, gaming tips, kid-friendly games' },
+  { id: 'video-games', label: 'Video Games', icon: '🎮', group: 'Tech & Games', description: 'video game news: new game releases, Minecraft, Nintendo, esports tournaments, gaming tips, kid-friendly games' },
   { id: 'coding', label: 'Coding', icon: '💻', group: 'Tech & Games', description: 'learning to code: programming for kids, Scratch, building apps and games' },
   { id: 'apps', label: 'Apps', icon: '📱', group: 'Tech & Games', description: 'app news: educational apps, tablets, phones, screen-time tips for families' },
   { id: 'internet-safety', label: 'Internet Safety', icon: '🛡️', group: 'Tech & Games', description: 'staying safe online: passwords, cyberbullying prevention, kind online behavior, privacy for kids' },
@@ -112,6 +118,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'comics', label: 'Comics', icon: '💬', group: 'Shows & Fun', description: 'comics and graphic novels: manga, comic books, visual storytelling' },
   { id: 'theme-parks', label: 'Theme Parks', icon: '🎢', group: 'Shows & Fun', description: 'theme park news: new rides, Disney World, roller coasters, planning a park visit' },
   { id: 'circus', label: 'Circus', icon: '🎪', group: 'Shows & Fun', description: 'circus performances: acrobats, clowns, big-top shows' },
+  { id: 'online-creators', label: 'Online Creators', icon: '🎥', group: 'Shows & Fun', description: 'online video stars: YouTubers, streamers, viral videos, kid creators, family channels' },
 
   // ---- Planet & Weather ----
   { id: 'weather', label: 'Weather', icon: '🌤️', group: 'Planet & Weather', description: 'weather stories: forecasts, rain, snow, storms, seasons, tornadoes, weather science' },
@@ -129,6 +136,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'landmarks', label: 'Landmarks', icon: '🗽', group: 'Travel & Places', description: 'famous places: monuments, statues, world wonders, visiting landmarks' },
   { id: 'maps', label: 'Maps', icon: '🗺️', group: 'Travel & Places', description: 'maps and geography: atlases, learning countries, how maps work' },
   { id: 'languages', label: 'Languages', icon: '🗣️', group: 'Travel & Places', description: 'learning languages: new words, bilingual kids, Spanish, French' },
+  { id: 'world-cultures', label: 'World Cultures', icon: '🌏', group: 'Travel & Places', description: 'kids around the world: traditions, festivals, daily life in other countries, cultural celebrations' },
 
   // ---- Holidays ----
   { id: 'holidays', label: 'Holidays', icon: '🎄', group: 'Holidays', description: 'holiday celebrations: traditions, festivals, family gatherings' },
@@ -144,6 +152,8 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'money', label: 'Money & Saving', icon: '💰', group: 'Community & Life', description: 'money skills: saving, allowance, kid entrepreneurs, how money works' },
   { id: 'history', label: 'History', icon: '🏛️', group: 'Community & Life', description: 'history stories: past eras, ancient civilizations, museums, historical anniversaries' },
   { id: 'volunteering', label: 'Volunteering', icon: '💝', group: 'Community & Life', description: 'giving back: volunteering, charity drives, fundraisers, helping causes' },
+  { id: 'big-feelings', label: 'Big Feelings', icon: '💛', group: 'Community & Life', description: 'understanding emotions: managing big feelings, calming down, mindfulness for kids, being kind to yourself' },
+  { id: 'records', label: 'Records & Firsts', icon: '🏆', group: 'Community & Life', description: 'amazing achievements: world records, incredible firsts, extraordinary feats by kids and everyday people' },
 ]);
 
 export const INTEREST_KEYWORD_IDS = new Set(INTEREST_KEYWORDS.map((k) => k.id));

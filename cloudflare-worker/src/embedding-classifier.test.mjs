@@ -123,10 +123,10 @@ describe('embedding-classifier', () => {
     clearEmbeddingCache();
   });
 
-  it('interest keywords: list has 100 entries with unique ids', () => {
-    assert.equal(INTEREST_KEYWORDS.length, 100);
+  it('interest keywords: list has unique ids', () => {
+    assert.ok(INTEREST_KEYWORDS.length >= 100, 'at least 100 keywords');
     const ids = INTEREST_KEYWORDS.map(k => k.id);
-    assert.equal(new Set(ids).size, 100);
+    assert.equal(new Set(ids).size, INTEREST_KEYWORDS.length);
     for (const kw of INTEREST_KEYWORDS) {
       assert.ok(kw.label.length > 0);
       assert.ok(kw.icon.length > 0);
@@ -154,7 +154,7 @@ describe('embedding-classifier', () => {
     };
     await getKeywordEmbeddings(mockEnv);
     await getKeywordEmbeddings(mockEnv);
-    assert.equal(calls, 100, '100 keyword descriptions embedded once, second call from cache');
+    assert.equal(calls, INTEREST_KEYWORDS.length, 'all keyword descriptions embedded once, second call from cache');
     clearEmbeddingCache();
   });
 

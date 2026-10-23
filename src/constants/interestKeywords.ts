@@ -29,6 +29,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "deserts", label: "Deserts", icon: "🏜️", group: "Animals & Nature" },
   { id: "rainforests", label: "Rainforests", icon: "🌴", group: "Animals & Nature" },
   { id: "endangered-species", label: "Endangered Species", icon: "🦏", group: "Animals & Nature" },
+  { id: "rivers-lakes", label: "Rivers & Lakes", icon: "🏞️", group: "Animals & Nature" },
   { id: "space", label: "Space", icon: "🚀", group: "Science & Discovery" },
   { id: "dinosaurs", label: "Dinosaurs", icon: "🦕", group: "Science & Discovery" },
   { id: "science", label: "Science", icon: "🔬", group: "Science & Discovery" },
@@ -41,6 +42,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "experiments", label: "Experiments", icon: "🧪", group: "Science & Discovery" },
   { id: "moon", label: "The Moon", icon: "🌙", group: "Science & Discovery" },
   { id: "planets", label: "Planets", icon: "🪐", group: "Science & Discovery" },
+  { id: "archaeology", label: "Archaeology", icon: "🏺", group: "Science & Discovery" },
   { id: "parenting", label: "Parenting", icon: "👨‍👩‍👧", group: "Kids & Family" },
   { id: "education", label: "Education", icon: "🎓", group: "Kids & Family" },
   { id: "kids-crafts", label: "Kids Crafts", icon: "🎨", group: "Kids & Family" },
@@ -53,6 +55,9 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "playgrounds", label: "Playgrounds", icon: "🛝", group: "Kids & Family" },
   { id: "birthday-parties", label: "Birthday Parties", icon: "🎂", group: "Kids & Family" },
   { id: "summer-camp", label: "Summer Camp", icon: "🔥", group: "Kids & Family" },
+  { id: "teens", label: "Teens & Tweens", icon: "🧑‍🎤", group: "Kids & Family" },
+  { id: "collecting", label: "Collecting", icon: "🃏", group: "Kids & Family" },
+  { id: "toys", label: "Toys", icon: "🧸", group: "Kids & Family" },
   { id: "food", label: "Food", icon: "🍎", group: "Food" },
   { id: "baking", label: "Baking", icon: "🧁", group: "Food" },
   { id: "desserts", label: "Desserts", icon: "🍦", group: "Food" },
@@ -78,6 +83,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "magic", label: "Magic", icon: "🪄", group: "Arts & Music" },
   { id: "lego", label: "LEGO & Building", icon: "🧱", group: "Arts & Music" },
   { id: "photography", label: "Photography", icon: "📸", group: "Arts & Music" },
+  { id: "fashion", label: "Fashion", icon: "👗", group: "Arts & Music" },
   { id: "video-games", label: "Video Games", icon: "🎮", group: "Tech & Games" },
   { id: "coding", label: "Coding", icon: "💻", group: "Tech & Games" },
   { id: "apps", label: "Apps", icon: "📱", group: "Tech & Games" },
@@ -91,6 +97,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "comics", label: "Comics", icon: "💬", group: "Shows & Fun" },
   { id: "theme-parks", label: "Theme Parks", icon: "🎢", group: "Shows & Fun" },
   { id: "circus", label: "Circus", icon: "🎪", group: "Shows & Fun" },
+  { id: "online-creators", label: "Online Creators", icon: "🎥", group: "Shows & Fun" },
   { id: "weather", label: "Weather", icon: "🌤️", group: "Planet & Weather" },
   { id: "environment", label: "Environment", icon: "🌍", group: "Planet & Weather" },
   { id: "gardening", label: "Gardening", icon: "🌱", group: "Planet & Weather" },
@@ -104,6 +111,7 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "landmarks", label: "Landmarks", icon: "🗽", group: "Travel & Places" },
   { id: "maps", label: "Maps", icon: "🗺️", group: "Travel & Places" },
   { id: "languages", label: "Languages", icon: "🗣️", group: "Travel & Places" },
+  { id: "world-cultures", label: "World Cultures", icon: "🌏", group: "Travel & Places" },
   { id: "holidays", label: "Holidays", icon: "🎄", group: "Holidays" },
   { id: "christmas", label: "Christmas", icon: "🎅", group: "Holidays" },
   { id: "halloween", label: "Halloween", icon: "🎃", group: "Holidays" },
@@ -115,13 +123,6 @@ export const INTEREST_KEYWORDS: InterestKeyword[] = [
   { id: "money", label: "Money & Saving", icon: "💰", group: "Community & Life" },
   { id: "history", label: "History", icon: "🏛️", group: "Community & Life" },
   { id: "volunteering", label: "Volunteering", icon: "💝", group: "Community & Life" },
+  { id: "big-feelings", label: "Big Feelings", icon: "💛", group: "Community & Life" },
+  { id: "records", label: "Records & Firsts", icon: "🏆", group: "Community & Life" },
 ];
-
-export const INTEREST_KEYWORD_GROUPS: string[] = ["Animals & Nature","Science & Discovery","Kids & Family","Food","Sports & Play","Arts & Music","Tech & Games","Shows & Fun","Planet & Weather","Travel & Places","Holidays","Community & Life"];
-
-export const INTEREST_KEYWORD_IDS = new Set(INTEREST_KEYWORDS.map((k) => k.id));
-
-export function getInterestKeywordLabel(id: string): string {
-  const found = INTEREST_KEYWORDS.find((k) => k.id === id);
-  return found ? found.icon + " " + found.label : id;
-}

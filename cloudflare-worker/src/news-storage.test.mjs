@@ -623,7 +623,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
         INTEREST_KEYWORDS.map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1, 0.2, 0.3],
-          model: '@cf/baai/bge-base-en-v1.5:kwv3',
+          model: '@cf/baai/bge-base-en-v1.5:kwv4',
         }))
       );
     }
@@ -638,7 +638,7 @@ test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls
     assert.equal(result.complete, true);
     const map = result.vectors;
     assert.ok(map instanceof Map);
-    assert.equal(map.size, 100);
+    assert.equal(map.size, INTEREST_KEYWORDS.length);
     assert.deepEqual(map.get('space'), [0.1, 0.2, 0.3]);
     assert.equal(aiCalls, 0, 'no AI calls when all vectors are stored');
     // Second call served from in-memory cache (no fetches at all)
@@ -657,7 +657,7 @@ test('getPersistedKeywordEmbeddings ignores vectors from an older description ve
   clearKeywordVectorCache();
   const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
   const originalFetch = globalThis.fetch;
-  // All 100 stored, but with the v1 model string -> treated as missing
+  // All stored, but with the v1 model string -> treated as missing
   globalThis.fetch = async (input, options) => {
     const url = new URL(String(input));
     if (url.pathname === '/rest/v1/keyword_embeddings') {
@@ -691,16 +691,16 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
   clearKeywordVectorCache();
   const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
   const originalFetch = globalThis.fetch;
-  // 99 of 100 vectors stored; the last one fails to embed -> incomplete -> null
+  // All but one stored; the last one fails to embed -> incomplete -> null
   globalThis.fetch = async (input, options) => {
     const url = new URL(String(input));
     if (url.pathname === '/rest/v1/keyword_embeddings') {
       if (options && options.method === 'POST') return Response.json([]);
       return Response.json(
-        INTEREST_KEYWORDS.slice(0, 99).map((kw) => ({
+        INTEREST_KEYWORDS.slice(0, INTEREST_KEYWORDS.length - 1).map((kw) => ({
           keyword_id: kw.id,
           embedding: [0.1],
-          model: '@cf/baai/bge-base-en-v1.5:kwv3',
+          model: '@cf/baai/bge-base-en-v1.5:kwv4',
         }))
       );
     }
@@ -714,8 +714,8 @@ test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-noth
     const result = await getPersistedKeywordEmbeddings(failingAiEnv);
     assert.equal(result.vectors, null, 'partial backfill must not enable tagging');
     assert.equal(result.complete, false);
-    assert.equal(result.done, 99);
-    assert.equal(result.total, 100);
+    assert.equal(result.done, INTEREST_KEYWORDS.length - 1);
+    assert.equal(result.total, INTEREST_KEYWORDS.length);
   } finally {
     globalThis.fetch = originalFetch;
     clearKeywordVectorCache();
