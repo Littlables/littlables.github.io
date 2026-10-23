@@ -685,6 +685,11 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
         updated_by: null
       };
       const cooldown = getProviderCooldownState(provider.id);
+      // Most recent failed/rate-limited call for this provider, for the error breakdown UI
+      const lastFailedLog = providerFetchLogsMemory.find((log) =>
+        log.provider === provider.id &&
+        (log.status === 'rate_limited' || log.status === 'failed' || log.status === 'skipped_cooldown')
+      );
       return {
         ...provider,
         total_stories_saved: providerTotals.get(provider.id) || 0,
@@ -696,6 +701,20 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
           rate_limit_remaining: cooldown.rateLimitRemaining,
           failover_provider: cooldown.failoverProvider,
           failover_categories: cooldown.failoverCategories
+        } : {}),
+        ...(lastFailedLog ? {
+          last_failed_call: {
+            requestUrl: lastFailedLog.requestUrl || '',
+            category: lastFailedLog.category || 'all',
+            httpStatus: lastFailedLog.httpStatus ?? null,
+            retryAfterSeconds: lastFailedLog.retryAfterSeconds ?? null,
+            rateLimitRemaining: lastFailedLog.rateLimitRemaining ?? null,
+            rateLimitReset: lastFailedLog.rateLimitReset || null,
+            errorMessage: lastFailedLog.errorMessage || null,
+            failoverProvider: lastFailedLog.failoverProvider || null,
+            status: lastFailedLog.status,
+            createdAt: lastFailedLog.createdAt
+          }
         } : {})
       };
     }),

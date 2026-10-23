@@ -801,6 +801,23 @@ export function getAdminPage() {
       font-size: .76rem;
       line-height: 1.4;
     }
+    .provider-error-box {
+      margin-top: .45rem;
+      padding: .5rem .65rem;
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      border-radius: 8px;
+      font-size: .76rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    .provider-error-title {
+      font-weight: 600;
+      color: #fca5a5;
+      margin-bottom: .2rem;
+    }
+    .provider-error-row { margin-top: .1rem; }
+    .provider-error-key { font-weight: 600; }
 
     /* Provider Fetch & Rate-Limit Log Viewer */
     .log-summary-strip {
@@ -1897,9 +1914,22 @@ export function getAdminPage() {
         element.textContent = element.dataset.updatedPrefix + formatDateTime(new Date(timestamp)) +
           '; ' + formatElapsed(timestamp);
       });
+      let cooldownExpired = false;
       document.querySelectorAll('[data-countdown-to]').forEach((element) => {
-        element.textContent = (element.dataset.countdownPrefix || '') + formatCountdown(element.dataset.countdownTo);
+        const wasDue = element.dataset.wasDue === '1';
+        const label = formatCountdown(element.dataset.countdownTo);
+        element.textContent = (element.dataset.countdownPrefix || '') + label;
+        const isDue = label === 'Due now' || label === 'Ready now';
+        // If a rate-limit cooldown just expired, refresh so the stale box clears
+        if (isDue && !wasDue && (element.dataset.countdownPrefix || '').includes('cooldown')) {
+          cooldownExpired = true;
+        }
+        element.dataset.wasDue = isDue ? '1' : '';
       });
+      if (cooldownExpired && !state.cooldownRefreshPending) {
+        state.cooldownRefreshPending = true;
+        refreshData().finally(() => { state.cooldownRefreshPending = false; });
+      }
     }
 
     async function request(path, options) {
@@ -2056,11 +2086,64 @@ export function getAdminPage() {
           card.append(cooldownBox);
         }
 
-        if (provider.last_error) {
-          const error = document.createElement('p');
-          error.className = 'error';
-          error.textContent = provider.last_error;
-          card.append(error);
+        if (provider.last_failed_call || provider.last_error) {
+          const errBox = document.createElement('div');
+          errBox.className = 'provider-error-box';
+          const failed = provider.last_failed_call || {};
+
+          const errTitle = document.createElement('div');
+          errTitle.className = 'provider-error-title';
+          errTitle.textContent = failed.status === 'rate_limited'
+            ? '⚠ Rate limited'
+            : failed.status === 'skipped_cooldown'
+              ? '⏸ Skipped (cooldown)'
+              : '⚠ Last error';
+          errBox.append(errTitle);
+
+          const addErrRow = (label, value) => {
+            if (value == null || value === '') return;
+            const row = document.createElement('div');
+            row.className = 'provider-error-row tabular-nums';
+            const k = document.createElement('span');
+            k.className = 'provider-error-key muted';
+            k.textContent = label + ': ';
+            const v = document.createElement('span');
+            v.textContent = String(value);
+            row.append(k, v);
+            errBox.append(row);
+          };
+
+          addErrRow('Topic', failed.category || 'all');
+          if (failed.requestUrl) {
+            // Split endpoint from query string for readability
+            let endpoint = failed.requestUrl;
+            let query = '';
+            try {
+              const u = new URL(failed.requestUrl);
+              endpoint = u.origin + u.pathname;
+              query = u.search ? u.search.slice(1) : '';
+            } catch { /* not a valid URL, show as-is */ }
+            addErrRow('API call', endpoint);
+            if (query) addErrRow('Query', decodeURIComponent(query).slice(0, 300));
+          }
+          if (failed.httpStatus) addErrRow('HTTP', failed.httpStatus);
+          const rlBits = [];
+          if (failed.retryAfterSeconds != null) rlBits.push('retry-after ' + failed.retryAfterSeconds + 's');
+          if (failed.rateLimitRemaining != null) rlBits.push('remaining ' + failed.rateLimitRemaining);
+          if (failed.rateLimitReset) rlBits.push('resets ' + failed.rateLimitReset);
+          if (rlBits.length) addErrRow('Rate limit', rlBits.join(' · '));
+          if (failed.failoverProvider) {
+            addErrRow('Failover', 'remaining topics routed to ' + failed.failoverProvider);
+          }
+          if (failed.errorMessage && failed.errorMessage !== provider.last_error) {
+            addErrRow('Detail', failed.errorMessage.slice(0, 300));
+          } else if (provider.last_error) {
+            addErrRow('Detail', String(provider.last_error).slice(0, 300));
+          }
+          if (failed.createdAt) {
+            addErrRow('When', formatElapsed(Date.parse(failed.createdAt)) + ' ago');
+          }
+          card.append(errBox);
         }
         providersEl.append(card);
       });
