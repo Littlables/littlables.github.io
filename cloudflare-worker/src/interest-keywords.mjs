@@ -18,7 +18,7 @@
  * vectors in `keyword_embeddings` are keyed by version and recomputed.
  */
 
-export const KEYWORD_DESCRIPTIONS_VERSION = 10;
+export const KEYWORD_DESCRIPTIONS_VERSION = 11;
 
 export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Animals & Nature ----
@@ -181,6 +181,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   { id: 'stocks', label: 'Stocks', icon: '📈', group: 'Flagged', excluded: true, description: 'stock market news: stock prices, investing, VIX index, market sell-offs, shareholder news' },
   { id: 'cryptocurrency', label: 'Crypto', icon: '₿', group: 'Flagged', excluded: true, description: 'cryptocurrency news: Bitcoin, crypto prices, blockchain coins, crypto markets' },
   { id: 'business-news', label: 'Business News', icon: '💼', group: 'Flagged', excluded: true, description: 'corporate business news: earnings reports, mergers and acquisitions, company layoffs, CEO announcements' },
+  { id: 'clickbait', label: 'Clickbait', icon: '🎣', group: 'Flagged', excluded: true, description: 'clickbait stories: sensationalist headlines, misleading titles, exaggerated claims designed to get clicks' },
 
   // ---- Politics (excluded from front page, available for boards) ----
   { id: 'politics', label: 'Politics', icon: '🏛️', group: 'Politics', excluded: true, description: 'political news: politicians, political parties, campaigns, political debates and commentary' },
