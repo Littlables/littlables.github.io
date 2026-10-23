@@ -2275,13 +2275,10 @@ body.story-modal-open {
   color: var(--news-text-secondary, #94a3b8);
 }
 
-/* Space pills under the playroom name (reuse category pill styles) */
+/* Space pills below the playroom header (reuse category pill styles) */
 .playroom-space-pills {
-  margin-top: 0.15rem;
-  margin-bottom: 0;
-}
-.playroom-space-pills .news-category-bar {
-  padding: 0.3rem 0 0.4rem 0;
+  grid-column: 1 / -1;
+  margin-top: -0.25rem;
 }
 .playroom-space-pill-logo {
   width: 18px;

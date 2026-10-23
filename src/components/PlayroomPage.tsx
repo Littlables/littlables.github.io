@@ -222,28 +222,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         )}
         <div>
           <h1 className="board-page-title">{playroom.name}</h1>
-          {spaces.length > 0 && (
-            <div className="news-category-container playroom-space-pills">
-              <nav className="news-category-bar" aria-label="Spaces in this playroom">
-                {spaces.map((space) => (
-                  <button
-                    key={space.id}
-                    type="button"
-                    className="cat-pill"
-                    onClick={() => {
-                      window.history.pushState({}, '', `/@${username}/${playroom.slug}/${space.slug}`);
-                      window.dispatchEvent(new PopStateEvent('popstate'));
-                    }}
-                  >
-                    {space.logo_url ? (
-                      <img src={space.logo_url} alt="" className="playroom-space-pill-logo" />
-                    ) : null}
-                    <span className="cat-text">{space.name}</span>
-                  </button>
-                ))}
-              </nav>
-            </div>
-          )}
           <div className="board-page-owner">
             by{' '}
             <button
@@ -260,6 +238,29 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           {playroom.description && <p className="board-page-description">{playroom.description}</p>}
         </div>
       </div>
+
+      {spaces.length > 0 && (
+        <div className="news-category-container playroom-space-pills">
+          <nav className="news-category-bar" aria-label="Spaces in this playroom">
+            {spaces.map((space) => (
+              <button
+                key={space.id}
+                type="button"
+                className="cat-pill"
+                onClick={() => {
+                  window.history.pushState({}, '', `/@${username}/${playroom.slug}/${space.slug}`);
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }}
+              >
+                {space.logo_url ? (
+                  <img src={space.logo_url} alt="" className="playroom-space-pill-logo" />
+                ) : null}
+                <span className="cat-text">{space.name}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
 
       {stories.length === 0 ? (
         <div className="board-empty">
