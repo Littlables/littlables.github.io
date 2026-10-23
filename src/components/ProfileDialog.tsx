@@ -26,6 +26,9 @@ interface ProfileDialogProps {
 
 type Tab = 'profile' | 'avatar' | 'interests' | 'theme' | 'boards';
 
+/** Max spaces (boards) a user can create. */
+const MAX_SPACES = 5;
+
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
   { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
   { key: 'instagram', label: 'Instagram', placeholder: '@username' },
@@ -453,6 +456,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   };
 
   const handleNewBoard = () => {
+    if (boards.length >= MAX_SPACES) return;
     setEditingBoard({
       id: null,
       name: '',
@@ -1010,6 +1014,13 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 <p className="profile-hint profile-hint-compact">
                   Spaces group your topics into their own pages at @{profile?.username || 'you'}/space-name.
                 </p>
+                {!boardsLoading && (
+                  <p className="profile-hint profile-hint-compact">
+                    {boards.length >= MAX_SPACES
+                      ? `You've used all ${MAX_SPACES} spaces.`
+                      : `${MAX_SPACES - boards.length} of ${MAX_SPACES} spaces remaining.`}
+                  </p>
+                )}
                 {boardsLoading ? (
                   <p className="profile-hint">Loading spaces…</p>
                 ) : boards.length === 0 ? (
@@ -1073,6 +1084,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                   type="button"
                   className="sign-in-button primary-button"
                   onClick={handleNewBoard}
+                  disabled={boards.length >= MAX_SPACES}
                   style={{ marginTop: '1rem' }}
                 >
                   + New space

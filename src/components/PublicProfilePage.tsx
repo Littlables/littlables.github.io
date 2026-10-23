@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
-import { Profile, useAuth } from '../contexts/AuthContext';
+import { Profile } from '../contexts/AuthContext';
 import { Board, getUserBoards } from '../services/boardService';
 import { getCharacterAvatar } from '../constants/avatars';
 
 interface PublicProfilePageProps {
   username: string;
   onHome: () => void;
-  onOpenProfile: () => void;
 }
 
 const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
@@ -28,9 +27,7 @@ function normalizeUrl(url: string): string {
 export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
   username,
   onHome,
-  onOpenProfile,
 }) => {
-  const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +98,6 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
     };
   }, [profile?.theme, profile?.background_color]);
 
-  const isOwner = !!user && !!profile && user.id === profile.id;
   const character = getCharacterAvatar(profile?.avatar_character);
   const socials = SOCIAL_META.filter(
     (s) => profile?.social_links?.[s.key]?.trim()
@@ -186,16 +182,11 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
                 ))}
               </div>
             )}
-            {isOwner && (
-              <button className="refresh-news-button" onClick={onOpenProfile}>
-                ✏️ Edit your space
-              </button>
-            )}
           </div>
 
           {boards.length > 0 && (
             <div className="space-boards-section">
-              <h2 className="space-section-title">🗂️ More boards</h2>
+              <h2 className="space-section-title">🏖️ Spaces</h2>
               <div className="space-boards">
                 {boards.map((board) => (
                   <button

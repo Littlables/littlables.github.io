@@ -536,7 +536,6 @@ export const App: React.FC = () => {
           <PublicProfilePage
             username={profileRoute}
             onHome={handleHomeRefresh}
-            onOpenProfile={() => setActiveDialog('profile')}
           />
         ) : (
         <main id="news-grid-container" className="news-grid">
