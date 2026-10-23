@@ -8,7 +8,6 @@ interface SpaceRoutePageProps {
   slug: string;
   onHome: () => void;
   onOpenProfile: () => void;
-  onBrand: (brand: { name: string; logoUrl: string | null } | null) => void;
 }
 
 /**
@@ -45,9 +44,9 @@ export const SpaceRoutePage: React.FC<SpaceRoutePageProps> = (props) => {
   }
 
   if (kind === 'playroom') {
-    return <PlayroomPage {...props} />;
+    return <PlayroomPage username={username} slug={slug} onHome={props.onHome} />;
   }
-  return <BoardPage {...props} />;
+  return <BoardPage username={username} slug={slug} onHome={props.onHome} onOpenProfile={props.onOpenProfile} />;
 };
 
 export default SpaceRoutePage;

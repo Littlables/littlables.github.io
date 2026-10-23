@@ -20,7 +20,6 @@ interface BoardPageProps {
   playroomSlug?: string;
   onHome: () => void;
   onOpenProfile: () => void;
-  onBrand: (brand: { name: string; logoUrl: string | null } | null) => void;
 }
 
 const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
@@ -31,7 +30,6 @@ export const BoardPage: React.FC<BoardPageProps> = ({
   playroomSlug,
   onHome,
   onOpenProfile,
-  onBrand,
 }) => {
   const { user, profile: viewerProfile } = useAuth();
   const [board, setBoard] = useState<Board | null>(null);
@@ -58,7 +56,6 @@ export const BoardPage: React.FC<BoardPageProps> = ({
           return;
         }
         setBoard(result.board);
-        onBrand({ name: result.board.name, logoUrl: result.board.logo_url });
         const client = getSupabaseClient();
         if (client) {
           const { data: ownerProfile } = await client
@@ -80,7 +77,6 @@ export const BoardPage: React.FC<BoardPageProps> = ({
     })();
     return () => {
       cancelled = true;
-      onBrand(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, slug, playroomSlug]);

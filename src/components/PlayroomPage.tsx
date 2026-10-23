@@ -21,7 +21,6 @@ interface PlayroomPageProps {
   username: string;
   slug: string;
   onHome: () => void;
-  onBrand: (brand: { name: string; logoUrl: string | null } | null) => void;
 }
 
 const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
@@ -30,7 +29,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   username,
   slug,
   onHome,
-  onBrand,
 }) => {
   const { profile: viewerProfile } = useAuth();
   const [playroom, setPlayroom] = useState<Playroom | null>(null);
@@ -59,7 +57,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           return;
         }
         setPlayroom(result.playroom);
-        onBrand({ name: result.playroom.name, logoUrl: result.playroom.logo_url });
         const client = getSupabaseClient();
         if (client) {
           const { data: ownerProfile } = await client
@@ -79,7 +76,6 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     })();
     return () => {
       cancelled = true;
-      onBrand(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username, slug]);

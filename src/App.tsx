@@ -162,7 +162,6 @@ export const App: React.FC = () => {
   const [playroomSpaceRoute, setPlayroomSpaceRoute] = useState<{ username: string; playroom: string; space: string } | null>(() => parsePlayroomSpaceFromUrl());
   const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
   // Board branding shown in the header while viewing a board page
-  const [boardBrand, setBoardBrand] = useState<{ name: string; logoUrl: string | null } | null>(null);
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
@@ -247,7 +246,6 @@ export const App: React.FC = () => {
         setProfileRoute(null);
         return;
       }
-      setBoardBrand(null);
       const urlProfile = parseProfileFromUrl();
       setProfileRoute(urlProfile);
       if (urlProfile) return;
@@ -432,7 +430,6 @@ export const App: React.FC = () => {
     setActiveStoryParam(null);
     setProfileRoute(null);
     setBoardRoute(null);
-    setBoardBrand(null);
     try {
       localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
     } catch {}
@@ -549,8 +546,6 @@ export const App: React.FC = () => {
           onOpenSignIn={() => setActiveDialog('signin')}
           onOpenProfile={() => setActiveDialog('profile')}
           isLoading={isLoading}
-          brandName={boardBrand?.name}
-          brandLogoUrl={boardBrand?.logoUrl}
           isAdmin={isAdmin}
         />
 
@@ -577,7 +572,6 @@ export const App: React.FC = () => {
             playroomSlug={playroomSpaceRoute.playroom}
             onHome={handleHomeRefresh}
             onOpenProfile={() => setActiveDialog('profile')}
-            onBrand={setBoardBrand}
           />
         ) : spaceRoute ? (
           <BoardPage
@@ -585,7 +579,6 @@ export const App: React.FC = () => {
             slug={spaceRoute.slug}
             onHome={handleHomeRefresh}
             onOpenProfile={() => setActiveDialog('profile')}
-            onBrand={setBoardBrand}
           />
         ) : boardRoute ? (
           <SpaceRoutePage
@@ -593,7 +586,6 @@ export const App: React.FC = () => {
             slug={boardRoute.slug}
             onHome={handleHomeRefresh}
             onOpenProfile={() => setActiveDialog('profile')}
-            onBrand={setBoardBrand}
           />
         ) : profileRoute ? (
           <PublicProfilePage
