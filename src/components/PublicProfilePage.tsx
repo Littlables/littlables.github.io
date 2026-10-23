@@ -269,7 +269,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
                         <span className="space-board-description">{board.description}</span>
                       )}
                       <span className="space-board-meta">
-                        {board.pills?.length || 0} topics · /{board.slug}
+                        {board.pills?.length || 0} topics · @{profile.username}/spaces/{board.slug}
                       </span>
                     </span>
                     <span className="space-board-arrow" aria-hidden="true">→</span>
