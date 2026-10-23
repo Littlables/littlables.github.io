@@ -1658,6 +1658,32 @@ async function serveAdmin(request, env) {
       }
 
       const newOffset = offset + batch.length;
+
+      // Auto-save this chunk's tags so a crash doesn't lose progress.
+      // Upsert by ad_id; empty keyword lists are saved too (marks as processed).
+      try {
+        const rows = results.map(r => ({
+          ad_id: r.id,
+          keywords: (r.keywords || []).map(k => k.id),
+          updated_at: new Date().toISOString()
+        }));
+        if (rows.length > 0) {
+          const upsertRes = await fetch(
+            supabaseUrl(env, 'ad_keyword_tags', new URLSearchParams({ on_conflict: 'ad_id' })),
+            {
+              method: 'POST',
+              headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+              body: JSON.stringify(rows)
+            }
+          );
+          if (!upsertRes.ok) {
+            console.error('ad_keyword_tags upsert failed:', upsertRes.status);
+          }
+        }
+      } catch (saveErr) {
+        console.error('ad_keyword_tags save error:', saveErr.message);
+      }
+
       return jsonResponse({
         results,
         done: newOffset >= ads.length,
@@ -2335,6 +2361,25 @@ export default {
     }
     if (request.method === 'POST' && pathname === '/api/ad-engagement') {
       return handleAdEvent(request, env);
+    }
+    // Public: all ad keyword tags at once. Frontend merges by ad_id client-side.
+    // Small payload (~200 rows), cacheable.
+    if (request.method === 'GET' && pathname === '/ads/tags') {
+      try {
+        const res = await fetch(
+          supabaseUrl(env, 'ad_keyword_tags', new URLSearchParams({ select: 'ad_id,keywords,updated_at' })),
+          { headers: supabaseHeaders(env) }
+        );
+        if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
+        const rows = await res.json();
+        const tags = {};
+        for (const r of (Array.isArray(rows) ? rows : [])) {
+          if (r.ad_id) tags[r.ad_id] = r.keywords || [];
+        }
+        return jsonResponse({ tags, count: Object.keys(tags).length });
+      } catch (err) {
+        return jsonResponse({ tags: {}, count: 0, error: err.message });
+      }
     }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();

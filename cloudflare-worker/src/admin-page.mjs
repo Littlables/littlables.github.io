@@ -3134,7 +3134,7 @@ export function getAdminPage() {
 
         // Display results
         status.textContent = 'Tagged ' + allResults.length + ' ads';
-        log.textContent = 'Done! ' + allResults.length + ' ads tagged. Review below, then copy the keywords into the ad JSON files.';
+        log.textContent = 'Done! ' + allResults.length + ' ads tagged and saved to DB.';
         resultsDiv.hidden = false;
         const html = ['<div style="max-height: 400px; overflow-y: auto; margin-top: 8px;">'];
         html.push('<table style="width: 100%; font-size: 12px;"><tr><th style="text-align:left">Ad</th><th style="text-align:left">Keywords</th></tr>');
