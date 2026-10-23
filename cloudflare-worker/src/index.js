@@ -47,6 +47,8 @@ import {
   recordNewsProviderFetchLog,
   getNewsProviderFetchLogs,
   clearNewsProviderFetchLogs,
+  pruneOldProviderLogs,
+  getNewsProviderFetchLogsFromDb,
   DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,
   getAiCurationState,
   updateAiCurationConfig,
@@ -1301,7 +1303,7 @@ async function serveAdmin(request, env) {
     const status = url.searchParams.get('status') || 'all';
     const category = url.searchParams.get('category') || 'all';
     const limit = Number(url.searchParams.get('limit') || 100);
-    return jsonResponse(getNewsProviderFetchLogs({ provider, status, category, limit }));
+    return jsonResponse(await getNewsProviderFetchLogsFromDb(env, { provider, status, category, limit }));
   }
 
   if (url.pathname === '/admin/api/analytics' && request.method === 'GET') {
@@ -1317,7 +1319,15 @@ async function serveAdmin(request, env) {
       return jsonResponse({ error: 'Log clearing must be requested from the admin origin' }, 403);
     }
     clearNewsProviderFetchLogs();
-    return jsonResponse({ cleared: true, ...getNewsProviderFetchLogs() });
+    try {
+      await fetch(
+        supabaseUrl(env, 'news_provider_logs', new URLSearchParams({ created_at: `lt.${new Date().toISOString()}` })),
+        { method: 'DELETE', headers: supabaseHeaders(env, { Prefer: 'return=minimal' }) }
+      );
+    } catch (err) {
+      console.warn('DB log clear failed:', err.message);
+    }
+    return jsonResponse({ cleared: true, ...(await getNewsProviderFetchLogsFromDb(env, {})) });
   }
 
   // Lookup a story by article URL (for homepage admin editing).
@@ -2313,6 +2323,8 @@ export default {
     // Drain due retry jobs first (same provider retried after cooldown),
     // then run the normal sync. Sequential to stay under the subrequest budget.
     const task = (async () => {
+      // Prune logs older than 30 days (1 cheap indexed delete per run)
+      await pruneOldProviderLogs(env);
       const drainResult = await drainProviderRetries(env, { limit: 6, triggerSource: 'cron:retry' });
       const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
       const syncResult = isStaggered

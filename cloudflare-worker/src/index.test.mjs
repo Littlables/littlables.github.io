@@ -1104,6 +1104,7 @@ test('rate-limited provider stops immediately, applies cooldown, and queues rema
   const newsdataCalls = [];
   const savedBatches = [];
   const queueUpserts = [];
+  const persistedLogs = [];
   const date = new Date().toISOString();
 
   globalThis.fetch = async (input, options = {}) => {
@@ -1144,6 +1145,14 @@ test('rate-limited provider stops immediately, applies cooldown, and queues rema
     if (url.pathname.endsWith('/provider_retry_queue') && options.method === 'POST') {
       queueUpserts.push(JSON.parse(options.body));
       return new Response(null, { status: 201 });
+    }
+    if (url.pathname.endsWith('/news_provider_logs') && options.method === 'POST') {
+      persistedLogs.push(...JSON.parse(options.body));
+      return new Response(null, { status: 201 });
+    }
+    if (url.pathname.endsWith('/news_provider_logs')) {
+      const sorted = [...persistedLogs].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      return Response.json(sorted);
     }
     if (url.pathname.endsWith('/news_stories')) {
       savedBatches.push(...JSON.parse(options.body));

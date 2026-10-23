@@ -626,9 +626,10 @@ export async function recordNewsProviderFetchLog(env, entry) {
     providerFetchLogsMemory.length = MAX_PROVIDER_FETCH_LOGS;
   }
 
-  if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY && env?.ENABLE_SUPABASE_PROVIDER_LOGS === 'true') {
-    try {
-      await fetch(supabaseUrl(env, 'news_provider_logs'), {
+  // Always persist to Supabase (30-day retention via pruneOldProviderLogs).
+  // Failures are logged, never thrown.
+  try {
+    await fetch(supabaseUrl(env, 'news_provider_logs'), {
         method: 'POST',
         headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
         body: JSON.stringify([{
@@ -653,7 +654,6 @@ export async function recordNewsProviderFetchLog(env, entry) {
     } catch (err) {
       console.warn('Could not persist provider fetch log to Supabase:', err);
     }
-  }
 
   return normalized;
 }
@@ -699,6 +699,80 @@ export function getNewsProviderFetchLogs({
 
 export function clearNewsProviderFetchLogs() {
   providerFetchLogsMemory.length = 0;
+}
+
+/**
+ * Delete provider fetch logs older than 30 days. Called from the cron.
+ */
+export async function pruneOldProviderLogs(env) {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const res = await fetch(
+      supabaseUrl(env, 'news_provider_logs', new URLSearchParams({ created_at: `lt.${cutoff}` })),
+      { method: 'DELETE', headers: supabaseHeaders(env, { Prefer: 'return=minimal' }) }
+    );
+    if (!res.ok) console.warn(`Log prune failed: ${res.status}`);
+  } catch (err) {
+    console.warn('Log prune failed:', err.message);
+  }
+}
+
+/**
+ * Read provider fetch logs from the DB table (last 30 days), newest first.
+ * Used by /admin/api/logs so the viewer shows full history, not just in-memory.
+ */
+export async function getNewsProviderFetchLogsFromDb(env, {
+  provider = 'all',
+  status = 'all',
+  category = 'all',
+  limit = 100
+} = {}) {
+  try {
+    const params = new URLSearchParams({
+      select: 'provider,category,trigger_source,status,http_status,duration_ms,attempt_count,items_fetched,stories_saved,retry_after_seconds,rate_limit_remaining,rate_limit_reset,request_url,error_message,failover_provider,created_at',
+      order: 'created_at.desc',
+      limit: String(Math.min(Math.max(limit, 1), 500))
+    });
+    if (provider && provider !== 'all') params.set('provider', `eq.${provider}`);
+    if (category && category !== 'all') params.set('category', `eq.${category}`);
+    if (status && status !== 'all') params.set('status', `eq.${status}`);
+    const res = await fetch(supabaseUrl(env, 'news_provider_logs', params), { headers: supabaseHeaders(env) });
+    if (!res.ok) return { logs: [], totalRequests: 0 };
+    const rows = await res.json();
+    const logs = rows.map((row, i) => ({
+      id: `db-${row.created_at}-${i}`,
+      provider: row.provider,
+      providerLabel: row.provider,
+      category: row.category,
+      triggerSource: row.trigger_source,
+      status: row.status,
+      httpStatus: row.http_status,
+      durationMs: row.duration_ms,
+      attemptCount: row.attempt_count,
+      itemsFetched: row.items_fetched,
+      storiesSaved: row.stories_saved,
+      duplicatesSkipped: 0,
+      retryAfterSeconds: row.retry_after_seconds,
+      rateLimitRemaining: row.rate_limit_remaining,
+      rateLimitReset: row.rate_limit_reset,
+      requestUrl: row.request_url,
+      errorMessage: row.error_message,
+      failoverProvider: row.failover_provider,
+      createdAt: row.created_at
+    }));
+    return {
+      logs,
+      totalRequests: logs.length,
+      summary: {
+        totalRequests: logs.length,
+        rateLimitedCount: logs.filter(l => l.status === 'rate_limited').length,
+        failedCount: logs.filter(l => l.status === 'failed').length
+      }
+    };
+  } catch (err) {
+    console.warn('DB log read failed:', err.message);
+    return { logs: [], totalRequests: 0 };
+  }
 }
 
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
