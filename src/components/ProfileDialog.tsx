@@ -1375,7 +1375,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                             )}
                             <div className="board-row-info">
                               <div className="board-row-name">{space.name}</div>
-                              <div className="board-row-slug">@{profile?.username}/{space.slug}</div>
+                              <div className="board-row-slug">@{profile?.username}/{playrooms[0].slug}/{space.slug}</div>
                             </div>
                             <div className="board-row-actions">
                               <button
@@ -1445,7 +1445,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               <>
                 <label className="profile-section-label">Your spaces</label>
                 <p className="profile-hint profile-hint-compact">
-                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/space-name.
+                  Spaces group your topics into their own pages at @{profile?.username || 'you'}/spaces/space-name.
                 </p>
                 {!boardsLoading && (
                   <p className="profile-hint profile-hint-compact">
@@ -1471,7 +1471,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                         )}
                         <div className="board-row-info">
                           <div className="board-row-name">{board.name}</div>
-                          <div className="board-row-slug">@{profile?.username}/{board.slug}</div>
+                          <div className="board-row-slug">@{profile?.username}/spaces/{board.slug}</div>
                         </div>
                         <div className="board-row-actions">
                           <button
