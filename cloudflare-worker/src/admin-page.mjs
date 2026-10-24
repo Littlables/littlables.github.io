@@ -80,6 +80,50 @@ export function getAdminPage() {
       flex-wrap: wrap;
     }
 
+    /* Sticky vitals status bar + section nav */
+    .admin-sticky {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(2, 6, 23, 0.97);
+      padding: .55rem 0 .6rem;
+      margin-bottom: .75rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .vitals-bar {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      flex-wrap: wrap;
+      margin-bottom: .5rem;
+    }
+    .vital {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .3rem .6rem;
+      border-radius: 7px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+      font-size: .78rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .vital:hover { border-color: #4f46e5; background: #25324a; }
+    .vital .vital-value { color: #a5b4fc; font-variant-numeric: tabular-nums; }
+    .vital-ok .vital-value { color: #6ee7b7; }
+    .vital-warn .vital-value { color: #fbbf24; }
+    .vital-bad .vital-value { color: #f87171; }
+    .section-nav {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      flex-wrap: wrap;
+    }
+    .section-nav-link { font-weight: 500; }
+
     /* Buttons */
     button {
       border: 1px solid transparent;
@@ -1095,6 +1139,11 @@ export function getAdminPage() {
     </div>
   </header>
 
+  <div class="admin-sticky">
+    <div id="vitals-bar" class="vitals-bar" aria-label="Site vitals" aria-live="polite"></div>
+    <nav id="section-nav" class="section-nav" aria-label="Jump to admin section"></nav>
+  </div>
+
   <main id="admin-sections">
     <!-- 1. DATABASE SUMMARY SECTION -->
     <section class="summary admin-card-section" data-section-id="summary" aria-live="polite">
@@ -1667,21 +1716,188 @@ export function getAdminPage() {
       if (event.target === previewDialog) previewDialog.close();
     });
 
-    /* Collapsible & Reorderable Sections with localStorage persistence */
-    const sectionTargets = {
-      summary: { toggle: 'summary-toggle', arrow: 'summary-arrow', body: 'summary-body', defaultOpen: true },
-      'ai-staging': { toggle: 'ai-staging-toggle', arrow: 'ai-staging-arrow', body: 'ai-staging-body', defaultOpen: true },
-      'embedding-validation': { toggle: 'embedding-validation-toggle', arrow: 'embedding-validation-arrow', body: 'embedding-validation-body', defaultOpen: true },
-      pending: { toggle: 'pending-toggle', arrow: 'pending-arrow', body: 'pending-body', defaultOpen: true },
-      search: { toggle: 'search-toggle', arrow: 'search-arrow', body: 'search-body', defaultOpen: true },
-      ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
-      custom: { toggle: 'custom-toggle', arrow: 'custom-arrow', body: 'custom-body', defaultOpen: true },
-      providers: { toggle: 'providers-toggle', arrow: 'providers-arrow', body: 'providers', defaultOpen: false },
-      logs: { toggle: 'logs-toggle', arrow: 'logs-arrow', body: 'logs-body', defaultOpen: false },
-      decisions: { toggle: 'decisions-toggle', arrow: 'decisions-arrow', body: 'decisions-body', defaultOpen: false },
-      banned: { toggle: 'banned-toggle', arrow: 'banned-arrow', body: 'banned-body', defaultOpen: false },
-      analytics: { toggle: 'analytics-toggle', arrow: 'analytics-arrow', body: 'analytics-body', defaultOpen: false }
+    /* ── Section registry ──────────────────────────────────────────────
+       ADDING A NEW SECTION (prototype):
+       1. Add the <section data-section-id="your-id"> markup in the HTML above,
+          with a header toggle button id="your-id-toggle", an arrow span
+          id="your-id-arrow", and a body div (pass its id as body: if it does
+          not follow the your-id-body pattern).
+       2. Add ONE line to SECTIONS below. That is the whole job — toggle
+          wiring, the sticky section nav, collapse persistence, move buttons,
+          and Reset layout all derive from this list automatically.
+    ─────────────────────────────────────────────────────────────────── */
+    const SECTIONS = [
+      { id: 'summary', label: 'Summary', body: 'summary-body', defaultOpen: true },
+      { id: 'ai-staging', label: 'Discovery', body: 'ai-staging-body', defaultOpen: true },
+      { id: 'embedding-validation', label: 'Classify', body: 'embedding-validation-body', defaultOpen: true },
+      { id: 'pending', label: 'Pending', body: 'pending-body', defaultOpen: true },
+      { id: 'search', label: 'Search', body: 'search-body', defaultOpen: true },
+      { id: 'ads', label: 'Ads', body: 'ads-section', defaultOpen: true },
+      { id: 'custom', label: 'Custom', body: 'custom-body', defaultOpen: true },
+      { id: 'providers', label: 'Providers', body: 'providers', defaultOpen: false },
+      { id: 'logs', label: 'Logs', body: 'logs-body', defaultOpen: false },
+      { id: 'decisions', label: 'History', body: 'decisions-body', defaultOpen: false },
+      { id: 'banned', label: 'Banned', body: 'banned-body', defaultOpen: false },
+      { id: 'analytics', label: 'Analytics', body: 'analytics-body', defaultOpen: false },
+    ];
+    const sectionTargets = Object.fromEntries(
+      SECTIONS.map((s) => [s.id, {
+        toggle: s.id + '-toggle',
+        arrow: s.id + '-arrow',
+        body: s.body,
+        defaultOpen: s.defaultOpen,
+      }])
+    );
+
+    function sectionById(id) {
+      return adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
+    }
+
+    function jumpToSection(id) {
+      setSectionExpanded(id, true, true);
+      const sec = sectionById(id);
+      if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function timeAgo(ts) {
+      const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+      if (s < 60) return 'just now';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ago';
+      return Math.floor(h / 24) + 'd ago';
+    }
+
+    function fmtNum(n) {
+      return typeof n === 'number' && isFinite(n) ? n.toLocaleString() : '—';
+    }
+
+    /* Sticky section nav: jump links in current DOM order, with live counts
+       pulled from the section headers so they never drift out of sync. */
+    const NAV_COUNTS = {
+      summary: () => document.getElementById('total')?.textContent?.trim(),
+      'ai-staging': () => document.getElementById('ai-staging-count')?.textContent?.trim(),
+      'embedding-validation': () => document.getElementById('embedding-validation-count')?.textContent?.trim(),
+      pending: () => document.getElementById('pending-count')?.textContent?.trim(),
+      ads: () => document.getElementById('ads-count')?.textContent?.trim(),
+      logs: () => document.getElementById('logs-count')?.textContent?.trim(),
+      decisions: () => document.getElementById('history-count')?.textContent?.trim(),
+      banned: () => document.getElementById('banned-count')?.textContent?.trim(),
     };
+    function renderSectionNav() {
+      const nav = document.getElementById('section-nav');
+      if (!nav) return;
+      const ordered = Array.from(adminSectionsEl.querySelectorAll(':scope > section[data-section-id]'))
+        .map((sec) => sec.dataset.sectionId)
+        .filter((id) => sectionTargets[id]);
+      nav.replaceChildren();
+      ordered.forEach((id) => {
+        const def = SECTIONS.find((s) => s.id === id) || {};
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'secondary small-btn section-nav-link';
+        const count = NAV_COUNTS[id] ? (NAV_COUNTS[id]() || '') : '';
+        link.textContent = (def.label || id) + (count ? ' ' + count : '');
+        link.setAttribute('aria-label', 'Jump to ' + (def.label || id) + ' section');
+        link.addEventListener('click', () => jumpToSection(id));
+        nav.appendChild(link);
+      });
+    }
+
+    /* Vitals status bar. Reads from the already-loaded /admin/api/status
+       snapshot plus the ads/tags and analytics extras — no new worker
+       endpoints, everything is client-side. */
+    function renderVitals() {
+      const bar = document.getElementById('vitals-bar');
+      if (!bar) return;
+      const d = state.lastStatus || {};
+      const providers = state.providers || [];
+      const now = Date.now();
+      let cooling = 0, failed = 0, lastSuccess = 0;
+      providers.forEach((p) => {
+        const ls = p.last_success_at ? Date.parse(p.last_success_at) : 0;
+        if (ls > lastSuccess) lastSuccess = ls;
+        const cd = p.cooldown_until ? Date.parse(p.cooldown_until) : 0;
+        if (cd > now) cooling++;
+        else if (p.last_failed_call || p.last_error) failed++;
+      });
+      const healthy = providers.length - cooling - failed;
+      const staged = state.aiCuration && Array.isArray(state.aiCuration.stagedPicks)
+        ? state.aiCuration.stagedPicks.length : null;
+      const pendingN = (state.pendingStories || []).length;
+      const adsTotal = Array.isArray(state.ads) ? state.ads.length : null;
+      const tagPct = (adsTotal && state.adTagCount != null)
+        ? Math.round((100 * state.adTagCount) / adsTotal) : null;
+      const engV = state.engagementViews, engC = state.engagementClicks;
+      const engCtr = (engV > 0 && engC != null) ? (100 * engC / engV).toFixed(1) + '% CTR' : null;
+
+      const vitals = [
+        { icon: '📚', label: 'Stories', value: fmtNum(d.totalStories), target: 'summary' },
+        { icon: '⏳', label: 'Pending', value: fmtNum(pendingN), target: 'pending', tone: pendingN ? 'warn' : 'ok' },
+        { icon: '🤖', label: 'Discovery', value: staged != null ? fmtNum(staged) : '—', target: 'ai-staging' },
+        {
+          icon: '📡', label: 'Providers',
+          value: providers.length ? healthy + '/' + providers.length + ' ok' : '—',
+          target: 'providers', tone: failed ? 'bad' : cooling ? 'warn' : 'ok',
+          title: cooling ? cooling + ' cooling down' : (failed ? failed + ' with errors — see Providers' : ''),
+        },
+        {
+          icon: '🎯', label: 'Ads',
+          value: adsTotal != null ? fmtNum(adsTotal) + (tagPct != null ? ' · ' + tagPct + '% tagged' : '') : '—',
+          target: 'ads',
+        },
+        {
+          icon: '👁️', label: 'Engagement',
+          value: engV != null ? fmtNum(engV) + ' views' + (engCtr ? ' · ' + engCtr : '') + ' (30d)' : '—',
+          target: 'analytics',
+        },
+        { icon: '🔄', label: 'Synced', value: lastSuccess ? timeAgo(lastSuccess) : '—', target: 'providers' },
+        {
+          icon: '🔁', label: 'Auto-sync',
+          value: state.autoSync ? (state.autoSync.enabled ? 'on' : 'paused') : '—',
+          target: 'providers', tone: state.autoSync && state.autoSync.enabled ? 'ok' : 'warn',
+        },
+      ];
+      bar.replaceChildren();
+      vitals.forEach((v) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'vital' + (v.tone ? ' vital-' + v.tone : '');
+        if (v.title) b.title = v.title;
+        const labelEl = document.createElement('span');
+        labelEl.textContent = v.icon + ' ' + v.label;
+        const valEl = document.createElement('span');
+        valEl.className = 'vital-value';
+        valEl.textContent = v.value;
+        b.append(labelEl, valEl);
+        b.setAttribute('aria-label', v.label + ': ' + v.value + ' — jump to section');
+        b.addEventListener('click', () => jumpToSection(v.target));
+        bar.appendChild(b);
+      });
+    }
+
+    /* Lightweight extras for the vitals bar. Runs after ads load; failures
+       leave "—" placeholders rather than breaking the bar. */
+    async function refreshVitalsExtras() {
+      try {
+        const t = await request('/ads/tags');
+        state.adTagCount = typeof t.count === 'number' ? t.count : Object.keys(t.tags || {}).length;
+      } catch { state.adTagCount = null; }
+      try {
+        const a = await request('/admin/api/analytics?type=keywords&limit=200');
+        if (a && a.ok && Array.isArray(a.rows)) {
+          let v = 0, c = 0;
+          a.rows.forEach((r) => { v += Number(r.views) || 0; c += Number(r.clicks) || 0; });
+          state.engagementViews = v;
+          state.engagementClicks = c;
+        } else {
+          state.engagementViews = null;
+        }
+      } catch { state.engagementViews = null; }
+      renderVitals();
+      renderSectionNav();
+    }
 
     function setSectionExpanded(sectionId, expanded, persist = true) {
       const cfg = sectionTargets[sectionId];
@@ -1723,6 +1939,7 @@ export function getAdminPage() {
         localStorage.setItem(STORAGE_ORDER_KEY, JSON.stringify(order));
       } catch {}
       updateSectionMoveButtons();
+      renderSectionNav();
     }
 
     function restoreSectionLayout() {
@@ -1745,6 +1962,7 @@ export function getAdminPage() {
         });
       } catch {}
       updateSectionMoveButtons();
+      renderSectionNav();
     }
 
     Object.keys(sectionTargets).forEach((sectionId) => {
@@ -1779,7 +1997,7 @@ export function getAdminPage() {
         localStorage.removeItem(STORAGE_ORDER_KEY);
         localStorage.removeItem(STORAGE_COLLAPSED_KEY);
       } catch {}
-      ['summary', 'ai-staging', 'embedding-validation', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned', 'analytics'].forEach((id) => {
+      SECTIONS.map((s) => s.id).forEach((id) => {
         const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
         if (sec) adminSectionsEl.append(sec);
         setSectionExpanded(id, sectionTargets[id].defaultOpen, false);
@@ -3940,6 +4158,7 @@ export function getAdminPage() {
           ? ''
           : '?provider=' + encodeURIComponent(state.activeProvider);
         const data = await request('/admin/api/status' + query);
+        state.lastStatus = data;
         state.providers = data.providers;
         state.pendingStories = data.pendingStories || [];
         state.decidedStories = data.recentStories || [];
@@ -3976,7 +4195,9 @@ export function getAdminPage() {
           performStorySearch();
         }
         refreshStoryAges();
-        loadAds();
+        renderVitals();
+        renderSectionNav();
+        loadAds().finally(() => { refreshVitalsExtras(); });
         messageEl.textContent = 'Database status refreshed.';
       } catch (error) {
         messageEl.className = 'error';
