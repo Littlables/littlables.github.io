@@ -3,7 +3,7 @@ import { getSupabaseClient } from '../services/supabaseService';
 import { Profile, useAuth } from '../contexts/AuthContext';
 import { Board, getBoardBySlug } from '../services/boardService';
 import { Playroom, getPlayroomBySlug } from '../services/playroomService';
-import { fetchNewsFeed, fetchKeywordFeed } from '../services/newsService';
+import { fetchInterestFeed } from '../services/playroomFeedService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -114,40 +114,38 @@ export const BoardPage: React.FC<BoardPageProps> = ({
         setStories([]);
         return;
       }
-      const results = await Promise.allSettled(
-        pills.map((p) =>
-          p.type === 'keyword'
-            ? fetchKeywordFeed(p.id)
-            : fetchNewsFeed(
-                (p.type === 'custom' ? p.keywords || p.label || p.id : p.id) as NewsCategory
-              )
-        )
-      );
-      if (cancelled) return;
-      const seen = new Set<string>();
-      const merged: NewsItem[] = [];
-      for (const r of results) {
-        if (r.status !== 'fulfilled') continue;
-        for (const s of r.value) {
-          const key = `${s.link || ''}|${s.title || ''}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          merged.push(s);
+      // Collect interest IDs from pills; backend resolves categories vs keywords
+      const interestIds: string[] = [];
+      for (const p of pills) {
+        if (p.type === 'category') {
+          interestIds.push(p.id);
+        } else if (p.type === 'keyword') {
+          interestIds.push(p.id);
+        } else if (p.type === 'custom') {
+          const kws = (p.keywords || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          if (kws.length > 0) interestIds.push(...kws);
+          else if (p.label) interestIds.push(p.label.toLowerCase());
+        } else {
+          interestIds.push(p.id);
         }
       }
-      merged.sort(
-        (a, b) => new Date(b.pubDate || 0).getTime() - new Date(a.pubDate || 0).getTime()
-      );
-      setStories(merged);
-      if (merged.length > 0) {
-        try {
-          const data = await fetchReactionsForStories(
-            merged.map((s) => getStoryId(s.title, s.link))
-          );
-          if (!cancelled) setReactions(data);
-        } catch {
-          /* reactions are best-effort */
+      try {
+        const feed = await fetchInterestFeed(interestIds);
+        if (cancelled) return;
+        // Backend returns approved-first, date-sorted, deduped.
+        setStories(feed.items);
+        if (feed.items.length > 0) {
+          try {
+            const data = await fetchReactionsForStories(
+              feed.items.map((s) => getStoryId(s.title, s.link))
+            );
+            if (!cancelled) setReactions(data);
+          } catch {
+            /* reactions are best-effort */
+          }
         }
+      } catch {
+        if (!cancelled) setStories([]);
       }
     })();
     return () => {

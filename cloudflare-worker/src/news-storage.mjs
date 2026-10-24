@@ -2542,3 +2542,172 @@ export async function recordAdEvent(env, { adId, adTitle, network, category, sto
     return { ok: false, reason: String(err?.message || err) };
   }
 }
+
+// ── Interest & Playroom feeds ──
+// Backend APIs for playroom/space content. Replaces frontend parallel /feed
+// requests with server-side merging.
+
+// Front-page categories that a space interest can map to.
+// A space pill with one of these IDs pulls the front-page category feed.
+const FRONT_PAGE_CATEGORIES = new Set(['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting', 'all']);
+
+/**
+ * Stories matching ANY of the given interest IDs.
+ * Category IDs (childcare, animals, etc.) pull front-page category feeds;
+ * keyword IDs use keyword overlap. Approved first, then unapproved,
+ * both date-sorted. Deduped by URL.
+ */
+export async function getStoriesByInterests(env, interestIds) {
+  const ids = [...new Set((interestIds || []).map(String).filter(Boolean))].slice(0, 30);
+  if (ids.length === 0) return { provider: 'supabase', items: [] };
+
+  const categoryIds = ids.filter(id => FRONT_PAGE_CATEGORIES.has(id));
+  const keywordIds = ids.filter(id => !FRONT_PAGE_CATEGORIES.has(id));
+
+  const feedPromises = categoryIds.map(cat => getStoredNewsFeed(env, cat));
+  if (keywordIds.length > 0) {
+    const makeQuery = approved => {
+      const params = new URLSearchParams({
+        select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+        approved: `eq.${approved}`,
+        removed: 'eq.false',
+        'interest_keywords': `ov.{${keywordIds.join(',')}}`,
+        order: 'published_at.desc.nullslast,fetched_at.desc',
+        limit: '50'
+      });
+      return params;
+    };
+    const keywordFeedPromise = (async () => {
+      const [approvedResponse, unapprovedResponse] = await Promise.all([
+        fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), { headers: supabaseHeaders(env) }),
+        fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), { headers: supabaseHeaders(env) })
+      ]);
+      const [approvedRows, unapprovedRows] = await Promise.all([
+        readRows(approvedResponse, 'Approved interest feed lookup'),
+        readRows(unapprovedResponse, 'Unapproved interest feed lookup')
+      ]);
+      const items = [];
+      for (const row of [...approvedRows, ...unapprovedRows]) {
+        if (!row.article_url) continue;
+        items.push({ ...normalizeStory(row), approved: row.approved });
+      }
+      return { provider: 'supabase', items };
+    })();
+    feedPromises.push(keywordFeedPromise);
+  }
+
+  const results = await Promise.allSettled(feedPromises);
+  const seenUrls = new Set();
+  const approved = [];
+  const unapproved = [];
+  for (const r of results) {
+    if (r.status !== 'fulfilled' || !r.value?.items) continue;
+    for (const item of r.value.items) {
+      const url = item.link || item.article_url;
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      if (item.approved === true) approved.push(item);
+      else unapproved.push(item);
+    }
+  }
+  const byDate = (a, b) => new Date(b.published_at || b.fetched_at || 0) - new Date(a.published_at || a.fetched_at || 0);
+  approved.sort(byDate);
+  unapproved.sort(byDate);
+  return { provider: 'supabase', items: [...approved, ...unapproved] };
+}
+
+/**
+ * Full feed for a playroom. When spaceId is given, filters to that space's
+ * interests; otherwise merges across all spaces in the playroom.
+ * Returns approved-first, date-sorted, deduped items.
+ */
+export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) {
+  if (!playroomId && username && slug) {
+    const profileRes = await fetch(supabaseUrl(env, 'profiles', new URLSearchParams({
+      select: 'id', username: `eq.${String(username).toLowerCase()}`, limit: '1'
+    })), { headers: supabaseHeaders(env) });
+    const profileRows = await readRows(profileRes, 'Profile lookup');
+    const profile = profileRows[0];
+    if (!profile) return { playroom: null, spaces: [], items: [] };
+    const prRes = await fetch(supabaseUrl(env, 'playrooms', new URLSearchParams({
+      select: 'id', user_id: `eq.${profile.id}`,
+      slug: `eq.${String(slug).toLowerCase()}`, limit: '1'
+    })), { headers: supabaseHeaders(env) });
+    const prRows = await readRows(prRes, 'Playroom ID lookup');
+    playroomId = prRows[0]?.id || null;
+  }
+  if (!playroomId) return { playroom: null, spaces: [], items: [] };
+
+  const [playroomRes, spacesRes] = await Promise.all([
+    fetch(supabaseUrl(env, 'playrooms', new URLSearchParams({
+      select: 'id,user_id,name,slug,description,logo_url,theme,background_color',
+      id: `eq.${playroomId}`, limit: '1'
+    })), { headers: supabaseHeaders(env) }),
+    fetch(supabaseUrl(env, 'playroom_spaces', new URLSearchParams({
+      select: 'position,boards(id,name,slug,logo_url,pills)',
+      playroom_id: `eq.${playroomId}`, order: 'position.asc'
+    })), { headers: supabaseHeaders(env) })
+  ]);
+  const [playroomRows, spaceRows] = await Promise.all([
+    readRows(playroomRes, 'Playroom lookup'),
+    readRows(spacesRes, 'Playroom spaces lookup')
+  ]);
+  const playroom = playroomRows[0] || null;
+  if (!playroom) return { playroom: null, spaces: [], items: [] };
+
+  const spaces = (spaceRows || [])
+    .map(r => r.boards).filter(Boolean)
+    .map(b => Array.isArray(b) ? b[0] : b).filter(Boolean);
+
+  const targetSpaces = spaceId ? spaces.filter(s => s.id === spaceId) : spaces;
+  const seenPills = new Map();
+  for (const space of targetSpaces) {
+    for (const p of space.pills || []) {
+      const key = `${p.type}:${p.id}`;
+      if (!seenPills.has(key)) seenPills.set(key, p);
+    }
+  }
+  const pills = [...seenPills.values()];
+  if (pills.length === 0) return { playroom, spaces, items: [] };
+
+  const categoryIds = [];
+  const keywordIds = [];
+  for (const p of pills) {
+    if (p.type === 'category' && FRONT_PAGE_CATEGORIES.has(p.id)) {
+      categoryIds.push(p.id);
+    } else if (p.type === 'keyword') {
+      keywordIds.push(p.id);
+    } else if (p.type === 'custom') {
+      const kws = (p.keywords || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (kws.length > 0) keywordIds.push(...kws);
+      else if (p.label) keywordIds.push(p.label.toLowerCase());
+    } else {
+      keywordIds.push(p.id);
+    }
+  }
+
+  const feedPromises = categoryIds.map(cat => getStoredNewsFeed(env, cat));
+  if (keywordIds.length > 0) {
+    feedPromises.push(getStoriesByInterests(env, keywordIds));
+  }
+  const results = await Promise.allSettled(feedPromises);
+
+  const seenUrls = new Set();
+  const approved = [];
+  const unapproved = [];
+  for (const r of results) {
+    if (r.status !== 'fulfilled' || !r.value?.items) continue;
+    for (const item of r.value.items) {
+      const url = item.link || item.article_url;
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      if (item.approved === true) approved.push(item);
+      else unapproved.push(item);
+    }
+  }
+  const byDate = (a, b) => new Date(b.published_at || b.fetched_at || 0) - new Date(a.published_at || a.fetched_at || 0);
+  approved.sort(byDate);
+  unapproved.sort(byDate);
+
+  return { playroom, spaces, items: [...approved, ...unapproved] };
+}

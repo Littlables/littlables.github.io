@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
-import { Profile, useAuth, type PillConfig } from '../contexts/AuthContext';
+import { Profile, useAuth } from '../contexts/AuthContext';
 import {
   Playroom,
   getPlayroomBySlug,
   getPlayroomSpaces,
 } from '../services/playroomService';
 import type { Board } from '../services/boardService';
-import { fetchNewsFeed, fetchKeywordFeed } from '../services/newsService';
+import { fetchPlayroomFeed } from '../services/playroomFeedService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -98,71 +98,37 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     };
   }, [playroom, owner, viewerProfile?.use_viewer_theme_for_boards]);
 
-  // Fetch stories for the spaces' pills, merged + deduped into one combined feed.
-  // When a space pill is active, only that space's stories show.
+  // Fetch stories via the backend /api/playroom endpoint.
+  // When a space pill is active, the backend filters to that space's interests.
   useEffect(() => {
-    const effectiveSpaces = activeSpaceId
-      ? spaces.filter((s) => s.id === activeSpaceId)
-      : spaces;
-    if (!playroom || effectiveSpaces.length === 0) {
-      if (playroom) setStories([]);
+    if (!playroom) {
       return;
     }
     let cancelled = false;
     (async () => {
-      // Collect unique pills across the visible spaces (dedupe by type+id)
-      const seenPills = new Map<string, PillConfig>();
-      for (const space of effectiveSpaces) {
-        for (const p of space.pills || []) {
-          const key = `${p.type}:${p.id}`;
-          if (!seenPills.has(key)) seenPills.set(key, p);
+      try {
+        const feed = await fetchPlayroomFeed(playroom.id, activeSpaceId);
+        if (cancelled) return;
+        // Backend returns approved-first, date-sorted, deduped.
+        setStories(feed.items);
+        if (feed.items.length > 0) {
+          try {
+            const data = await fetchReactionsForStories(
+              feed.items.map((s) => getStoryId(s.title, s.link))
+            );
+            if (!cancelled) setReactions(data);
+          } catch {
+            /* reactions are best-effort */
+          }
         }
-      }
-      const pills = [...seenPills.values()];
-      if (pills.length === 0) {
-        setStories([]);
-        return;
-      }
-      const results = await Promise.allSettled(
-        pills.map((p) =>
-          p.type === 'keyword'
-            ? fetchKeywordFeed(p.id)
-            : fetchNewsFeed(
-                (p.type === 'custom' ? p.keywords || p.label || p.id : p.id) as NewsCategory
-              )
-        )
-      );
-      if (cancelled) return;
-      const seen = new Set<string>();
-      const merged: NewsItem[] = [];
-      for (const r of results) {
-        if (r.status !== 'fulfilled') continue;
-        for (const s of r.value) {
-          const key = `${s.link || ''}|${s.title || ''}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          merged.push(s);
-        }
-      }
-      merged.sort(
-        (a, b) => new Date(b.pubDate || 0).getTime() - new Date(a.pubDate || 0).getTime()
-      );
-      setStories(merged);
-      if (merged.length > 0) {
-        try {
-          const data = await fetchReactionsForStories(
-            merged.map((s) => getStoryId(s.title, s.link))
-          );
-          if (!cancelled) setReactions(data);
-        } catch {
-          /* reactions are best-effort */
-        }
+      } catch {
+        if (!cancelled) setStories([]);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [playroom, spaces, activeSpaceId]);
+  }, [playroom, activeSpaceId]);
 
   const handleReaction = useCallback(async (storyId: string, type: ReactionType) => {
     setReactions((prev) => {

@@ -28,6 +28,8 @@ import {
   setStoryDisplayCategories,
   setStoryInterestKeywords,
   getStoriesByKeyword,
+  getStoriesByInterests,
+  getPlayroomFeed,
   getPersistedKeywordEmbeddings,
   getKeywordVectorStatus,
   OVERRIDABLE_CATEGORIES,
@@ -2440,6 +2442,33 @@ export default {
         }
       }
       return serveNewsFeed(request, env, ctx);
+    }
+    if (request.method === 'GET' && pathname === '/api/interest') {
+      try {
+        const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 30);
+        if (ids.length === 0) {
+          return jsonResponse({ items: [], count: 0, error: 'missing ids' }, 400);
+        }
+        const feed = await getStoriesByInterests(env, ids);
+        return jsonResponse({ items: feed.items, count: feed.items.length });
+      } catch (err) {
+        return jsonResponse({ items: [], count: 0, error: err.message }, 500);
+      }
+    }
+    if (request.method === 'GET' && pathname === '/api/playroom') {
+      try {
+        const playroomId = (url.searchParams.get('id') || '').trim() || null;
+        const username = (url.searchParams.get('username') || '').trim() || null;
+        const slug = (url.searchParams.get('slug') || '').trim() || null;
+        const spaceId = (url.searchParams.get('space') || '').trim() || null;
+        if (!playroomId && !(username && slug)) {
+          return jsonResponse({ playroom: null, spaces: [], items: [], error: 'missing id or username+slug' }, 400);
+        }
+        const feed = await getPlayroomFeed(env, playroomId, spaceId, username, slug);
+        return jsonResponse({ playroom: feed.playroom, spaces: feed.spaces, items: feed.items, count: feed.items.length });
+      } catch (err) {
+        return jsonResponse({ playroom: null, spaces: [], items: [], error: err.message }, 500);
+      }
     }
     if (request.method === 'POST' && pathname === '/api/engagement') {
       return handleEngagementEvent(request, env);
