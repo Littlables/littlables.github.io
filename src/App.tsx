@@ -19,7 +19,6 @@ import { ProfileDialog } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
 import { BoardPage } from './components/BoardPage';
 import { SpaceRoutePage } from './components/SpaceRoutePage';
-import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
 import { fetchNewsFeed } from './services/newsService';
@@ -567,7 +566,6 @@ export const App: React.FC = () => {
             />
           </main>
         ) : playroomSpaceRoute ? (
-          <RouteErrorBoundary routeName="playroom-space">
           <BoardPage
             username={playroomSpaceRoute.username}
             slug={playroomSpaceRoute.space}
@@ -575,25 +573,20 @@ export const App: React.FC = () => {
             onHome={handleHomeRefresh}
             onOpenProfile={() => setActiveDialog('profile')}
           />
-          </RouteErrorBoundary>
         ) : spaceRoute ? (
-          <RouteErrorBoundary routeName="space">
-            <BoardPage
-              username={spaceRoute.username}
-              slug={spaceRoute.slug}
-              onHome={handleHomeRefresh}
-              onOpenProfile={() => setActiveDialog('profile')}
-            />
-          </RouteErrorBoundary>
+          <BoardPage
+            username={spaceRoute.username}
+            slug={spaceRoute.slug}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+          />
         ) : boardRoute ? (
-          <RouteErrorBoundary routeName="board">
-            <SpaceRoutePage
-              username={boardRoute.username}
-              slug={boardRoute.slug}
-              onHome={handleHomeRefresh}
-              onOpenProfile={() => setActiveDialog('profile')}
-            />
-          </RouteErrorBoundary>
+          <SpaceRoutePage
+            username={boardRoute.username}
+            slug={boardRoute.slug}
+            onHome={handleHomeRefresh}
+            onOpenProfile={() => setActiveDialog('profile')}
+          />
         ) : profileRoute ? (
           <PublicProfilePage
             username={profileRoute}
