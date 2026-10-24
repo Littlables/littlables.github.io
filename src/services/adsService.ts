@@ -91,11 +91,20 @@ function hashString(str: string): string {
   return Math.abs(hash).toString(36);
 }
 
+// Ad data carries relative image paths (e.g. "img/ads/...", "ads/img/...").
+// Rendered raw into <img src>, those resolve against the current route path,
+// so on deep routes like /@user/... the browser requests /@user/img/... and the
+// SPA fallback serves index.html instead of the image. Root-absolute works everywhere.
+function toRootAbsolute(path: string): string {
+  if (/^(https?:)?\/\//.test(path) || path.startsWith('/') || path.startsWith('data:')) return path;
+  return `/${path.replace(/^\.\//, '')}`;
+}
+
 function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex: number): AdItem {
   const title = raw.name || raw.title || 'Curated Discovery';
   const desc = raw.description || raw.desc || 'A handpicked resource tailored to your interests.';
   const imgCat = resolveFallbackAdCategory(raw.category, category);
-  const img = raw.thumbnailUrl || raw.img || `img/${imgCat}_${(defaultIndex % 10) + 1}.jpg`;
+  const img = toRootAbsolute(raw.thumbnailUrl || raw.img || `img/${imgCat}_${(defaultIndex % 10) + 1}.jpg`);
   const sponsor = raw.sellerName || raw.sponsor || 'Featured Partner';
   const url = raw.url || '#';
   const price = raw.priceUsd != null && raw.priceUsd > 0
