@@ -16,7 +16,7 @@ export function getAdminLoginPage() {
 </head>
 <body>
   <main>
-    <h1>Littlables news admin</h1>
+    <h1>lil dashboard</h1>
     <p>Sign in with the authorized GitHub account to manage stories and providers.</p>
     <a href="/admin/auth/login">Continue with GitHub</a>
   </main>
@@ -34,7 +34,7 @@ export function getAdminPage() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Littlables news admin</title>
+  <title>lil dashboard</title>
   <style>
     :root {
       color-scheme: dark;
@@ -116,71 +116,13 @@ export function getAdminPage() {
     .vital-ok .vital-value { color: #6ee7b7; }
     .vital-warn .vital-value { color: #fbbf24; }
     .vital-bad .vital-value { color: #f87171; }
-    .admin-sticky .toolbar {
-      padding-bottom: .45rem;
-      margin-bottom: .45rem;
-    }
-    .toolbar-left {
+    .section-nav {
       display: flex;
       align-items: center;
-      gap: .6rem;
+      gap: .35rem;
+      flex-wrap: wrap;
     }
-    #menu-toggle { font-size: 1rem; padding: .35rem .6rem; }
-    /* Compact vitals: plain text status, not buttons */
-    .vitals-compact {
-      gap: .2rem .9rem;
-      margin-bottom: 0;
-    }
-    .vitals-compact .vital {
-      background: none;
-      border: none;
-      padding: .1rem 0;
-      font-size: .74rem;
-      font-weight: 500;
-      color: #94a3b8;
-    }
-    .vitals-compact .vital:hover { background: none; border: none; color: #e2e8f0; }
-    .vitals-compact .vital .vital-value { font-weight: 700; }
-    /* Hamburger section menu */
-    .section-menu {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      min-width: 250px;
-      max-height: 70vh;
-      overflow-y: auto;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 10px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
-      padding: .35rem;
-      margin: 0;
-      list-style: none;
-      z-index: 60;
-    }
-    .menu-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: .5rem;
-      border-radius: 7px;
-    }
-    .menu-row:hover { background: #1e293b; }
-    .section-menu .menu-link {
-      flex: 1;
-      background: none;
-      border: none;
-      color: #e2e8f0;
-      font-size: .84rem;
-      font-weight: 500;
-      text-align: left;
-      padding: .5rem .6rem;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .section-menu .menu-link:hover { background: none; border: none; color: #a5b4fc; }
-    .section-menu .menu-link .muted { font-size: .76rem; }
-    .menu-movers { display: flex; gap: .25rem; padding-right: .35rem; }
+    .section-nav-link { font-weight: 500; }
 
     /* Buttons */
     button {
@@ -1185,23 +1127,20 @@ export function getAdminPage() {
   </style>
 </head>
 <body>
+  <header class="toolbar">
+    <div>
+      <h1>lil dashboard</h1>
+      <p id="identity" class="muted">Verifying GitHub session…</p>
+    </div>
+    <div class="toolbar-actions">
+      <button id="refresh" class="small-btn" type="button">Refresh</button>
+      <button id="logout" class="secondary small-btn" type="button">Sign out</button>
+    </div>
+  </header>
+
   <div class="admin-sticky">
-    <header class="toolbar">
-      <div class="toolbar-left">
-        <button id="menu-toggle" class="icon-btn" type="button" aria-expanded="false" aria-controls="section-menu" title="Sections menu">☰</button>
-        <div>
-          <h1>Littlables news admin</h1>
-          <p id="identity" class="muted">Verifying GitHub session…</p>
-        </div>
-      </div>
-      <div class="toolbar-actions">
-        <button id="refresh" class="small-btn" type="button">Refresh</button>
-        <button id="reset-layout" class="secondary small-btn" type="button" title="Reset section order and collapse states">Reset layout</button>
-        <button id="logout" class="secondary small-btn" type="button">Sign out</button>
-      </div>
-    </header>
-    <div id="vitals-bar" class="vitals-bar vitals-compact" aria-label="Site vitals" aria-live="polite"></div>
-    <nav id="section-menu" class="section-menu" aria-label="Admin sections" hidden></nav>
+    <div id="vitals-bar" class="vitals-bar" aria-label="Site vitals" aria-live="polite"></div>
+    <nav id="section-nav" class="section-nav" aria-label="Jump to admin section"></nav>
   </div>
 
   <main id="admin-sections">
@@ -1845,106 +1784,23 @@ export function getAdminPage() {
       decisions: () => document.getElementById('history-count')?.textContent?.trim(),
       banned: () => document.getElementById('banned-count')?.textContent?.trim(),
     };
-    /* Hamburger section menu: vertical list in current DOM order, with live
-       counts pulled from the section headers so they never drift out of sync.
-       The ↑/↓ movers move the actual page sections, so menu order and page
-       order share one source of truth. */
-    function renderSectionMenu() {
-      const menu = document.getElementById('section-menu');
-      if (!menu) return;
+    function renderSectionNav() {
+      const nav = document.getElementById('section-nav');
+      if (!nav) return;
       const ordered = Array.from(adminSectionsEl.querySelectorAll(':scope > section[data-section-id]'))
         .map((sec) => sec.dataset.sectionId)
         .filter((id) => sectionTargets[id]);
-      menu.replaceChildren();
-      ordered.forEach((id, idx) => {
+      nav.replaceChildren();
+      ordered.forEach((id) => {
         const def = SECTIONS.find((s) => s.id === id) || {};
-        const label = def.label || id;
-        const li = document.createElement('li');
-        li.className = 'menu-row';
         const link = document.createElement('button');
         link.type = 'button';
-        link.className = 'menu-link';
-        link.dataset.menuJump = id;
-        link.setAttribute('aria-label', 'Jump to ' + label + ' section');
-        const labelSpan = document.createElement('span');
-        labelSpan.textContent = label + ' ';
-        link.appendChild(labelSpan);
+        link.className = 'secondary small-btn section-nav-link';
         const count = NAV_COUNTS[id] ? (NAV_COUNTS[id]() || '') : '';
-        if (count) {
-          const countSpan = document.createElement('span');
-          countSpan.className = 'muted';
-          countSpan.textContent = count;
-          link.appendChild(countSpan);
-        }
-        const movers = document.createElement('span');
-        movers.className = 'menu-movers';
-        const up = document.createElement('button');
-        up.type = 'button';
-        up.className = 'icon-btn';
-        up.textContent = '↑';
-        up.title = 'Move ' + label + ' up';
-        up.setAttribute('aria-label', 'Move ' + label + ' up');
-        up.dataset.menuMove = 'up';
-        up.dataset.sectionId = id;
-        up.disabled = idx === 0;
-        const down = document.createElement('button');
-        down.type = 'button';
-        down.className = 'icon-btn';
-        down.textContent = '↓';
-        down.title = 'Move ' + label + ' down';
-        down.setAttribute('aria-label', 'Move ' + label + ' down');
-        down.dataset.menuMove = 'down';
-        down.dataset.sectionId = id;
-        down.disabled = idx === ordered.length - 1;
-        movers.append(up, down);
-        li.append(link, movers);
-        menu.appendChild(li);
-      });
-    }
-
-    /* Hamburger open/close + menu interactions (jump links and movers). */
-    const menuToggleBtn = document.getElementById('menu-toggle');
-    const sectionMenuEl = document.getElementById('section-menu');
-    function setMenuOpen(open) {
-      if (!sectionMenuEl || !menuToggleBtn) return;
-      sectionMenuEl.hidden = !open;
-      menuToggleBtn.setAttribute('aria-expanded', String(open));
-    }
-    if (menuToggleBtn) {
-      menuToggleBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        renderSectionMenu();
-        setMenuOpen(sectionMenuEl.hidden);
-      });
-    }
-    document.addEventListener('click', (event) => {
-      if (!sectionMenuEl || sectionMenuEl.hidden) return;
-      if (event.target.closest('#section-menu') || event.target.closest('#menu-toggle')) return;
-      setMenuOpen(false);
-    });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') setMenuOpen(false);
-    });
-    if (sectionMenuEl) {
-      sectionMenuEl.addEventListener('click', (event) => {
-        const moveBtn = event.target.closest('[data-menu-move]');
-        if (moveBtn) {
-          const sec = sectionById(moveBtn.dataset.sectionId);
-          if (sec) {
-            if (moveBtn.dataset.menuMove === 'up' && sec.previousElementSibling) {
-              adminSectionsEl.insertBefore(sec, sec.previousElementSibling);
-            } else if (moveBtn.dataset.menuMove === 'down' && sec.nextElementSibling) {
-              adminSectionsEl.insertBefore(sec.nextElementSibling, sec);
-            }
-            saveSectionOrder();
-          }
-          return;
-        }
-        const jumpBtn = event.target.closest('[data-menu-jump]');
-        if (jumpBtn) {
-          setMenuOpen(false);
-          jumpToSection(jumpBtn.dataset.menuJump);
-        }
+        link.textContent = (def.label || id) + (count ? ' ' + count : '');
+        link.setAttribute('aria-label', 'Jump to ' + (def.label || id) + ' section');
+        link.addEventListener('click', () => jumpToSection(id));
+        nav.appendChild(link);
       });
     }
 
@@ -2039,7 +1895,7 @@ export function getAdminPage() {
         }
       } catch { state.engagementViews = null; }
       renderVitals();
-      renderSectionMenu();
+      renderSectionNav();
     }
 
     function setSectionExpanded(sectionId, expanded, persist = true) {
@@ -2082,7 +1938,7 @@ export function getAdminPage() {
         localStorage.setItem(STORAGE_ORDER_KEY, JSON.stringify(order));
       } catch {}
       updateSectionMoveButtons();
-      renderSectionMenu();
+      renderSectionNav();
     }
 
     function restoreSectionLayout() {
@@ -2105,7 +1961,7 @@ export function getAdminPage() {
         });
       } catch {}
       updateSectionMoveButtons();
-      renderSectionMenu();
+      renderSectionNav();
     }
 
     Object.keys(sectionTargets).forEach((sectionId) => {
@@ -2135,7 +1991,8 @@ export function getAdminPage() {
       }
     });
 
-    document.getElementById('reset-layout').addEventListener('click', () => {
+    const resetBtn = document.getElementById('reset-layout');
+    if (resetBtn) resetBtn.addEventListener('click', () => {
       try {
         localStorage.removeItem(STORAGE_ORDER_KEY);
         localStorage.removeItem(STORAGE_COLLAPSED_KEY);
@@ -4339,7 +4196,7 @@ export function getAdminPage() {
         }
         refreshStoryAges();
         renderVitals();
-        renderSectionMenu();
+        renderSectionNav();
         loadAds().finally(() => { refreshVitalsExtras(); });
         messageEl.textContent = 'Database status refreshed.';
       } catch (error) {
