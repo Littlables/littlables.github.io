@@ -13,7 +13,18 @@ import {
 } from '../services/supabaseService';
 import { NewsCard } from './NewsCard';
 import { t } from '../constants/translations';
+import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
 import type { NewsItem, NewsCategory, ReactionCounts, ReactionType, AdItem } from '../types';
+
+// Map interest ID → label for badge display
+const INTEREST_LABELS = new Map(INTEREST_KEYWORDS.map(k => [k.id, k.label]));
+
+// Get the best (highest-confidence) interest label for a story
+function getBestInterestLabel(story: NewsItem): string | null {
+  const keywords = story.interestKeywords;
+  if (!keywords || keywords.length === 0) return null;
+  return INTEREST_LABELS.get(keywords[0]) || keywords[0];
+}
 
 interface BoardPageProps {
   username: string;
@@ -307,7 +318,7 @@ export const BoardPage: React.FC<BoardPageProps> = ({
                 item={story}
                 index={index}
                 category={(story.category as NewsCategory) || 'all'}
-                categoryBadge={board?.name || story.category || ''}
+                categoryBadge={getBestInterestLabel(story) || story.category || ''}
                 reactions={cardReactions}
                 onReact={handleReaction}
                 onOpenStory={handleOpenStory}
