@@ -177,6 +177,8 @@ export function getAdminPage() {
     .section-menu .menu-link:hover { background: none; border: none; color: #a5b4fc; }
     .section-menu .menu-link .muted { font-size: .76rem; }
     .menu-movers { display: flex; gap: .25rem; padding-right: .35rem; }
+    /* Keep jumped-to sections clear of the sticky header. */
+    section[data-section-id] { scroll-margin-top: 130px; }
 
     /* Buttons */
     button {
@@ -1811,7 +1813,12 @@ export function getAdminPage() {
     function jumpToSection(id) {
       setSectionExpanded(id, true, true);
       const sec = sectionById(id);
-      if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!sec) return;
+      // Account for the sticky header so the section top isn't cut off.
+      const sticky = document.querySelector('.admin-sticky');
+      const offset = (sticky ? sticky.getBoundingClientRect().height : 120) + 12;
+      const top = sec.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
     }
 
     function timeAgo(ts) {
