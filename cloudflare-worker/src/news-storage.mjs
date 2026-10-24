@@ -1,6 +1,6 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
 import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, deriveStoryRegion } from './interest-keywords.mjs';
-import { embedText, EMBEDDING_MODEL } from './embedding-classifier.mjs';
+import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
 // are sharpened, old vectors stop matching and get recomputed.
@@ -2668,10 +2668,39 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
     }
   }
   const pills = [...seenPills.values()];
-  if (pills.length === 0) return { playroom, spaces, items: [] };
+  // If no pills are selected, fall back to the space/playroom description:
+  // embed the description and find the most similar interests.
+  let derivedKeywordIds = [];
+  if (pills.length === 0) {
+    const descText = [
+      playroom.description,
+      ...spaces.map(s => s.name)
+    ].filter(Boolean).join(' ');
+    if (descText && env.AI) {
+      try {
+        const descVector = await embedText(env, descText);
+        const { vectors } = await getPersistedKeywordEmbeddings(env);
+        if (vectors && descVector) {
+          const scored = [];
+          for (const [kwId, kwVector] of vectors) {
+            if (EXCLUDED_KEYWORD_IDS.has(kwId)) continue;
+            const sim = cosineSimilarity(descVector, kwVector);
+            if (sim >= 0.35) scored.push({ id: kwId, sim });
+          }
+          scored.sort((a, b) => b.sim - a.sim);
+          derivedKeywordIds = scored.slice(0, 5).map(s => s.id);
+        }
+      } catch (e) {
+        // Fall through to empty feed on embedding failure
+      }
+    }
+    if (derivedKeywordIds.length === 0) {
+      return { playroom, spaces, items: [] };
+    }
+  }
 
   const categoryIds = [];
-  const keywordIds = [];
+  const keywordIds = [...derivedKeywordIds];
   for (const p of pills) {
     if (p.type === 'category' && FRONT_PAGE_CATEGORIES.has(p.id)) {
       categoryIds.push(p.id);
