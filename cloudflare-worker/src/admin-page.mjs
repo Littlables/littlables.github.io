@@ -54,7 +54,7 @@ export function getAdminPage() {
     body {
       max-width: 1120px;
       margin: 0 auto;
-      padding: 1.25rem 1rem 3.5rem;
+      padding: .25rem 1rem 3.5rem;
     }
     h1, h2, h3 { line-height: 1.25; margin: 0; }
     h1 { font-size: 1.4rem; }
@@ -1100,7 +1100,7 @@ export function getAdminPage() {
     }
 
     @media (max-width: 640px) {
-      body { padding: .85rem .65rem 2.5rem; }
+      body { padding: .25rem .65rem 2.5rem; }
       h1 { font-size: 1.2rem; }
       .admin-card-section, .summary { padding: .7rem .75rem; }
       .story, .ad-row {
