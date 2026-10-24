@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: './',
+  // Absolute base: SPA deep routes (/@user/...) need /assets/... not ./assets/...
+  // (relative ./ breaks on deep URLs — the JS bundle 404s and the page is white)
+  base: '/',
   plugins: [react()],
   build: {
     outDir: 'dist',
