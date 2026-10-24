@@ -69,8 +69,8 @@ export function getAdminPage() {
       justify-content: space-between;
       gap: .75rem;
       flex-wrap: wrap;
-      padding-bottom: 1rem;
-      margin-bottom: 1rem;
+      padding-bottom: .35rem;
+      margin-bottom: .35rem;
       border-bottom: 1px solid #1e293b;
     }
     .toolbar-actions {
