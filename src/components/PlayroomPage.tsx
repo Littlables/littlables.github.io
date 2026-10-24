@@ -8,6 +8,8 @@ import {
 } from '../services/playroomService';
 import type { Board } from '../services/boardService';
 import { fetchPlayroomFeed } from '../services/playroomFeedService';
+import { AdCard } from './AdCard';
+import { fetchAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -15,7 +17,7 @@ import {
 } from '../services/supabaseService';
 import { NewsCard } from './NewsCard';
 import { t } from '../constants/translations';
-import type { NewsItem, NewsCategory, ReactionCounts, ReactionType } from '../types';
+import type { NewsItem, NewsCategory, ReactionCounts, ReactionType, AdItem } from '../types';
 
 interface PlayroomPageProps {
   username: string;
@@ -35,6 +37,8 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   const [owner, setOwner] = useState<Profile | null>(null);
   const [spaces, setSpaces] = useState<Board[]>([]);
   const [stories, setStories] = useState<NewsItem[]>([]);
+  const [ads, setAds] = useState<AdItem[]>([]);
+  const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -111,6 +115,35 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         if (cancelled) return;
         // Backend returns approved-first, date-sorted, deduped.
         setStories(feed.items);
+        // Fetch ads and keyword-match them to every 3rd story
+        try {
+          const fetchedAds = await fetchAdsForCategory('all');
+          if (!cancelled) setAds(fetchedAds);
+          const adSlotStories = feed.items
+            .map((story, index) => ({ story, index }))
+            .filter(({ index }) => (index + 1) % 3 === 0)
+            .map(({ story, index }) => ({ ...(story as any), _index: index }));
+          if (adSlotStories.length > 0) {
+            const matches = await fetchMatchedAdIds(adSlotStories as any);
+            const adById = new Map<string, AdItem>();
+            for (const ad of fetchedAds) {
+              if (ad.id) adById.set(ad.id, ad);
+            }
+            const matched: Record<number, AdItem> = {};
+            for (const { index } of adSlotStories.map(s => ({ index: (s as any)._index }))) {
+              const adIds = matches[index] || [];
+              if (adIds.length > 0) {
+                const slot = Math.floor(index / 3);
+                const adId = adIds[slot % adIds.length];
+                const ad = adById.get(adId);
+                if (ad) matched[index] = ad;
+              }
+            }
+            if (!cancelled) setStoryAds(matched);
+          }
+        } catch {
+          /* ads are best-effort */
+        }
         if (feed.items.length > 0) {
           try {
             const data = await fetchReactionsForStories(
@@ -239,17 +272,25 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         stories.map((story, index) => {
           const storyId = getStoryId(story.title, story.link);
           const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
+          const shouldInsertAd = (index + 1) % 3 === 0;
+          const adIndex = Math.floor(index / 3);
+          // Prefer keyword-matched ad for this story; fall back to rotation.
+          const currentAd = storyAds[index] || (ads.length > 0 ? ads[adIndex % ads.length] : null);
           return (
-            <NewsCard
-              key={`${story.link}-${index}`}
-              item={story}
-              index={index}
-              category={(story.category as NewsCategory) || 'all'}
-              categoryBadge={story.category || ''}
-              reactions={cardReactions}
-              onReact={handleReaction}
-              onOpenStory={handleOpenStory}
-            />
+            <React.Fragment key={`${story.link}-${index}`}>
+              <NewsCard
+                item={story}
+                index={index}
+                category={(story.category as NewsCategory) || 'all'}
+                categoryBadge={story.category || ''}
+                reactions={cardReactions}
+                onReact={handleReaction}
+                onOpenStory={handleOpenStory}
+              />
+              {shouldInsertAd && currentAd && (
+                <AdCard ad={currentAd} category="all" />
+              )}
+            </React.Fragment>
           );
         })
       )}
