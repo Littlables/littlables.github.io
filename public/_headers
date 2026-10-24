@@ -1,5 +1,6 @@
 # Always revalidate the HTML shell so new deploys are picked up immediately
-/
+# (/* covers SPA routes like /@username/... which serve index.html via _redirects)
+/*
   Cache-Control: no-cache
 /index.html
   Cache-Control: no-cache
