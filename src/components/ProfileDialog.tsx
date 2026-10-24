@@ -729,6 +729,8 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       setPlayrooms((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       setEditingPlayroom(null);
       setSaved(true);
+      // Tell the public profile page to refetch (it won't remount on dialog close)
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save playroom');
     } finally {

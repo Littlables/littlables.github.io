@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
 import { Profile } from '../contexts/AuthContext';
 import { Board, getUserBoards } from '../services/boardService';
@@ -37,6 +37,28 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
   const [notFound, setNotFound] = useState(false);
 
   // Fetch the public profile by username
+  // Refetch playrooms + space counts (used on mount and when the dialog saves changes)
+  const loadPlayrooms = useCallback(async (profileId: string, isCancelled: () => boolean) => {
+    try {
+      const rooms = await getUserPlayrooms(profileId);
+      if (isCancelled()) return;
+      setPlayrooms(rooms);
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        rooms.map(async (r) => {
+          try {
+            counts[r.id] = (await getPlayroomSpaces(r.id)).length;
+          } catch {
+            counts[r.id] = 0;
+          }
+        })
+      );
+      if (!isCancelled()) setPlayroomSpaceCounts(counts);
+    } catch {
+      /* keep existing */
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const fetchProfile = async () => {
@@ -65,23 +87,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
             })
             .catch(() => {});
           // Load the user's playrooms + space counts (public)
-          getUserPlayrooms((data as Profile).id)
-            .then(async (rooms) => {
-              if (cancelled) return;
-              setPlayrooms(rooms);
-              const counts: Record<string, number> = {};
-              await Promise.all(
-                rooms.map(async (r) => {
-                  try {
-                    counts[r.id] = (await getPlayroomSpaces(r.id)).length;
-                  } catch {
-                    counts[r.id] = 0;
-                  }
-                })
-              );
-              if (!cancelled) setPlayroomSpaceCounts(counts);
-            })
-            .catch(() => {});
+          loadPlayrooms((data as Profile).id, () => cancelled);
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -93,7 +99,16 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [username]);
+  }, [username, loadPlayrooms]);
+
+  // Refresh playrooms when the profile dialog saves playroom changes
+  useEffect(() => {
+    const onPlayroomsChanged = () => {
+      if (profile) loadPlayrooms(profile.id, () => false);
+    };
+    window.addEventListener('littlables:playrooms-changed', onPlayroomsChanged);
+    return () => window.removeEventListener('littlables:playrooms-changed', onPlayroomsChanged);
+  }, [profile, loadPlayrooms]);
 
   // Apply the space owner's theme + background color, restore on unmount
   useEffect(() => {
