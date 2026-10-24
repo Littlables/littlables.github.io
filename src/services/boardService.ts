@@ -27,11 +27,20 @@ export function slugify(name: string): string {
   return (name || '')
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9\s-_]/g, '')
+    .replace(/[\s]+/g, '-')
     .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replace(/^[-_]+|[-_]+$/g, '')
     .slice(0, 50) || 'board';
+}
+
+/**
+ * Typing-friendly slug sanitizer for URL inputs: lowercases and strips
+ * characters outside a-z 0-9 - _, but never rewrites or replaces what the
+ * user typed — safe to run on every keystroke (full slugify runs on save).
+ */
+export function sanitizeSlugInput(value: string): string {
+  return (value || '').toLowerCase().replace(/[^a-z0-9-_]/g, '').slice(0, 50);
 }
 
 function requireClient() {

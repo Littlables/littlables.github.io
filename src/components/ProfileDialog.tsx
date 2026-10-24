@@ -6,6 +6,7 @@ import { INTEREST_KEYWORDS, INTEREST_KEYWORD_GROUPS } from '../constants/interes
 import {
   Board,
   slugify,
+  sanitizeSlugInput,
   ensureUniqueSlug,
   getUserBoards,
   createBoard,
@@ -1191,7 +1192,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                         type="text"
                         className="board-input board-slug-input"
                         value={editingPlayroom.slug}
-                        onChange={(e) => setEditingPlayroom({ ...editingPlayroom, slug: slugify(e.target.value) })}
+                        onChange={(e) => setEditingPlayroom({ ...editingPlayroom, slug: sanitizeSlugInput(e.target.value) })}
                         placeholder={slugify(editingPlayroom.name) || 'my-playroom'}
                         maxLength={50}
                       />
@@ -1549,7 +1550,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                     type="text"
                     className="board-input board-slug-input"
                     value={editingBoard.slug}
-                    onChange={(e) => setEditingBoard({ ...editingBoard, slug: slugify(e.target.value) })}
+                    onChange={(e) => setEditingBoard({ ...editingBoard, slug: sanitizeSlugInput(e.target.value) })}
                     placeholder={slugify(editingBoard.name) || 'space-name'}
                     maxLength={50}
                   />
