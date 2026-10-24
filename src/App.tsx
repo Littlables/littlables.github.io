@@ -53,21 +53,21 @@ function parseProfileFromUrl(): string | null {
 /** Extracts a `@username/boardslug` board route, e.g. `/@katie/cozy-reads`. */
 function parseBoardFromUrl(): { username: string; slug: string } | null {
   if (typeof window === 'undefined') return null;
-  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/?$/i);
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-_]{1,50})\/?$/i);
   return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
 }
 
 /** Extracts a `@username/spaces/spaceslug` direct space route, e.g. `/@katie/spaces/cozy-reads`. */
 function parseSpaceFromUrl(): { username: string; slug: string } | null {
   if (typeof window === 'undefined') return null;
-  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/spaces\/([a-z0-9-]{1,50})\/?$/i);
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/spaces\/([a-z0-9-_]{1,50})\/?$/i);
   return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
 }
 
 /** Extracts a `@username/playroomslug/spaceslug` playroom-context space route. */
 function parsePlayroomSpaceFromUrl(): { username: string; playroom: string; space: string } | null {
   if (typeof window === 'undefined') return null;
-  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-]{1,50})\/([a-z0-9-]{1,50})\/?$/i);
+  const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-_]{1,50})\/([a-z0-9-_]{1,50})\/?$/i);
   if (!match) return null;
   if (match[2].toLowerCase() === 'spaces') return null; // reserved for the direct space route
   return {
