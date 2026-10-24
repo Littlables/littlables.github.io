@@ -57,6 +57,11 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
 
   // Fetch the playroom + its owner + its spaces
+  // Scroll to top when navigating to a different playroom/space
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [username, slug]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {

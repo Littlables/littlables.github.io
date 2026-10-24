@@ -55,6 +55,11 @@ export const BoardPage: React.FC<BoardPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
+  // Scroll to top when navigating to a different space
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [username, slug, playroomSlug]);
+
   // Fetch the board + its owner (+ the playroom when in playroom context)
   useEffect(() => {
     let cancelled = false;
