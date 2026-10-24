@@ -926,3 +926,131 @@ test('deriveStoryRegion maps country keywords to ISO and region', async () => {
   assert.deepEqual(deriveStoryRegion(['dinosaurs']), { country_code: null, region: 'global' });
   assert.deepEqual(deriveStoryRegion([]), { country_code: null, region: 'global' });
 });
+
+test('getStoriesByInterests returns empty for no IDs', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const result = await getStoriesByInterests(env, []);
+  assert.deepEqual(result.items, []);
+  assert.equal(result.provider, 'supabase');
+});
+
+test('getStoriesByInterests uses overlap query for keywords', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Keyword story',
+      article_url: 'https://publisher.example/kw1',
+      interest_keywords: ['childcare-babies'],
+      approved: requestUrl.searchParams.get('approved') === 'eq.true',
+      published_at: '2026-10-23T12:00:00Z',
+      fetched_at: '2026-10-23T13:00:00Z'
+    }]);
+  };
+  try {
+    const result = await getStoriesByInterests(env, ['childcare-babies', 'sleep-training']);
+    assert.equal(result.items.length, 1); // deduped by URL
+    assert.equal(result.items[0].title, 'Keyword story');
+    // Verify overlap query was used
+    const kwQuery = requestUrls.find(u => u.searchParams.get('interest_keywords')?.startsWith('ov.'));
+    assert.ok(kwQuery, 'should use ov. overlap query');
+    assert.ok(kwQuery.searchParams.get('interest_keywords').includes('childcare-babies'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByInterests handles category IDs via front-page feeds', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Category story',
+      article_url: 'https://publisher.example/cat1',
+      approved: requestUrl.searchParams.get('approved') === 'eq.true',
+      published_at: '2026-10-23T12:00:00Z',
+      fetched_at: '2026-10-23T13:00:00Z'
+    }]);
+  };
+  try {
+    const result = await getStoriesByInterests(env, ['childcare']);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].title, 'Category story');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getPlayroomFeed returns empty for missing playroom', async () => {
+  const { getPlayroomFeed } = await import('./news-storage.mjs');
+  const result = await getPlayroomFeed(env, null, null, null, null);
+  assert.deepEqual(result.playroom, null);
+  assert.deepEqual(result.spaces, []);
+  assert.deepEqual(result.items, []);
+});
+
+test('getPlayroomFeed resolves username+slug to playroom', async () => {
+  const { getPlayroomFeed } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    const table = url.pathname.split('/').pop();
+    if (table === 'profiles') {
+      return Response.json([{ id: 'user-123' }]);
+    }
+    if (table === 'playrooms' && url.searchParams.get('select') === 'id') {
+      return Response.json([{ id: 'playroom-456' }]);
+    }
+    if (table === 'playrooms') {
+      return Response.json([{
+        id: 'playroom-456',
+        user_id: 'user-123',
+        name: 'My Playroom',
+        slug: 'my-playroom'
+      }]);
+    }
+    if (table === 'playroom_spaces') {
+      return Response.json([{
+        position: 0,
+        boards: {
+          id: 'space-789',
+          name: 'Babies',
+          slug: 'babies',
+          pills: [{ type: 'keyword', id: 'childcare-babies' }]
+        }
+      }]);
+    }
+    // news_stories queries
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Playroom story',
+      article_url: 'https://publisher.example/pr1',
+      interest_keywords: ['childcare-babies'],
+      approved: url.searchParams.get('approved') === 'eq.true',
+      published_at: '2026-10-23T12:00:00Z',
+      fetched_at: '2026-10-23T13:00:00Z'
+    }]);
+  };
+  try {
+    const result = await getPlayroomFeed(env, null, null, 'littlables', 'my-playroom');
+    assert.equal(result.playroom.id, 'playroom-456');
+    assert.equal(result.playroom.name, 'My Playroom');
+    assert.equal(result.spaces.length, 1);
+    assert.equal(result.spaces[0].name, 'Babies');
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].title, 'Playroom story');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
