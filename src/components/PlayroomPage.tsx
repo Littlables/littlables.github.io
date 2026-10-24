@@ -293,7 +293,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
                 item={story}
                 index={index}
                 category={(story.category as NewsCategory) || 'all'}
-                categoryBadge={getBestInterestLabel(story) || story.category || ''}
+                categoryBadge={getBestInterestLabel(story) || story.category || (activeSpaceId ? (spaces.find(s => s.id === activeSpaceId)?.name || '') : '')}
                 reactions={cardReactions}
                 onReact={handleReaction}
                 onOpenStory={handleOpenStory}
