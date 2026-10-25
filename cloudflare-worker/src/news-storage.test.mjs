@@ -14,6 +14,7 @@ import {
   setStoryDisplayCategories,
   setStoryInterestKeywords,
   getStoriesByKeyword,
+  getSpaceFeedPreview,
   getPersistedKeywordEmbeddings,
   getKeywordVectorStatus,
   clearKeywordVectorCache,
@@ -109,6 +110,60 @@ test('getStoredNewsFeed excludes flagged keywords from the all category', async 
     ));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getSpaceFeedPreview returns interest sample plus diagnostics for a front-page space', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    const preview = await getSpaceFeedPreview(env, 'tech');
+    assert.equal(preview.error, undefined);
+    assert.equal(preview.space, 'tech');
+    assert.ok(preview.interestIds.length > 0);
+    assert.ok(preview.interestIds.includes('tech-games-general'));
+    assert.deepEqual(preview.items, []);
+    assert.equal(preview.matchCount, 0);
+    assert.equal(preview.flaggedFilteredCount, 0);
+    assert.equal(preview.categoryFallbackCount, 0);
+    // 2 interest + 2 unfiltered + 2 category fallback fetches
+    assert.equal(requestUrls.length, 6);
+    const interestQueries = requestUrls.filter(u => u.searchParams.get('interest_keywords')?.startsWith('ov.'));
+    assert.equal(interestQueries.length, 4);
+    assert.ok(interestQueries.every(u => u.searchParams.get('interest_keywords').includes('tech-games-general')));
+    const categoryQueries = requestUrls.filter(u => u.searchParams.get('or')?.includes('category.eq.tech'));
+    assert.equal(categoryQueries.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getSpaceFeedPreview returns error with valid spaces for unknown space', async () => {
+  const preview = await getSpaceFeedPreview(env, 'not-a-space');
+  assert.equal(preview.error, 'Unknown space');
+  assert.ok(preview.validSpaces.includes('tech'));
+  assert.ok(preview.validSpaces.includes('food'));
+});
+
+test('getSpaceFeedPreview skips category fallback for standalone spaces', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    const preview = await getSpaceFeedPreview(env, 'food');
+    assert.equal(preview.error, undefined);
+    assert.equal(preview.categoryFallbackCount, null);
+    // 2 interest + 2 unfiltered only, no category fallback
+    assert.equal(requestUrls.length, 4);
   } finally {
     globalThis.fetch = originalFetch;
   }

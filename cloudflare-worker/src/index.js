@@ -29,6 +29,7 @@ import {
   setStoryInterestKeywords,
   getStoriesByKeyword,
   getStoriesByInterests,
+  getSpaceFeedPreview,
   getPlayroomFeed,
   getPersistedKeywordEmbeddings,
   getKeywordVectorStatus,
@@ -2453,6 +2454,21 @@ export default {
         return jsonResponse({ items: feed.items, count: feed.items.length });
       } catch (err) {
         return jsonResponse({ items: [], count: 0, error: err.message }, 500);
+      }
+    }
+    // Phase 2 preview: admin-only space feed sample + diagnostics.
+    // GitHub admin session required (same auth as /admin/api/*).
+    if (request.method === 'GET' && pathname === '/api/admin/preview') {
+      try {
+        const identity = await getAdminIdentity(request, env);
+        if (!identity) return jsonResponse({ error: 'GitHub authentication is required' }, 401);
+        const space = (url.searchParams.get('space') || '').trim();
+        if (!space) return jsonResponse({ error: 'Missing ?space= parameter' }, 400);
+        const preview = await getSpaceFeedPreview(env, space);
+        if (preview.error) return jsonResponse(preview, 400);
+        return jsonResponse(preview);
+      } catch (err) {
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Preview failed' }, 500);
       }
     }
     if (request.method === 'GET' && pathname === '/api/playroom') {

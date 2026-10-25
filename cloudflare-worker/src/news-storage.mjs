@@ -1,5 +1,5 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, deriveStoryRegion } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
@@ -2614,6 +2614,101 @@ export async function getStoriesByInterests(env, interestIds) {
   approved.sort(byDate);
   unapproved.sort(byDate);
   return { provider: 'supabase', items: [...approved, ...unapproved] };
+}
+
+// Front-page composite spaces map 1:1 to legacy category column values,
+// so their preview can compare interest matches against the category fallback.
+const FRONT_PAGE_SPACE_CATEGORIES = new Set(['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']);
+
+/**
+ * Phase 2 preview: run the interest-overlap query for one space and return
+ * a first-50 sample plus diagnostics. Touches no live feed.
+ * Returns { space, description, interestIds, items, matchCount,
+ *   flaggedFilteredCount, categoryFallbackCount }.
+ * categoryFallbackCount is null for standalone spaces (no legacy category).
+ * Subrequest budget: at most 6 Supabase fetches (interest match +
+ * unfiltered count + category fallback, each approved + unapproved).
+ */
+export async function getSpaceFeedPreview(env, spaceKey) {
+  const def = SPACE_DEFINITIONS[spaceKey];
+  if (!def) {
+    return { error: 'Unknown space', validSpaces: Object.keys(SPACE_DEFINITIONS).sort() };
+  }
+  const interestIds = [...new Set((def.interestIds || []).map(String).filter(Boolean))];
+  if (interestIds.length === 0) {
+    return { space: spaceKey, description: def.description, interestIds: [], items: [], matchCount: 0, flaggedFilteredCount: 0, categoryFallbackCount: null };
+  }
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const exclusionParam = excludedIds.length > 0
+    ? `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`
+    : null;
+  const baseSelect = 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at';
+  const makeInterestQuery = (approved, applyExclusion) => {
+    const params = new URLSearchParams({
+      select: baseSelect,
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      'interest_keywords': `ov.{${interestIds.join(',')}}`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    if (applyExclusion && exclusionParam) params.set('not.and', exclusionParam);
+    return params;
+  };
+  const fetchInterest = async (approved, applyExclusion) => {
+    const res = await fetch(supabaseUrl(env, STORIES_TABLE, makeInterestQuery(approved, applyExclusion)), { headers: supabaseHeaders(env) });
+    return readRows(res, 'Space preview interest lookup');
+  };
+  const [approvedRows, unapprovedRows, approvedUnfiltered, unapprovedUnfiltered] = await Promise.all([
+    fetchInterest(true, true),
+    fetchInterest(false, true),
+    fetchInterest(true, false),
+    fetchInterest(false, false)
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (!row.article_url || seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  const unfilteredUrls = new Set();
+  for (const row of [...approvedUnfiltered, ...unapprovedUnfiltered]) {
+    if (row.article_url) unfilteredUrls.add(row.article_url);
+  }
+  const flaggedFilteredCount = [...unfilteredUrls].filter(url => !seenUrls.has(url)).length;
+  let categoryFallbackCount = null;
+  if (FRONT_PAGE_SPACE_CATEGORIES.has(spaceKey)) {
+    const makeCategoryQuery = approved => {
+      const params = new URLSearchParams({
+        select: 'article_url',
+        approved: `eq.${approved}`,
+        removed: 'eq.false',
+        or: `(and(category.eq.${spaceKey},display_categories.is.null),display_categories.cs.{${spaceKey}})`,
+        limit: '50'
+      });
+      if (exclusionParam) params.set('not.and', exclusionParam);
+      return params;
+    };
+    const [catApproved, catUnapproved] = await Promise.all([
+      fetch(supabaseUrl(env, STORIES_TABLE, makeCategoryQuery(true)), { headers: supabaseHeaders(env) }).then(r => readRows(r, 'Space preview category fallback')),
+      fetch(supabaseUrl(env, STORIES_TABLE, makeCategoryQuery(false)), { headers: supabaseHeaders(env) }).then(r => readRows(r, 'Space preview category fallback'))
+    ]);
+    const catUrls = new Set();
+    for (const row of [...catApproved, ...catUnapproved]) {
+      if (row.article_url) catUrls.add(row.article_url);
+    }
+    categoryFallbackCount = [...catUrls].filter(url => !seenUrls.has(url)).length;
+  }
+  return {
+    space: spaceKey,
+    description: def.description,
+    interestIds,
+    items,
+    matchCount: items.length,
+    flaggedFilteredCount,
+    categoryFallbackCount
+  };
 }
 
 /**
