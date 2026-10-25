@@ -131,22 +131,21 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
             <button type="button" className="link-button" onClick={() => setStep('choose')}>
               ← Back
             </button>
-            <p className="sign-in-hint">We'll email you a 6-digit code — no password needed.</p>
+            <p className="sign-in-hint">We'll email you a code — no password needed.</p>
           </form>
         )}
 
         {step === 'code' && (
           <form onSubmit={handleVerifyCode} className="sign-in-form">
-            <label htmlFor="signin-code">Enter the 6-digit code sent to {email}</label>
+            <label htmlFor="signin-code">Enter the code sent to {email}</label>
             <input
               id="signin-code"
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              maxLength={6}
+              maxLength={10}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-              placeholder="000000"
               autoComplete="one-time-code"
               required
             />

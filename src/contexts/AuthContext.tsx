@@ -156,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await client.auth.signInWithOtp({
       email,
       options: {
-        // Use 6-digit code instead of magic link (better for mobile)
+        // Use code instead of magic link (better for mobile)
         shouldCreateUser: true,
         // Return the link to the site the user started from (dev stays on
         // dev); without this, Supabase falls back to the project Site URL.
