@@ -56,6 +56,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Banned stories/);
   assert.match(page, /id="custom-link"/);
   assert.match(page, /id="approval-provider"/);
+  assert.match(page, /id="stage-halloween-btn"/);
+  assert.match(page, /stage-halloween-batch/);
   assert.match(page, /All providers/);
   assert.match(page, /story\.provider === state\.activeProvider/);
   assert.match(page, /'\?provider=' \+ encodeURIComponent\(state\.activeProvider\)/);
@@ -536,6 +538,48 @@ test('custom story endpoint inserts an approved homepage story', async () => {
     assert.equal(saved.image_url, 'https://images.example/story.jpg');
     assert.equal(saved.ai_summary, 'The saved AI brief.');
     assert.ok(Number.isFinite(Date.parse(saved.published_at)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Halloween batch staging inserts unapproved stories per category and dedups reruns', async () => {
+  const originalFetch = globalThis.fetch;
+  const savedRows = [];
+  globalThis.fetch = async (input, options) => {
+    savedRows.push(...JSON.parse(options.body));
+    return Response.json([]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/stage-halloween-batch', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+Cookie: (await adminCookie()).split(';')[0],
+        }
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    // 15 batch entries, but the two Macaroni KID entries share one article URL
+    // and one category, so the second is skipped as a duplicate.
+    assert.equal(body.staged, 14);
+    assert.equal(body.duplicatesSkipped, 1);
+    assert.equal(savedRows.length, 14);
+    assert.deepEqual(Object.keys(body.byCategory).sort(), ['animals', 'arts', 'childcare', 'world']);
+    for (const row of savedRows) {
+      assert.equal(row.provider, 'halloween-batch');
+      // Unapproved by default: the insert must NOT set approved=true, so the
+      // batch waits in Pending Approval instead of publishing as curated.
+      assert.equal(row.approved, undefined);
+      assert.ok(row.title && row.article_url && row.source_name && row.category);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

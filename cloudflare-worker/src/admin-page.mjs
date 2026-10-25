@@ -1314,6 +1314,8 @@ export function getAdminPage() {
               <option value="all">All providers</option>
             </select>
           </label>
+          <button type="button" id="stage-halloween-btn" class="secondary small-btn" title="Stage the one-time kid-safe Halloween batch into Pending Approval">🎃 Stage Halloween batch</button>
+          <span id="stage-halloween-status" class="muted" aria-live="polite"></span>
         </div>
         <div id="pending-stories" aria-live="polite"></div>
         <div id="pending-pagination" class="pagination-bar"></div>
@@ -5963,6 +5965,27 @@ export function getAdminPage() {
     providerFilterEl.addEventListener('change', () => {
       state.activeProvider = providerFilterEl.value;
       refreshData();
+    });
+
+    document.getElementById('stage-halloween-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('stage-halloween-btn');
+      const statusEl = document.getElementById('stage-halloween-status');
+      btn.disabled = true;
+      statusEl.className = 'muted';
+      statusEl.textContent = 'Staging Halloween batch…';
+      try {
+        const result = await request('/admin/api/stories/stage-halloween-batch', { method: 'POST' });
+        statusEl.textContent = result.staged
+          + ' Halloween stories staged in Pending Approval'
+          + (result.duplicatesSkipped ? ' (' + result.duplicatesSkipped + ' already there, skipped)' : '')
+          + '. Approve or reject them as usual.';
+        await refreshData();
+      } catch (error) {
+        statusEl.className = 'error';
+        statusEl.textContent = error.message;
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     historyProviderFilterEl.addEventListener('change', () => {

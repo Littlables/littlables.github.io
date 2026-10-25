@@ -72,6 +72,7 @@ import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
+import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory } from './ad-keyword-matcher.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
@@ -963,6 +964,22 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('Custom story publishing failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not publish custom story' }, 502);
+    }
+  }
+
+  // One-time Halloween batch: stages the curated kid-safe stories as
+  // UNAPPROVED rows (Pending Approval) via the normal provider-ingest path.
+  // Same admin-session + same-origin gates as the other story endpoints.
+  if (url.pathname === '/admin/api/stories/stage-halloween-batch' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story staging must be requested from the admin origin' }, 403);
+    }
+    try {
+      const result = await stageHalloweenBatch(env);
+      return jsonResponse({ staged: result.staged, duplicatesSkipped: result.duplicatesSkipped, byCategory: result.byCategory });
+    } catch (err) {
+      console.error('Halloween batch staging failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not stage Halloween batch' }, 502);
     }
   }
 
