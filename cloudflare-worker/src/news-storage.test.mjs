@@ -5,11 +5,19 @@ import {
   banNewsStory,
   claimNewsProviderSync,
   createApprovedCustomNewsStory,
+  effectiveDisplayCategories,
   finishNewsProviderSync,
   getNewsAdminSnapshot,
   getStoredNewsFeed,
   disapproveNewsStory,
   resetNewsProviderSync,
+  setStoryDisplayCategories,
+  setStoryInterestKeywords,
+  getStoriesByKeyword,
+  getSpaceFeedPreview,
+  getPersistedKeywordEmbeddings,
+  getKeywordVectorStatus,
+  clearKeywordVectorCache,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories
@@ -55,12 +63,21 @@ test('stored feed query returns normalized publisher story shape', async () => {
     const feed = await getStoredNewsFeed(env, 'childcare');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('category') === 'eq.childcare'));
+    // Phase 3: interest-overlap OR as top-level param, ANDed with the exclusion filter (De Morgan form).
+    assert.ok(requestUrls.every(requestUrl => {
+      const or = requestUrl.searchParams.get('or');
+      return or?.startsWith('(interest_keywords.ov.{') && or?.endsWith(',display_categories.cs.{childcare})');
+    }));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or')?.includes('childcare-family-general')));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('not.and') === '(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,clickbait,death,politics,elections,government})'));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
     assert.equal(feed.provider, 'supabase');
     assert.deepEqual(feed.items[0], {
       provider: 'gnews',
       category: 'childcare',
+      displayCategories: null,
+      interestKeywords: null,
       title: 'Family story',
       link: 'https://publisher.example/family',
       image: 'https://images.example/family.jpg',
@@ -82,8 +99,133 @@ test('stored feed query returns normalized publisher story shape', async () => {
   }
 });
 
-test('provider update claim calls the service-only atomic lock RPC', async () => {
+test('getStoredNewsFeed falls back to legacy category query when interest matches are zero', async () => {
   const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    // Interest queries return nothing; legacy category queries return a story.
+    if (requestUrl.searchParams.get('or')?.includes('interest_keywords.ov.')) {
+      return Response.json([]);
+    }
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Legacy family story',
+      article_url: 'https://publisher.example/legacy',
+      approved: requestUrl.searchParams.get('approved') === 'eq.true',
+      fetched_at: '2026-10-17T13:00:00Z'
+    }]);
+  };
+  try {
+    const feed = await getStoredNewsFeed(env, 'childcare');
+    // 2 interest + 2 legacy category fetches
+    assert.equal(requestUrls.length, 4);
+    const legacyQueries = requestUrls.filter(u => u.searchParams.get('or') === '(and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare})');
+    assert.equal(legacyQueries.length, 2);
+    assert.equal(feed.items.length, 1);
+    assert.equal(feed.items[0].title, 'Legacy family story');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoredNewsFeed excludes flagged keywords from the all category', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    await getStoredNewsFeed(env, 'all');
+    assert.equal(requestUrls.length, 2);
+    assert.ok(requestUrls.every(requestUrl =>
+      requestUrl.searchParams.get('not.and') === '(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,clickbait,death,politics,elections,government})'
+    ));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getSpaceFeedPreview returns interest sample plus diagnostics for a front-page space', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    const preview = await getSpaceFeedPreview(env, 'tech');
+    assert.equal(preview.error, undefined);
+    assert.equal(preview.space, 'tech');
+    assert.ok(preview.interestIds.length > 0);
+    assert.ok(preview.interestIds.includes('tech-games-general'));
+    assert.deepEqual(preview.items, []);
+    assert.equal(preview.matchCount, 0);
+    assert.equal(preview.flaggedFilteredCount, 0);
+    assert.equal(preview.categoryFallbackCount, 0);
+    // 2 interest + 2 unfiltered + 2 category fallback fetches
+    assert.equal(requestUrls.length, 6);
+    const interestQueries = requestUrls.filter(u => u.searchParams.get('interest_keywords')?.startsWith('ov.'));
+    assert.equal(interestQueries.length, 4);
+    assert.ok(interestQueries.every(u => u.searchParams.get('interest_keywords').includes('tech-games-general')));
+    const categoryQueries = requestUrls.filter(u => u.searchParams.get('or')?.includes('category.eq.tech'));
+    assert.equal(categoryQueries.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getSpaceFeedPreview returns error with valid spaces for unknown space', async () => {
+  const preview = await getSpaceFeedPreview(env, 'not-a-space');
+  assert.equal(preview.error, 'Unknown space');
+  assert.ok(preview.validSpaces.includes('tech'));
+  assert.ok(preview.validSpaces.includes('food'));
+});
+
+test('getSpaceFeedPreview skips category fallback for standalone spaces', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    const preview = await getSpaceFeedPreview(env, 'food');
+    assert.equal(preview.error, undefined);
+    assert.equal(preview.categoryFallbackCount, null);
+    // 2 interest + 2 unfiltered only, no category fallback
+    assert.equal(requestUrls.length, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByKeyword does not exclude flagged keywords (boards stay available)', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(String(input)));
+    return Response.json([]);
+  };
+  try {
+    await getStoriesByKeyword(env, 'stocks');
+    assert.ok(requestUrls.length >= 1);
+    assert.ok(requestUrls.every(requestUrl => {
+      const params = requestUrl.searchParams;
+      return !params.get('or')?.includes('not.interest_keywords')
+        && !params.get('and')?.includes('not.interest_keywords');
+    }));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('provider update claim calls the service-only atomic lock RPC', async () => {  const originalFetch = globalThis.fetch;
   let requestUrl;
   let requestBody;
   globalThis.fetch = async (input, options) => {
@@ -206,7 +348,7 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.providers[0].status, 'succeeded');
     assert.equal(snapshot.providers[0].stories_saved, 7);
     assert.equal(snapshot.providers[0].total_stories_saved, 17);
-    assert.equal(requests.length, 6);
+    assert.equal(requests.length, 14);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
     assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), null);
     assert.ok(requests.some(({ url }) =>
@@ -485,6 +627,520 @@ test('provider sync reset leaves a non-running provider untouched', async () => 
     const result = await resetNewsProviderSync(env, 'gnews', 'admin@example.com');
     assert.deepEqual(result, { provider: 'gnews', reset: false, previousStatus: 'succeeded' });
     assert.equal(requestCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('setStoryDisplayCategories validates, dedupes, and clears overrides', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (input, options) => {
+    requestBody = JSON.parse(options.body);
+    return Response.json([{ id: 99 }]);
+  };
+  try {
+    // Valid multi-category override, with duplicates and casing normalized
+    let result = await setStoryDisplayCategories(env, 99, ['Animals', 'childcare', 'animals']);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.displayCategories, ['animals', 'childcare']);
+    assert.deepEqual(requestBody, { display_categories: ['animals', 'childcare'] });
+
+    // Empty list clears the override (NULL, not empty array)
+    result = await setStoryDisplayCategories(env, 99, []);
+    assert.equal(result.ok, true);
+    assert.equal(result.displayCategories, null);
+    assert.deepEqual(requestBody, { display_categories: null });
+
+    // null clears too
+    result = await setStoryDisplayCategories(env, 99, null);
+    assert.equal(result.ok, true);
+    assert.equal(result.displayCategories, null);
+
+    // Unknown categories are rejected, nothing is written
+    result = await setStoryDisplayCategories(env, 99, ['childcare', 'nonsense']);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'Unknown category in override list');
+
+    // 'all' is not an overridable display category
+    result = await setStoryDisplayCategories(env, 99, ['all']);
+    assert.equal(result.ok, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('effectiveDisplayCategories prefers the override list', () => {
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', display_categories: ['childcare', 'animals'] }),
+    ['childcare', 'animals']
+  );
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', display_categories: [] }),
+    ['tech']
+  );
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', display_categories: null }),
+    ['tech']
+  );
+  assert.deepEqual(
+    effectiveDisplayCategories({ category: 'tech', displayCategories: ['arts'] }),
+    ['arts']
+  );
+});
+
+test('setStoryInterestKeywords validates, dedupes, and clears keyword tags', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody;
+  globalThis.fetch = async (input, options) => {
+    requestBody = JSON.parse(options.body);
+    return Response.json([{ id: 99 }]);
+  };
+  try {
+    // Valid keywords, with duplicates and casing normalized
+    let result = await setStoryInterestKeywords(env, 99, ['Space', 'food', 'space']);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.interestKeywords, ['space', 'food']);
+    assert.deepEqual(requestBody, { interest_keywords: ['space', 'food'] });
+
+    // Country keyword derives region
+    result = await setStoryInterestKeywords(env, 99, ['country-japan', 'space']);
+    assert.equal(result.ok, true);
+    assert.deepEqual(requestBody, { interest_keywords: ['country-japan', 'space'] });
+
+    // Empty list clears the tags (NULL, not empty array)
+    result = await setStoryInterestKeywords(env, 99, []);
+    assert.equal(result.ok, true);
+    assert.equal(result.interestKeywords, null);
+    assert.deepEqual(requestBody, { interest_keywords: null });
+
+    // Unknown keywords are rejected, nothing is written
+    result = await setStoryInterestKeywords(env, 99, ['space', 'nonsense']);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'Unknown interest keyword');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByKeyword queries the interest_keywords array column', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    requestUrls.push(new URL(input));
+    return Response.json([]);
+  };
+  try {
+    const feed = await getStoriesByKeyword(env, 'space');
+    assert.equal(feed.provider, 'supabase');
+    assert.deepEqual(feed.items, []);
+    assert.equal(requestUrls.length, 2);
+    assert.ok(requestUrls.every(u => u.searchParams.get('interest_keywords') === 'cs.{space}'));
+    assert.ok(requestUrls.every(u => u.searchParams.get('removed') === 'eq.false'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getPersistedKeywordEmbeddings returns incomplete status without an AI binding', async () => {
+  clearKeywordVectorCache();
+  const result = await getPersistedKeywordEmbeddings(env);
+  assert.equal(result.vectors, null);
+  assert.equal(result.complete, false);
+  clearKeywordVectorCache();
+});
+
+test('getPersistedKeywordEmbeddings loads vectors from Supabase without AI calls', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  let aiCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      return Response.json(
+        INTEREST_KEYWORDS.map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [0.1, 0.2, 0.3],
+          model: '@cf/baai/bge-base-en-v1.5:kwv12',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => { aiCalls++; return { data: [[0.1]] }; } },
+  };
+  try {
+    const result = await getPersistedKeywordEmbeddings(aiEnv);
+    assert.equal(result.complete, true);
+    const map = result.vectors;
+    assert.ok(map instanceof Map);
+    assert.equal(map.size, INTEREST_KEYWORDS.length);
+    assert.deepEqual(map.get('space'), [0.1, 0.2, 0.3]);
+    assert.equal(aiCalls, 0, 'no AI calls when all vectors are stored');
+    // Second call served from in-memory cache (no fetches at all)
+    let fetches = 0;
+    globalThis.fetch = async () => { fetches++; return Response.json([]); };
+    const cached = await getPersistedKeywordEmbeddings(aiEnv);
+    assert.equal(cached.vectors, map);
+    assert.equal(fetches, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('getKeywordVectorStatus reports stored count without backfilling', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  let aiCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      // Half the keywords stored with the current version.
+      return Response.json(
+        INTEREST_KEYWORDS.slice(0, Math.floor(INTEREST_KEYWORDS.length / 2)).map((kw) => ({
+          keyword_id: kw.id,
+          model: '@cf/baai/bge-base-en-v1.5:kwv12',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => { aiCalls++; return { data: [[0.2]] }; } },
+  };
+  try {
+    const status = await getKeywordVectorStatus(aiEnv);
+    assert.equal(status.complete, false);
+    assert.equal(status.done, Math.floor(INTEREST_KEYWORDS.length / 2));
+    assert.equal(status.total, INTEREST_KEYWORDS.length);
+    assert.equal(aiCalls, 0, 'status check must not call AI');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('getPersistedKeywordEmbeddings ignores vectors from an older description version', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  // All stored, but with the v1 model string -> treated as missing
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      if (options && options.method === 'POST') return Response.json([]);
+      return Response.json(
+        INTEREST_KEYWORDS.map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [0.1],
+          model: '@cf/baai/bge-base-en-v1.5',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => ({ data: [[0.2]] }) },
+  };
+  try {
+    const result = await getPersistedKeywordEmbeddings(aiEnv);
+    // One chunk (25) backfilled with the new version; still incomplete
+    assert.equal(result.complete, false);
+    assert.equal(result.done, 25);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('getPersistedKeywordEmbeddings backfills missing vectors and is all-or-nothing', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  // All but one stored; the last one fails to embed -> incomplete -> null
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      if (options && options.method === 'POST') return Response.json([]);
+      return Response.json(
+        INTEREST_KEYWORDS.slice(0, INTEREST_KEYWORDS.length - 1).map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [0.1],
+          model: '@cf/baai/bge-base-en-v1.5:kwv12',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const failingAiEnv = {
+    ...env,
+    AI: { run: async () => { throw new Error('AI down'); } },
+  };
+  try {
+    const result = await getPersistedKeywordEmbeddings(failingAiEnv);
+    assert.equal(result.vectors, null, 'partial backfill must not enable tagging');
+    assert.equal(result.complete, false);
+    assert.equal(result.done, INTEREST_KEYWORDS.length - 1);
+    assert.equal(result.total, INTEREST_KEYWORDS.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('titleSimilarity detects near-duplicate titles', async () => {
+  const { titleSimilarity, findNearDuplicates, hashUrl } = await import('./news-storage.mjs');
+
+  // Identical titles
+  assert.equal(titleSimilarity('Breaking: New Study Shows Coffee Is Great', 'Breaking: New Study Shows Coffee Is Great'), 1);
+
+  // Near-duplicates (same story, slightly different headline)
+  const sim1 = titleSimilarity(
+    'Scientists Discover New Species of Frog in Amazon Rainforest',
+    'New Frog Species Discovered by Scientists in the Amazon'
+  );
+  assert.ok(sim1 >= 0.5, `Expected high similarity, got ${sim1}`);
+
+  // Different stories
+  const sim2 = titleSimilarity(
+    'Local Bakery Wins Award for Best Sourdough',
+    'NASA Launches New Mars Rover Mission'
+  );
+  assert.ok(sim2 < 0.3, `Expected low similarity, got ${sim2}`);
+
+  // Empty titles
+  assert.equal(titleSimilarity('', ''), 0);
+  assert.equal(titleSimilarity('Hello World Test', ''), 0);
+});
+
+test('findNearDuplicates filters duplicate stories', async () => {
+  const { findNearDuplicates } = await import('./news-storage.mjs');
+
+  const existing = [
+    { id: 1, title: 'Scientists Discover New Species of Frog in Amazon Rainforest', link: 'https://example.com/frog' },
+  ];
+  const candidates = [
+    { id: 2, title: 'Scientists Discover New Frog Species in Amazon Rainforest', link: 'https://other.com/frog2' },
+    { id: 3, title: 'Local Bakery Wins Award for Best Sourdough', link: 'https://example.com/bakery' },
+    { id: 4, title: 'Exact Same Story', link: 'https://example.com/frog' }, // same URL
+  ];
+
+  const dups = findNearDuplicates(candidates, existing, 0.7);
+  assert.equal(dups.length, 2); // id 2 (similar title) and id 4 (same URL)
+  assert.ok(dups.some(d => d.candidate.id === 2 && d.reason === 'similar-title'));
+  assert.ok(dups.some(d => d.candidate.id === 4 && d.reason === 'same-url'));
+});
+
+test('hashUrl produces consistent hashes', async () => {
+  const { hashUrl } = await import('./news-storage.mjs');
+  const h1 = hashUrl('https://example.com/story');
+  const h2 = hashUrl('https://example.com/story');
+  const h3 = hashUrl('https://example.com/other');
+  assert.equal(h1, h2);
+  assert.notEqual(h1, h3);
+  assert.ok(h1.startsWith('h'));
+});
+
+test('recordEngagementEvent stores keywords and attribution', async () => {
+  const { recordEngagementEvent } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  let sentBody = null;
+  globalThis.fetch = async (input, options) => {
+    sentBody = JSON.parse(options.body);
+    return Response.json({});
+  };
+  const testEnv = { ...env, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'sk-test' };
+  try {
+    const result = await recordEngagementEvent(testEnv, {
+      url: 'https://example.com/story',
+      title: 'Test Story',
+      category: 'animals',
+      eventType: 'click',
+      sessionId: 'sess123',
+      keywords: ['dinosaurs', 'not-a-keyword', 'space'],
+      referrer_domain: 'google.com',
+      utm_source: 'newsletter',
+      country_code: 'us',
+    });
+    assert.equal(result.ok, true);
+    // Only known keyword ids are stored; unknown ones dropped.
+    assert.deepEqual(sentBody.keywords, ['dinosaurs', 'space']);
+    assert.equal(sentBody.referrer_domain, 'google.com');
+    assert.equal(sentBody.utm_source, 'newsletter');
+    assert.equal(sentBody.country_code, 'US');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('isInternalRequest filters admin, dev, and localhost traffic', async () => {
+  const { isInternalRequest } = await import('./news-storage.mjs');
+  const req = (referer, origin = '') => ({
+    headers: {
+      get: (name) => {
+        const n = name.toLowerCase();
+        if (n === 'referer') return referer;
+        if (n === 'origin') return origin;
+        return null;
+      },
+    },
+  });
+  // Admin panel
+  assert.equal(isInternalRequest(req('https://hello-ai.cryptokatiee.workers.dev/admin')), true);
+  assert.equal(isInternalRequest(req('https://hello-ai.cryptokatiee.workers.dev/admin/api/ads')), true);
+  // Dev site and localhost
+  assert.equal(isInternalRequest(req('https://dev.littlables.com/')), true);
+  assert.equal(isInternalRequest(req('http://localhost:5173/')), true);
+  assert.equal(isInternalRequest(req('', 'http://127.0.0.1:3000')), true);
+  // Real traffic
+  assert.equal(isInternalRequest(req('https://littlables.com/')), false);
+  assert.equal(isInternalRequest(req('https://www.google.com/')), false);
+  assert.equal(isInternalRequest(req('')), false);
+});
+
+test('deriveStoryRegion maps country keywords to ISO and region', async () => {
+  const { deriveStoryRegion, deriveCountryFromKeywords } = await import('./interest-keywords.mjs');
+  assert.equal(deriveCountryFromKeywords(['dinosaurs', 'country-japan']), 'JP');
+  assert.equal(deriveCountryFromKeywords(['country-uk']), 'GB');
+  assert.equal(deriveCountryFromKeywords(['dinosaurs']), null);
+  assert.equal(deriveCountryFromKeywords(null), null);
+  assert.deepEqual(deriveStoryRegion(['country-japan']), { country_code: 'JP', region: 'asia' });
+  assert.deepEqual(deriveStoryRegion(['country-us']), { country_code: 'US', region: 'north-america' });
+  assert.deepEqual(deriveStoryRegion(['country-brazil']), { country_code: 'BR', region: 'south-america' });
+  assert.deepEqual(deriveStoryRegion(['dinosaurs']), { country_code: null, region: 'global' });
+  assert.deepEqual(deriveStoryRegion([]), { country_code: null, region: 'global' });
+});
+
+test('getStoriesByInterests returns empty for no IDs', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const result = await getStoriesByInterests(env, []);
+  assert.deepEqual(result.items, []);
+  assert.equal(result.provider, 'supabase');
+});
+
+test('getStoriesByInterests uses overlap query for keywords', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Keyword story',
+      article_url: 'https://publisher.example/kw1',
+      interest_keywords: ['childcare-babies'],
+      approved: requestUrl.searchParams.get('approved') === 'eq.true',
+      published_at: '2026-10-23T12:00:00Z',
+      fetched_at: '2026-10-23T13:00:00Z'
+    }]);
+  };
+  try {
+    const result = await getStoriesByInterests(env, ['childcare-babies', 'sleep-training']);
+    assert.equal(result.items.length, 1); // deduped by URL
+    assert.equal(result.items[0].title, 'Keyword story');
+    // Verify overlap query was used
+    const kwQuery = requestUrls.find(u => u.searchParams.get('interest_keywords')?.startsWith('ov.'));
+    assert.ok(kwQuery, 'should use ov. overlap query');
+    assert.ok(kwQuery.searchParams.get('interest_keywords').includes('childcare-babies'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByInterests handles category IDs via front-page feeds', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Category story',
+      article_url: 'https://publisher.example/cat1',
+      approved: requestUrl.searchParams.get('approved') === 'eq.true',
+      published_at: '2026-10-23T12:00:00Z',
+      fetched_at: '2026-10-23T13:00:00Z'
+    }]);
+  };
+  try {
+    const result = await getStoriesByInterests(env, ['childcare']);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].title, 'Category story');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getPlayroomFeed returns empty for missing playroom', async () => {
+  const { getPlayroomFeed } = await import('./news-storage.mjs');
+  const result = await getPlayroomFeed(env, null, null, null, null);
+  assert.deepEqual(result.playroom, null);
+  assert.deepEqual(result.spaces, []);
+  assert.deepEqual(result.items, []);
+});
+
+test('getPlayroomFeed resolves username+slug to playroom', async () => {
+  const { getPlayroomFeed } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    const table = url.pathname.split('/').pop();
+    if (table === 'profiles') {
+      return Response.json([{ id: 'user-123' }]);
+    }
+    if (table === 'playrooms' && url.searchParams.get('select') === 'id') {
+      return Response.json([{ id: 'playroom-456' }]);
+    }
+    if (table === 'playrooms') {
+      return Response.json([{
+        id: 'playroom-456',
+        user_id: 'user-123',
+        name: 'My Playroom',
+        slug: 'my-playroom'
+      }]);
+    }
+    if (table === 'playroom_spaces') {
+      return Response.json([{
+        position: 0,
+        boards: {
+          id: 'space-789',
+          name: 'Babies',
+          slug: 'babies',
+          pills: [{ type: 'keyword', id: 'childcare-babies' }]
+        }
+      }]);
+    }
+    // news_stories queries
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Playroom story',
+      article_url: 'https://publisher.example/pr1',
+      interest_keywords: ['childcare-babies'],
+      approved: url.searchParams.get('approved') === 'eq.true',
+      published_at: '2026-10-23T12:00:00Z',
+      fetched_at: '2026-10-23T13:00:00Z'
+    }]);
+  };
+  try {
+    const result = await getPlayroomFeed(env, null, null, 'littlables', 'my-playroom');
+    assert.equal(result.playroom.id, 'playroom-456');
+    assert.equal(result.playroom.name, 'My Playroom');
+    assert.equal(result.spaces.length, 1);
+    assert.equal(result.spaces[0].name, 'Babies');
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].title, 'Playroom story');
   } finally {
     globalThis.fetch = originalFetch;
   }
