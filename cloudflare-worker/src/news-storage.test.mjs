@@ -63,8 +63,12 @@ test('stored feed query returns normalized publisher story shape', async () => {
     const feed = await getStoredNewsFeed(env, 'childcare');
     assert.equal(requestUrls.length, 2);
     assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
-    // Category OR as top-level param, ANDed with the exclusion filter (De Morgan form).
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === '(and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare})'));
+    // Phase 3: interest-overlap OR as top-level param, ANDed with the exclusion filter (De Morgan form).
+    assert.ok(requestUrls.every(requestUrl => {
+      const or = requestUrl.searchParams.get('or');
+      return or?.startsWith('(interest_keywords.ov.{') && or?.endsWith(',display_categories.cs.{childcare})');
+    }));
+    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or')?.includes('childcare-family-general')));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('not.and') === '(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,clickbait,death,politics,elections,government})'));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
@@ -90,6 +94,38 @@ test('stored feed query returns normalized publisher story shape', async () => {
     assert.equal(feed.items[0].approved, true);
     assert.equal(feed.items[1].approved, false);
     assert.deepEqual(new Set(requestUrls.map(requestUrl => requestUrl.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoredNewsFeed falls back to legacy category query when interest matches are zero', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    // Interest queries return nothing; legacy category queries return a story.
+    if (requestUrl.searchParams.get('or')?.includes('interest_keywords.ov.')) {
+      return Response.json([]);
+    }
+    return Response.json([{
+      provider: 'gnews',
+      category: 'childcare',
+      title: 'Legacy family story',
+      article_url: 'https://publisher.example/legacy',
+      approved: requestUrl.searchParams.get('approved') === 'eq.true',
+      fetched_at: '2026-10-17T13:00:00Z'
+    }]);
+  };
+  try {
+    const feed = await getStoredNewsFeed(env, 'childcare');
+    // 2 interest + 2 legacy category fetches
+    assert.equal(requestUrls.length, 4);
+    const legacyQueries = requestUrls.filter(u => u.searchParams.get('or') === '(and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare})');
+    assert.equal(legacyQueries.length, 2);
+    assert.equal(feed.items.length, 1);
+    assert.equal(feed.items[0].title, 'Legacy family story');
   } finally {
     globalThis.fetch = originalFetch;
   }

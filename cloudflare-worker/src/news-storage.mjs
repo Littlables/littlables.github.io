@@ -75,6 +75,63 @@ export function effectiveDisplayCategories(row) {
 }
 
 export async function getStoredNewsFeed(env, category) {
+  // Phase 3 cutover: front-page spaces use interest-overlap matching first.
+  // A balloon belongs to a space iff its interest_keywords overlap the
+  // space's interest list, or an admin override (display_categories) names
+  // the space. Falls back to the legacy category column when the interest
+  // query returns zero stories or errors. 'all' is unchanged (everything
+  // minus excluded interests). display_categories overrides still win.
+  const spaceDef = category && category !== 'all' ? SPACE_DEFINITIONS[category] : null;
+  if (spaceDef && (spaceDef.interestIds || []).length > 0) {
+    try {
+      const interestItems = await getSpaceInterestFeed(env, category, spaceDef.interestIds);
+      if (interestItems.length > 0) return { provider: 'supabase', items: interestItems };
+    } catch (err) {
+      console.error('Space interest feed failed, falling back to category:', err);
+    }
+  }
+  return getLegacyCategoryFeed(env, category);
+}
+
+// Interest-overlap feed for one front-page space: stories whose
+// interest_keywords overlap the space's list, plus admin-overridden stories
+// (display_categories contains the space). Excluded interests filtered out.
+async function getSpaceInterestFeed(env, space, interestIds) {
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const makeQuery = approved => {
+    const params = new URLSearchParams({
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      or: `(interest_keywords.ov.{${interestIds.join(',')}},display_categories.cs.{${space}})`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    if (excludedIds.length > 0) {
+      params.set('not.and', `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
+    }
+    return params;
+  };
+  const [approvedResponse, unapprovedResponse] = await Promise.all([
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), { headers: supabaseHeaders(env) }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), { headers: supabaseHeaders(env) })
+  ]);
+  const [approvedRows, unapprovedRows] = await Promise.all([
+    readRows(approvedResponse, 'Approved space interest feed lookup'),
+    readRows(unapprovedResponse, 'Unapproved space interest feed lookup')
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (!row.article_url || seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  return items;
+}
+
+// Legacy category-column feed (pre-Phase 3 behavior, kept as fallback).
+async function getLegacyCategoryFeed(env, category) {
   // Stories tagged with an excluded ("Flagged") keyword never appear in
   // front-page category feeds (including "all"). They are still classifiable,
   // visible in the admin panel, and available via keyword feeds for boards.
