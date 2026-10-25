@@ -5976,8 +5976,10 @@ export function getAdminPage() {
       try {
         const result = await request('/admin/api/stories/stage-halloween-batch', { method: 'POST' });
         statusEl.textContent = result.staged
-          + ' Halloween stories staged in Pending Approval'
+          + ' Halloween stories staged in Pending Approval, with images and interests on '
+          + result.interestsSet + ' of them'
           + (result.duplicatesSkipped ? ' (' + result.duplicatesSkipped + ' already there, skipped)' : '')
+          + (result.interestsFailed ? ' — interests failed on ' + result.interestsFailed + ', try the button again' : '')
           + '. Approve or reject them as usual.';
         await refreshData();
       } catch (error) {

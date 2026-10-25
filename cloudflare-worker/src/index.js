@@ -976,7 +976,7 @@ async function serveAdmin(request, env) {
     }
     try {
       const result = await stageHalloweenBatch(env);
-      return jsonResponse({ staged: result.staged, duplicatesSkipped: result.duplicatesSkipped, byCategory: result.byCategory });
+      return jsonResponse({ staged: result.staged, duplicatesSkipped: result.duplicatesSkipped, interestsSet: result.interestsSet, interestsFailed: result.interestsFailed, byCategory: result.byCategory });
     } catch (err) {
       console.error('Halloween batch staging failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not stage Halloween batch' }, 502);

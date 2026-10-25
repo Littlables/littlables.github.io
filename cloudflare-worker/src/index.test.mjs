@@ -543,10 +543,20 @@ test('custom story endpoint inserts an approved homepage story', async () => {
   }
 });
 
-test('Halloween batch staging inserts unapproved stories per category and dedups reruns', async () => {
+test('Halloween batch staging inserts unapproved stories with images and tags interests', async () => {
   const originalFetch = globalThis.fetch;
   const savedRows = [];
+  const patchedRows = [];
   globalThis.fetch = async (input, options) => {
+    const method = options?.method || 'GET';
+    if (method === 'PATCH') {
+      patchedRows.push(JSON.parse(options.body));
+      return Response.json([]);
+    }
+    if (method === 'GET') {
+      // Untagged-rows lookup: every row just staged, keywords still NULL.
+      return Response.json(savedRows.map((row, i) => ({ id: i + 1, article_url: row.article_url })));
+    }
     savedRows.push(...JSON.parse(options.body));
     return Response.json([]);
   };
@@ -556,7 +566,7 @@ test('Halloween batch staging inserts unapproved stories per category and dedups
         method: 'POST',
         headers: {
           Origin: 'https://worker.example',
-Cookie: (await adminCookie()).split(';')[0],
+          Cookie: (await adminCookie()).split(';')[0],
         }
       }),
       {
@@ -567,10 +577,10 @@ Cookie: (await adminCookie()).split(';')[0],
     );
     assert.equal(response.status, 200);
     const body = await response.json();
-    // 15 batch entries, but the two Macaroni KID entries share one article URL
-    // and one category, so the second is skipped as a duplicate.
     assert.equal(body.staged, 14);
-    assert.equal(body.duplicatesSkipped, 1);
+    assert.equal(body.duplicatesSkipped, 0);
+    assert.equal(body.interestsSet, 14);
+    assert.equal(body.interestsFailed, 0);
     assert.equal(savedRows.length, 14);
     assert.deepEqual(Object.keys(body.byCategory).sort(), ['animals', 'arts', 'childcare', 'world']);
     for (const row of savedRows) {
@@ -579,6 +589,13 @@ Cookie: (await adminCookie()).split(';')[0],
       // batch waits in Pending Approval instead of publishing as curated.
       assert.equal(row.approved, undefined);
       assert.ok(row.title && row.article_url && row.source_name && row.category);
+      assert.match(row.image_url, /^https:\/\//);
+    }
+    assert.equal(patchedRows.length, 14);
+    for (const patch of patchedRows) {
+      assert.ok(Array.isArray(patch.interest_keywords));
+      assert.ok(patch.interest_keywords.length >= 1 && patch.interest_keywords.length <= 3);
+      assert.ok(patch.interest_keywords.includes('halloween'));
     }
   } finally {
     globalThis.fetch = originalFetch;
