@@ -440,12 +440,8 @@ body {
   cursor: not-allowed;
 }
 
-/* Refresh button balloon: parked on a circular track at rest, orbits with a
+/* Refresh button balloon: parked at the top at rest, orbits with a
    wiggling trailing string while loading — like a cat chasing its tail. */
-.refresh-news-button .balloon-track {
-  opacity: 0.35;
-}
-
 .refresh-news-button .balloon-orbit {
   transform-box: view-box;
   transform-origin: center;
