@@ -1,3 +1,5 @@
+import { INTEREST_KEYWORDS } from './interest-keywords.mjs';
+
 export function getAdminLoginPage() {
   return `<!doctype html>
 <html lang="en">
@@ -14,7 +16,7 @@ export function getAdminLoginPage() {
 </head>
 <body>
   <main>
-    <h1>Littlables news admin</h1>
+    <h1>lil dashboard</h1>
     <p>Sign in with the authorized GitHub account to manage stories and providers.</p>
     <a href="/admin/auth/login">Continue with GitHub</a>
   </main>
@@ -23,12 +25,16 @@ export function getAdminLoginPage() {
 }
 
 export function getAdminPage() {
+  // Interest keyword options for the validation list picker (id/label/icon/group/excluded).
+  const keywordOptionsJson = JSON.stringify(
+    INTEREST_KEYWORDS.map((k) => ({ id: k.id, label: k.label, icon: k.icon, group: k.group, excluded: k.excluded === true }))
+  );
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Littlables news admin</title>
+  <title>lil dashboard</title>
   <style>
     :root {
       color-scheme: dark;
@@ -48,7 +54,7 @@ export function getAdminPage() {
     body {
       max-width: 1120px;
       margin: 0 auto;
-      padding: 1.25rem 1rem 3.5rem;
+      padding: .25rem 1rem 3.5rem;
     }
     h1, h2, h3 { line-height: 1.25; margin: 0; }
     h1 { font-size: 1.4rem; }
@@ -63,8 +69,8 @@ export function getAdminPage() {
       justify-content: space-between;
       gap: .75rem;
       flex-wrap: wrap;
-      padding-bottom: 1rem;
-      margin-bottom: 1rem;
+      padding-bottom: .35rem;
+      margin-bottom: .35rem;
       border-bottom: 1px solid #1e293b;
     }
     .toolbar-actions {
@@ -73,6 +79,106 @@ export function getAdminPage() {
       gap: .45rem;
       flex-wrap: wrap;
     }
+
+    /* Sticky vitals status bar + section nav */
+    .admin-sticky {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(2, 6, 23, 0.97);
+      padding: .55rem 0 .6rem;
+      margin-bottom: .75rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .vitals-bar {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      flex-wrap: wrap;
+      margin-bottom: .5rem;
+    }
+    .vital {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .3rem .6rem;
+      border-radius: 7px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #e2e8f0;
+      font-size: .78rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .vital:hover { border-color: #4f46e5; background: #25324a; }
+    .vital .vital-value { color: #a5b4fc; font-variant-numeric: tabular-nums; }
+    .vital-ok .vital-value { color: #6ee7b7; }
+    .vital-warn .vital-value { color: #fbbf24; }
+    .vital-bad .vital-value { color: #f87171; }
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    #menu-toggle { font-size: 1rem; padding: .35rem .6rem; }
+    /* Compact vitals: plain text status, not buttons */
+    .vitals-compact {
+      gap: .2rem .9rem;
+      margin-bottom: 0;
+    }
+    .vitals-compact .vital {
+      background: none;
+      border: none;
+      padding: .1rem 0;
+      font-size: .74rem;
+      font-weight: 500;
+      color: #94a3b8;
+    }
+    .vitals-compact .vital:hover { background: none; border: none; color: #e2e8f0; }
+    .vitals-compact .vital .vital-value { font-weight: 700; }
+    /* Hamburger section menu */
+    .section-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      min-width: 250px;
+      max-height: 70vh;
+      overflow-y: auto;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+      padding: .35rem;
+      margin: 0;
+      list-style: none;
+      z-index: 60;
+    }
+    .menu-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      border-radius: 7px;
+    }
+    .menu-row:hover { background: #1e293b; }
+    .section-menu .menu-link {
+      flex: 1;
+      background: none;
+      border: none;
+      color: #e2e8f0;
+      font-size: .84rem;
+      font-weight: 500;
+      text-align: left;
+      padding: .5rem .6rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .section-menu .menu-link:hover { background: none; border: none; color: #a5b4fc; }
+    .section-menu .menu-link .muted { font-size: .76rem; }
+    .menu-movers { display: flex; gap: .25rem; padding-right: .35rem; }
+    /* Keep jumped-to sections clear of the sticky header. */
+    section[data-section-id] { scroll-margin-top: 130px; }
 
     /* Buttons */
     button {
@@ -795,6 +901,23 @@ export function getAdminPage() {
       font-size: .76rem;
       line-height: 1.4;
     }
+    .provider-error-box {
+      margin-top: .45rem;
+      padding: .5rem .65rem;
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      border-radius: 8px;
+      font-size: .76rem;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+    .provider-error-title {
+      font-weight: 600;
+      color: #fca5a5;
+      margin-bottom: .2rem;
+    }
+    .provider-error-row { margin-top: .1rem; }
+    .provider-error-key { font-weight: 600; }
 
     /* Provider Fetch & Rate-Limit Log Viewer */
     .log-summary-strip {
@@ -1033,7 +1156,7 @@ export function getAdminPage() {
     }
 
     @media (max-width: 640px) {
-      body { padding: .85rem .65rem 2.5rem; }
+      body { padding: .25rem .65rem 2.5rem; }
       h1 { font-size: 1.2rem; }
       .admin-card-section, .summary { padding: .7rem .75rem; }
       .story, .ad-row {
@@ -1060,17 +1183,23 @@ export function getAdminPage() {
   </style>
 </head>
 <body>
-  <header class="toolbar">
-    <div>
-      <h1>Littlables news admin</h1>
-      <p id="identity" class="muted">Verifying GitHub session…</p>
-    </div>
-    <div class="toolbar-actions">
-      <button id="refresh" class="small-btn" type="button">Refresh</button>
-      <button id="reset-layout" class="secondary small-btn" type="button" title="Reset section order and collapse states">Reset layout</button>
-      <button id="logout" class="secondary small-btn" type="button">Sign out</button>
-    </div>
-  </header>
+  <div class="admin-sticky">
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <button id="menu-toggle" class="icon-btn" type="button" aria-expanded="false" aria-controls="section-menu" title="Sections menu">☰</button>
+        <div>
+          <h1>lil dashboard</h1>
+          <p id="identity" class="muted">Verifying GitHub session…</p>
+        </div>
+      </div>
+      <div class="toolbar-actions">
+        <button id="refresh" class="small-btn" type="button">Refresh</button>
+        <button id="logout" class="secondary small-btn" type="button">Sign out</button>
+      </div>
+    </header>
+    <div id="vitals-bar" class="vitals-bar vitals-compact" aria-label="Site vitals" aria-live="polite"></div>
+    <nav id="section-menu" class="section-menu" aria-label="Admin sections" hidden></nav>
+  </div>
 
   <main id="admin-sections">
     <!-- 1. DATABASE SUMMARY SECTION -->
@@ -1098,7 +1227,7 @@ export function getAdminPage() {
         <h2 id="ai-staging-title">
           <button id="ai-staging-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="ai-staging-body" data-section-toggle="ai-staging">
             <span id="ai-staging-arrow" class="section-arrow" aria-hidden="true">▲</span>
-            <span>AI Picked for You · Staging Queue <span id="ai-staging-count" class="tabular-nums"></span></span>
+            <span>Discovery <span id="ai-staging-count" class="tabular-nums"></span></span>
           </button>
         </h2>
         <div class="section-controls">
@@ -1120,13 +1249,54 @@ export function getAdminPage() {
       </div>
     </section>
 
+    <!-- 1b. EMBEDDING VALIDATION SECTION -->
+    <section aria-labelledby="embedding-validation-title" class="admin-card-section" data-section-id="embedding-validation">
+      <div class="section-header">
+        <h2 id="embedding-validation-title">
+          <button id="embedding-validation-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="embedding-validation-body" data-section-toggle="embedding-validation">
+            <span id="embedding-validation-arrow" class="section-arrow" aria-hidden="true">▲</span>
+            <span>Classify <span id="embedding-validation-count"></span></span>
+          </button>
+        </h2>
+      </div>
+      <div id="embedding-validation-body" class="section-body">
+        <p class="admin-hint">Validates story categories using semantic embeddings. Flags stories where the AI-predicted category disagrees with the query-assigned category.</p>
+        <p id="validate-unclassified-count" class="admin-hint" style="margin: 0.75rem 0 0;"></p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+          <label for="validate-category-filter" class="admin-hint" style="margin: 0;">Old category:</label>
+          <select id="validate-category-filter" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="">All categories</option>
+            <option value="childcare">Childcare &amp; Family</option>
+            <option value="animals">Animals &amp; Nature</option>
+            <option value="arts">Creative Arts</option>
+            <option value="tech">Future Tech &amp; AI</option>
+            <option value="world">Global Currents</option>
+            <option value="uplifting">Uplifting News</option>
+            <option value="all">All</option>
+          </select>
+          <label for="validate-categories-limit" class="admin-hint" style="margin: 0;">Stories to validate:</label>
+          <input id="validate-categories-limit" type="number" min="1" max="2000" value="200" style="width: 5rem; padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);" />
+          <label for="validate-sort-order" class="admin-hint" style="margin: 0;">Sort:</label>
+          <select id="validate-sort-order" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="matched">Matched first</option>
+            <option value="unmatched">Unmatched first</option>
+          </select>
+          <button id="validate-categories-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
+            Validate Categories
+          </button>
+          <span id="validate-categories-status" class="admin-hint"></span>
+        </div>
+        <div id="validate-categories-results" aria-live="polite"></div>
+      </div>
+    </section>
+
     <!-- 2. PENDING STORIES SECTION -->
     <section aria-labelledby="pending-title" class="admin-card-section" data-section-id="pending">
       <div class="section-header">
         <h2 id="pending-title">
           <button id="pending-toggle" class="section-toggle" type="button" aria-expanded="true" aria-controls="pending-body" data-section-toggle="pending">
             <span id="pending-arrow" class="section-arrow" aria-hidden="true">▲</span>
-            <span>Stories awaiting approval <span id="pending-count"></span></span>
+            <span>Pending Approval <span id="pending-count"></span></span>
           </button>
         </h2>
         <div class="section-controls">
@@ -1197,6 +1367,20 @@ export function getAdminPage() {
             <button id="awin-sync-btn" type="button" class="small-btn">⟳ Update Awin data</button>
           </div>
           <div id="awin-sync-log" class="awin-log" hidden></div>
+        </div>
+        <div id="ad-tag-panel" class="awin-panel" style="margin-top: 12px;">
+          <div class="awin-panel-row">
+            <div>
+              <strong>Keyword auto-tag</strong>
+              <span id="ad-tag-status" class="muted">Tag ads with interest keywords via embedding classifier</span>
+            </div>
+            <button id="ad-tag-btn" type="button" class="small-btn">🏷️ Auto-tag new</button>
+            <button id="ad-tag-all-btn" type="button" class="small-btn">↻ Rerun all</button>
+            <button id="ad-tag-untagged-btn" type="button" class="small-btn">↻ Rerun untagged</button>
+            <button id="ad-tag-tagged-btn" type="button" class="small-btn">↻ Rerun tagged</button>
+          </div>
+          <div id="ad-tag-log" class="awin-log" hidden></div>
+          <div id="ad-tag-results" hidden></div>
         </div>
         <div class="filter-bar">
           <input id="ad-search-input" class="custom-input" type="search" placeholder="Search ads by title, sponsor, network, CTA..." aria-label="Search ads" style="flex: 1; min-width: 200px;">
@@ -1373,6 +1557,55 @@ export function getAdminPage() {
         <div id="banned-pagination" class="pagination-bar"></div>
       </div>
     </section>
+
+    <!-- ANALYTICS SECTION -->
+    <section aria-labelledby="analytics-title" class="admin-card-section" data-section-id="analytics">
+      <div class="section-header">
+        <h2 id="analytics-title">
+          <button id="analytics-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="analytics-body" data-section-toggle="analytics">
+            <span id="analytics-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>Analytics</span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="analytics-body" class="section-body" hidden>
+        <p class="admin-hint">Anonymous audience stats from the last 30 days. Your own testing (admin panel, dev site) is excluded.</p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+          <label class="admin-hint" style="margin: 0;" for="analytics-region">Region:</label>
+          <select id="analytics-region" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="">All regions</option>
+            <option value="north-america">North America</option>
+            <option value="europe">Europe</option>
+            <option value="asia">Asia</option>
+            <option value="oceania">Oceania</option>
+            <option value="south-america">South America</option>
+            <option value="africa">Africa</option>
+            <option value="global">Global / unknown</option>
+          </select>
+          <label class="admin-hint" style="margin: 0;" for="analytics-country">Country:</label>
+          <select id="analytics-country" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="">All countries</option>
+          </select>
+          <button id="analytics-refresh" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">Refresh</button>
+          <span id="analytics-status" class="admin-hint"></span>
+        </div>
+        <div id="analytics-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <button type="button" class="analytics-tab sign-in-button" data-analytics-tab="search" style="width: auto; padding: 0.5rem 1rem;">Searches</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="search_gaps" style="width: auto; padding: 0.5rem 1rem;">Content gaps</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="keywords" style="width: auto; padding: 0.5rem 1rem;">Keyword CTR</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="boards" style="width: auto; padding: 0.5rem 1rem;">Boards</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="acquisition" style="width: auto; padding: 0.5rem 1rem;">Traffic</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="dwell" style="width: auto; padding: 0.5rem 1rem;">Dwell time</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="ads" style="width: auto; padding: 0.5rem 1rem;">Ad CTR</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="ad_networks" style="width: auto; padding: 0.5rem 1rem;">Ad networks</button>
+        </div>
+        <div id="analytics-results" aria-live="polite"></div>
+      </div>
+    </section>
   </main>
 
   <!-- UNIFIED PREVIEW DIALOG (Single Close Button inside Preview Actions) -->
@@ -1381,13 +1614,14 @@ export function getAdminPage() {
   </dialog>
 
   <script>
+    var LITTLABLES_KEYWORDS = ` + keywordOptionsJson + `;
     const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
     const STORAGE_ORDER_KEY = 'littlables_admin_section_order_v1';
     const STORAGE_COLLAPSED_KEY = 'littlables_admin_collapsed_v1';
     const STORAGE_PAGE_SIZES_KEY = 'littlables_admin_page_sizes_v1';
 
     const categories = [
-      { id: 'all', label: 'Top Currents', icon: '⚡' },
+      { id: 'all', label: 'All', icon: '⚡' },
       { id: 'childcare', label: 'Childcare & Family', icon: '👨‍👩‍👧' },
       { id: 'animals', label: 'Animals & Nature', icon: '🐾' },
       { id: 'arts', label: 'Creative Arts', icon: '🎨' },
@@ -1436,6 +1670,8 @@ export function getAdminPage() {
       previewType: 'story',
       previewDraft: null,
       previewStoryId: null,
+      previewOrigKeywords: [],
+      previewOrigCats: null,
       previewAdDraft: null,
       previewAdId: null,
       generatingSummary: false,
@@ -1556,19 +1792,276 @@ export function getAdminPage() {
       if (event.target === previewDialog) previewDialog.close();
     });
 
-    /* Collapsible & Reorderable Sections with localStorage persistence */
-    const sectionTargets = {
-      summary: { toggle: 'summary-toggle', arrow: 'summary-arrow', body: 'summary-body', defaultOpen: true },
-      'ai-staging': { toggle: 'ai-staging-toggle', arrow: 'ai-staging-arrow', body: 'ai-staging-body', defaultOpen: true },
-      pending: { toggle: 'pending-toggle', arrow: 'pending-arrow', body: 'pending-body', defaultOpen: true },
-      search: { toggle: 'search-toggle', arrow: 'search-arrow', body: 'search-body', defaultOpen: true },
-      ads: { toggle: 'ads-toggle', arrow: 'ads-arrow', body: 'ads-section', defaultOpen: true },
-      custom: { toggle: 'custom-toggle', arrow: 'custom-arrow', body: 'custom-body', defaultOpen: true },
-      providers: { toggle: 'providers-toggle', arrow: 'providers-arrow', body: 'providers', defaultOpen: false },
-      logs: { toggle: 'logs-toggle', arrow: 'logs-arrow', body: 'logs-body', defaultOpen: false },
-      decisions: { toggle: 'decisions-toggle', arrow: 'decisions-arrow', body: 'decisions-body', defaultOpen: false },
-      banned: { toggle: 'banned-toggle', arrow: 'banned-arrow', body: 'banned-body', defaultOpen: false }
+    /* ── Section registry ──────────────────────────────────────────────
+       ADDING A NEW SECTION (prototype):
+       1. Add the <section data-section-id="your-id"> markup in the HTML above,
+          with a header toggle button id="your-id-toggle", an arrow span
+          id="your-id-arrow", and a body div (pass its id as body: if it does
+          not follow the your-id-body pattern).
+       2. Add ONE line to SECTIONS below. That is the whole job — toggle
+          wiring, the sticky section nav, collapse persistence, move buttons,
+          and Reset layout all derive from this list automatically.
+    ─────────────────────────────────────────────────────────────────── */
+    const SECTIONS = [
+      { id: 'summary', label: 'Summary', body: 'summary-body', defaultOpen: true },
+      { id: 'ai-staging', label: 'Discovery', body: 'ai-staging-body', defaultOpen: true },
+      { id: 'embedding-validation', label: 'Classify', body: 'embedding-validation-body', defaultOpen: true },
+      { id: 'pending', label: 'Pending', body: 'pending-body', defaultOpen: true },
+      { id: 'search', label: 'Search', body: 'search-body', defaultOpen: true },
+      { id: 'ads', label: 'Ads', body: 'ads-section', defaultOpen: true },
+      { id: 'custom', label: 'Custom', body: 'custom-body', defaultOpen: true },
+      { id: 'providers', label: 'Providers', body: 'providers', defaultOpen: false },
+      { id: 'logs', label: 'Logs', body: 'logs-body', defaultOpen: false },
+      { id: 'decisions', label: 'History', body: 'decisions-body', defaultOpen: false },
+      { id: 'banned', label: 'Banned', body: 'banned-body', defaultOpen: false },
+      { id: 'analytics', label: 'Analytics', body: 'analytics-body', defaultOpen: false },
+    ];
+    const sectionTargets = Object.fromEntries(
+      SECTIONS.map((s) => [s.id, {
+        toggle: s.id + '-toggle',
+        arrow: s.id + '-arrow',
+        body: s.body,
+        defaultOpen: s.defaultOpen,
+      }])
+    );
+
+    function sectionById(id) {
+      return adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
+    }
+
+    function jumpToSection(id) {
+      setSectionExpanded(id, true, true);
+      const sec = sectionById(id);
+      if (!sec) return;
+      // Account for the sticky header so the section top isn't cut off.
+      const sticky = document.querySelector('.admin-sticky');
+      const offset = (sticky ? sticky.getBoundingClientRect().height : 120) + 12;
+      const top = sec.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+
+    function timeAgo(ts) {
+      const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+      if (s < 60) return 'just now';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ago';
+      return Math.floor(h / 24) + 'd ago';
+    }
+
+    function fmtNum(n) {
+      return typeof n === 'number' && isFinite(n) ? n.toLocaleString() : '—';
+    }
+
+    /* Sticky section nav: jump links in current DOM order, with live counts
+       pulled from the section headers so they never drift out of sync. */
+    const NAV_COUNTS = {
+      summary: () => document.getElementById('total')?.textContent?.trim(),
+      'ai-staging': () => document.getElementById('ai-staging-count')?.textContent?.trim(),
+      'embedding-validation': () => document.getElementById('embedding-validation-count')?.textContent?.trim(),
+      pending: () => document.getElementById('pending-count')?.textContent?.trim(),
+      ads: () => document.getElementById('ads-count')?.textContent?.trim(),
+      logs: () => document.getElementById('logs-count')?.textContent?.trim(),
+      decisions: () => document.getElementById('history-count')?.textContent?.trim(),
+      banned: () => document.getElementById('banned-count')?.textContent?.trim(),
     };
+    /* Hamburger section menu: vertical list in current DOM order, with live
+       counts pulled from the section headers so they never drift out of sync.
+       The ↑/↓ movers move the actual page sections, so menu order and page
+       order share one source of truth. */
+    function renderSectionMenu() {
+      const menu = document.getElementById('section-menu');
+      if (!menu) return;
+      const ordered = Array.from(adminSectionsEl.querySelectorAll(':scope > section[data-section-id]'))
+        .map((sec) => sec.dataset.sectionId)
+        .filter((id) => sectionTargets[id]);
+      menu.replaceChildren();
+      ordered.forEach((id, idx) => {
+        const def = SECTIONS.find((s) => s.id === id) || {};
+        const label = def.label || id;
+        const li = document.createElement('li');
+        li.className = 'menu-row';
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'menu-link';
+        link.dataset.menuJump = id;
+        link.setAttribute('aria-label', 'Jump to ' + label + ' section');
+        const labelSpan = document.createElement('span');
+        labelSpan.textContent = label + ' ';
+        link.appendChild(labelSpan);
+        const count = NAV_COUNTS[id] ? (NAV_COUNTS[id]() || '') : '';
+        if (count) {
+          const countSpan = document.createElement('span');
+          countSpan.className = 'muted';
+          countSpan.textContent = count;
+          link.appendChild(countSpan);
+        }
+        const movers = document.createElement('span');
+        movers.className = 'menu-movers';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'icon-btn';
+        up.textContent = '↑';
+        up.title = 'Move ' + label + ' up';
+        up.setAttribute('aria-label', 'Move ' + label + ' up');
+        up.dataset.menuMove = 'up';
+        up.dataset.sectionId = id;
+        up.disabled = idx === 0;
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.className = 'icon-btn';
+        down.textContent = '↓';
+        down.title = 'Move ' + label + ' down';
+        down.setAttribute('aria-label', 'Move ' + label + ' down');
+        down.dataset.menuMove = 'down';
+        down.dataset.sectionId = id;
+        down.disabled = idx === ordered.length - 1;
+        movers.append(up, down);
+        li.append(link, movers);
+        menu.appendChild(li);
+      });
+    }
+
+    /* Hamburger open/close + menu interactions (jump links and movers). */
+    const menuToggleBtn = document.getElementById('menu-toggle');
+    const sectionMenuEl = document.getElementById('section-menu');
+    function setMenuOpen(open) {
+      if (!sectionMenuEl || !menuToggleBtn) return;
+      sectionMenuEl.hidden = !open;
+      menuToggleBtn.setAttribute('aria-expanded', String(open));
+    }
+    if (menuToggleBtn) {
+      menuToggleBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        renderSectionMenu();
+        setMenuOpen(sectionMenuEl.hidden);
+      });
+    }
+    document.addEventListener('click', (event) => {
+      if (!sectionMenuEl || sectionMenuEl.hidden) return;
+      if (event.target.closest('#section-menu') || event.target.closest('#menu-toggle')) return;
+      setMenuOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    });
+    if (sectionMenuEl) {
+      sectionMenuEl.addEventListener('click', (event) => {
+        const moveBtn = event.target.closest('[data-menu-move]');
+        if (moveBtn) {
+          const sec = sectionById(moveBtn.dataset.sectionId);
+          if (sec) {
+            if (moveBtn.dataset.menuMove === 'up' && sec.previousElementSibling) {
+              adminSectionsEl.insertBefore(sec, sec.previousElementSibling);
+            } else if (moveBtn.dataset.menuMove === 'down' && sec.nextElementSibling) {
+              adminSectionsEl.insertBefore(sec.nextElementSibling, sec);
+            }
+            saveSectionOrder();
+          }
+          return;
+        }
+        const jumpBtn = event.target.closest('[data-menu-jump]');
+        if (jumpBtn) {
+          setMenuOpen(false);
+          jumpToSection(jumpBtn.dataset.menuJump);
+        }
+      });
+    }
+
+    /* Vitals status bar. Reads from the already-loaded /admin/api/status
+       snapshot plus the ads/tags and analytics extras — no new worker
+       endpoints, everything is client-side. */
+    function renderVitals() {
+      const bar = document.getElementById('vitals-bar');
+      if (!bar) return;
+      const d = state.lastStatus || {};
+      const providers = state.providers || [];
+      const now = Date.now();
+      let cooling = 0, failed = 0, lastSuccess = 0;
+      providers.forEach((p) => {
+        const ls = p.last_success_at ? Date.parse(p.last_success_at) : 0;
+        if (ls > lastSuccess) lastSuccess = ls;
+        const cd = p.cooldown_until ? Date.parse(p.cooldown_until) : 0;
+        if (cd > now) cooling++;
+        else if (p.last_failed_call || p.last_error) failed++;
+      });
+      const healthy = providers.length - cooling - failed;
+      const staged = state.aiCuration && Array.isArray(state.aiCuration.stagedPicks)
+        ? state.aiCuration.stagedPicks.length : null;
+      const pendingN = (state.pendingStories || []).length;
+      const adsTotal = Array.isArray(state.ads) ? state.ads.length : null;
+      const tagPct = (adsTotal && state.adTagCount != null)
+        ? Math.round((100 * state.adTagCount) / adsTotal) : null;
+      const engV = state.engagementViews, engC = state.engagementClicks;
+      const engCtr = (engV > 0 && engC != null) ? (100 * engC / engV).toFixed(1) + '% CTR' : null;
+
+      const vitals = [
+        { icon: '📚', label: 'Stories', value: fmtNum(d.totalStories), target: 'summary' },
+        { icon: '⏳', label: 'Pending', value: fmtNum(pendingN), target: 'pending', tone: pendingN ? 'warn' : 'ok' },
+        { icon: '🤖', label: 'Discovery', value: staged != null ? fmtNum(staged) : '—', target: 'ai-staging' },
+        {
+          icon: '📡', label: 'Providers',
+          value: providers.length ? healthy + '/' + providers.length + ' ok' : '—',
+          target: 'providers', tone: failed ? 'bad' : cooling ? 'warn' : 'ok',
+          title: cooling ? cooling + ' cooling down' : (failed ? failed + ' with errors — see Providers' : ''),
+        },
+        {
+          icon: '🎯', label: 'Ads',
+          value: adsTotal != null ? fmtNum(adsTotal) + (tagPct != null ? ' · ' + tagPct + '% tagged' : '') : '—',
+          target: 'ads',
+        },
+        {
+          icon: '👁️', label: 'Engagement',
+          value: engV != null ? fmtNum(engV) + ' views' + (engCtr ? ' · ' + engCtr : '') + ' (30d)' : '—',
+          target: 'analytics',
+        },
+        { icon: '🔄', label: 'Synced', value: lastSuccess ? timeAgo(lastSuccess) : '—', target: 'providers' },
+        {
+          icon: '🔁', label: 'Auto-sync',
+          value: state.autoSync ? (state.autoSync.enabled ? 'on' : 'paused') : '—',
+          target: 'providers', tone: state.autoSync && state.autoSync.enabled ? 'ok' : 'warn',
+        },
+      ];
+      bar.replaceChildren();
+      vitals.forEach((v) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'vital' + (v.tone ? ' vital-' + v.tone : '');
+        if (v.title) b.title = v.title;
+        const labelEl = document.createElement('span');
+        labelEl.textContent = v.icon + ' ' + v.label;
+        const valEl = document.createElement('span');
+        valEl.className = 'vital-value';
+        valEl.textContent = v.value;
+        b.append(labelEl, valEl);
+        b.setAttribute('aria-label', v.label + ': ' + v.value + ' — jump to section');
+        b.addEventListener('click', () => jumpToSection(v.target));
+        bar.appendChild(b);
+      });
+    }
+
+    /* Lightweight extras for the vitals bar. Runs after ads load; failures
+       leave "—" placeholders rather than breaking the bar. */
+    async function refreshVitalsExtras() {
+      try {
+        const t = await request('/ads/tags');
+        state.adTagCount = typeof t.count === 'number' ? t.count : Object.keys(t.tags || {}).length;
+      } catch { state.adTagCount = null; }
+      try {
+        const a = await request('/admin/api/analytics?type=keywords&limit=200');
+        if (a && a.ok && Array.isArray(a.rows)) {
+          let v = 0, c = 0;
+          a.rows.forEach((r) => { v += Number(r.views) || 0; c += Number(r.clicks) || 0; });
+          state.engagementViews = v;
+          state.engagementClicks = c;
+        } else {
+          state.engagementViews = null;
+        }
+      } catch { state.engagementViews = null; }
+      renderVitals();
+      renderSectionMenu();
+    }
 
     function setSectionExpanded(sectionId, expanded, persist = true) {
       const cfg = sectionTargets[sectionId];
@@ -1610,6 +2103,7 @@ export function getAdminPage() {
         localStorage.setItem(STORAGE_ORDER_KEY, JSON.stringify(order));
       } catch {}
       updateSectionMoveButtons();
+      renderSectionMenu();
     }
 
     function restoreSectionLayout() {
@@ -1632,6 +2126,7 @@ export function getAdminPage() {
         });
       } catch {}
       updateSectionMoveButtons();
+      renderSectionMenu();
     }
 
     Object.keys(sectionTargets).forEach((sectionId) => {
@@ -1661,12 +2156,13 @@ export function getAdminPage() {
       }
     });
 
-    document.getElementById('reset-layout').addEventListener('click', () => {
+    const resetBtn = document.getElementById('reset-layout');
+    if (resetBtn) resetBtn.addEventListener('click', () => {
       try {
         localStorage.removeItem(STORAGE_ORDER_KEY);
         localStorage.removeItem(STORAGE_COLLAPSED_KEY);
       } catch {}
-      ['summary', 'ai-staging', 'pending', 'search', 'ads', 'custom', 'providers', 'logs', 'decisions', 'banned'].forEach((id) => {
+      SECTIONS.map((s) => s.id).forEach((id) => {
         const sec = adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
         if (sec) adminSectionsEl.append(sec);
         setSectionExpanded(id, sectionTargets[id].defaultOpen, false);
@@ -1815,9 +2311,22 @@ export function getAdminPage() {
         element.textContent = element.dataset.updatedPrefix + formatDateTime(new Date(timestamp)) +
           '; ' + formatElapsed(timestamp);
       });
+      let cooldownExpired = false;
       document.querySelectorAll('[data-countdown-to]').forEach((element) => {
-        element.textContent = (element.dataset.countdownPrefix || '') + formatCountdown(element.dataset.countdownTo);
+        const wasDue = element.dataset.wasDue === '1';
+        const label = formatCountdown(element.dataset.countdownTo);
+        element.textContent = (element.dataset.countdownPrefix || '') + label;
+        const isDue = label === 'Due now' || label === 'Ready now';
+        // If a rate-limit cooldown just expired, refresh so the stale box clears
+        if (isDue && !wasDue && (element.dataset.countdownPrefix || '').includes('cooldown')) {
+          cooldownExpired = true;
+        }
+        element.dataset.wasDue = isDue ? '1' : '';
       });
+      if (cooldownExpired && !state.cooldownRefreshPending) {
+        state.cooldownRefreshPending = true;
+        refreshData().finally(() => { state.cooldownRefreshPending = false; });
+      }
     }
 
     async function request(path, options) {
@@ -1974,11 +2483,65 @@ export function getAdminPage() {
           card.append(cooldownBox);
         }
 
-        if (provider.last_error) {
-          const error = document.createElement('p');
-          error.className = 'error';
-          error.textContent = provider.last_error;
-          card.append(error);
+        if (provider.last_failed_call || provider.last_error) {
+          const errBox = document.createElement('div');
+          errBox.className = 'provider-error-box';
+          const failed = provider.last_failed_call || {};
+
+          const errTitle = document.createElement('div');
+          errTitle.className = 'provider-error-title';
+          errTitle.textContent = failed.status === 'rate_limited'
+            ? '⚠ Rate limited'
+            : failed.status === 'skipped_cooldown'
+              ? '⏸ Skipped (cooldown)'
+              : '⚠ Last error';
+          errBox.append(errTitle);
+
+          const addErrRow = (label, value) => {
+            if (value == null || value === '') return;
+            const row = document.createElement('div');
+            row.className = 'provider-error-row tabular-nums';
+            const k = document.createElement('span');
+            k.className = 'provider-error-key muted';
+            k.textContent = label + ': ';
+            const v = document.createElement('span');
+            v.textContent = String(value);
+            row.append(k, v);
+            errBox.append(row);
+          };
+
+          addErrRow('Provider', provider.name || provider.id);
+          addErrRow('Interest', failed.category || 'all');
+          if (failed.requestUrl) {
+            // Split endpoint from query string for readability
+            let endpoint = failed.requestUrl;
+            let query = '';
+            try {
+              const u = new URL(failed.requestUrl);
+              endpoint = u.origin + u.pathname;
+              query = u.search ? u.search.slice(1) : '';
+            } catch { /* not a valid URL, show as-is */ }
+            addErrRow('API call', endpoint);
+            if (query) addErrRow('Query', decodeURIComponent(query).slice(0, 300));
+          }
+          if (failed.httpStatus) addErrRow('HTTP', failed.httpStatus);
+          const rlBits = [];
+          if (failed.retryAfterSeconds != null) rlBits.push('retry-after ' + failed.retryAfterSeconds + 's');
+          if (failed.rateLimitRemaining != null) rlBits.push('remaining ' + failed.rateLimitRemaining);
+          if (failed.rateLimitReset) rlBits.push('resets ' + failed.rateLimitReset);
+          if (rlBits.length) addErrRow('Rate limit', rlBits.join(' · '));
+          if (failed.failoverProvider) {
+            addErrRow('Failover', 'remaining topics routed to ' + failed.failoverProvider);
+          }
+          if (failed.errorMessage && failed.errorMessage !== provider.last_error) {
+            addErrRow('Detail', failed.errorMessage.slice(0, 300));
+          } else if (provider.last_error) {
+            addErrRow('Detail', String(provider.last_error).slice(0, 300));
+          }
+          if (failed.createdAt) {
+            addErrRow('When', formatElapsed(Date.parse(failed.createdAt)) + ' ago');
+          }
+          card.append(errBox);
         }
         providersEl.append(card);
       });
@@ -2152,6 +2715,17 @@ export function getAdminPage() {
         meta.append(statusSpan);
       }
 
+      // Content keywords badge (interest tags)
+      const storyKws = story.interest_keywords || story.interestKeywords || [];
+      if (Array.isArray(storyKws) && storyKws.length > 0) {
+        const kwSpan = document.createElement('span');
+        kwSpan.className = 'meta-badge-status meta-approved';
+        kwSpan.setAttribute('data-kw-badge', '1');
+        kwSpan.textContent = '🔖 ' + storyKws.join(', ');
+        kwSpan.title = 'Content keywords';
+        meta.append(kwSpan);
+      }
+
       const details = document.createElement('div');
       details.className = 'story-details';
       details.append(title, meta);
@@ -2186,6 +2760,56 @@ export function getAdminPage() {
         openStoryPreview(story);
       });
       actions.append(editBtn);
+
+      // Auto-tag button (search results): classify on-demand, save, update live
+      if (isSearch) {
+        const tagBtn = document.createElement('button');
+        tagBtn.type = 'button';
+        tagBtn.className = 'secondary small-btn';
+        tagBtn.textContent = '🏷️ Tag';
+        tagBtn.title = 'Auto-tag with interest keywords';
+        tagBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          tagBtn.disabled = true;
+          tagBtn.textContent = 'Tagging...';
+          try {
+            const res = await fetch('/admin/api/stories/auto-tag', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: story.id })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Tag failed');
+            // Update story object and refresh the keywords badge live
+            const kws = data.keywords || [];
+            story.interest_keywords = kws;
+            story.interestKeywords = kws;
+            // Remove old badge if present, add new one
+            const oldBadge = meta.querySelector('[data-kw-badge]');
+            if (oldBadge) oldBadge.remove();
+            if (kws.length > 0) {
+              const kwSpan = document.createElement('span');
+              kwSpan.className = 'meta-badge-status meta-approved';
+              kwSpan.setAttribute('data-kw-badge', '1');
+              kwSpan.textContent = '🔖 ' + kws.join(', ');
+              kwSpan.title = 'Content keywords';
+              meta.append(kwSpan);
+              tagBtn.textContent = '✓ Tagged';
+            } else {
+              // No matches — show diagnostic
+              const diag = data.diagnostic || {};
+              tagBtn.textContent = 'No match';
+              tagBtn.title = 'Text: ' + (diag.textLength || 0) + ' chars, Vectors: ' + (diag.keywordVectorsCount || 0);
+            }
+            setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 3000);
+          } catch (err) {
+            tagBtn.textContent = 'Error';
+            setTimeout(() => { tagBtn.textContent = '🏷️ Tag'; tagBtn.disabled = false; }, 2000);
+          }
+        });
+        actions.append(tagBtn);
+      }
 
       if (pending) {
         const button = document.createElement('button');
@@ -2675,6 +3299,14 @@ export function getAdminPage() {
         ctaSpan.textContent = 'CTA: ' + (ad.cta || 'Learn More →');
 
         meta.append(sponsor, network, catSpan, ctaSpan);
+        // Keyword tags badge
+        if (Array.isArray(ad.keywords) && ad.keywords.length > 0) {
+          const kwSpan = document.createElement('span');
+          kwSpan.className = 'meta-badge-status meta-approved';
+          kwSpan.textContent = '🔖 ' + ad.keywords.join(', ');
+          kwSpan.title = 'Interest keywords for ad matching';
+          meta.append(kwSpan);
+        }
         details.append(title, meta);
         row.append(details);
 
@@ -2902,6 +3534,100 @@ export function getAdminPage() {
     document.getElementById('awin-sync-btn').addEventListener('click', runAwinSync);
     loadAwinStatus();
 
+    // Ad keyword auto-tag (4 modes)
+    document.getElementById('ad-tag-btn').addEventListener('click', () => runAdAutoTag('new'));
+    document.getElementById('ad-tag-all-btn').addEventListener('click', () => runAdAutoTag('all'));
+    document.getElementById('ad-tag-untagged-btn').addEventListener('click', () => runAdAutoTag('untagged'));
+    document.getElementById('ad-tag-tagged-btn').addEventListener('click', () => runAdAutoTag('tagged'));
+
+    async function runAdAutoTag(mode) {
+      const btnIds = ['ad-tag-btn', 'ad-tag-all-btn', 'ad-tag-untagged-btn', 'ad-tag-tagged-btn'];
+      btnIds.forEach(id => { document.getElementById(id).disabled = true; });
+      const status = document.getElementById('ad-tag-status');
+      const log = document.getElementById('ad-tag-log');
+      const resultsDiv = document.getElementById('ad-tag-results');
+      log.hidden = false;
+      log.textContent = 'Fetching ads...';
+      resultsDiv.hidden = true;
+      resultsDiv.innerHTML = '';
+
+      try {
+        // Get all ads from the admin endpoint
+        const adsRes = await fetch('/admin/api/ads', { credentials: 'include' });
+        if (!adsRes.ok) throw new Error('Failed to fetch ads');
+        const adsData = await adsRes.json();
+        let ads = (adsData.ads || []).map(a => ({
+          id: a.id,
+          title: a.title || a.name || '',
+          description: a.description || a.desc || ''
+        })).filter(a => a.title);
+
+        // Filter by mode: fetch existing tags to know what's tagged
+        if (mode !== 'all') {
+          log.textContent = 'Checking existing tags...';
+          const tagsRes = await fetch('/ads/tags');
+          const tagsData = await tagsRes.json().catch(() => ({ tags: {} }));
+          const taggedIds = new Set(Object.keys(tagsData.tags || {}));
+          if (mode === 'new' || mode === 'untagged') {
+            ads = ads.filter(a => !taggedIds.has(a.id));
+          } else if (mode === 'tagged') {
+            ads = ads.filter(a => taggedIds.has(a.id));
+          }
+        }
+
+        if (!ads.length) {
+          status.textContent = 'No ads to tag';
+          log.textContent = 'Nothing to do for mode: ' + mode;
+          btnIds.forEach(id => { document.getElementById(id).disabled = false; });
+          return;
+        }
+
+        status.textContent = 'Tagging ' + ads.length + ' ads...';
+        let offset = 0;
+        const allResults = [];
+
+        while (true) {
+          log.textContent = 'Tagging... (' + offset + '/' + ads.length + ')';
+          const res = await fetch('/admin/api/ads/auto-tag', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ads, offset })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Auto-tag failed');
+          }
+          allResults.push(...(data.results || []));
+          offset = data.progress.done;
+          if (data.done) break;
+        }
+
+        // Display results
+        status.textContent = 'Tagged ' + allResults.length + ' ads';
+        log.textContent = 'Done! ' + allResults.length + ' ads tagged and saved to DB.';
+        resultsDiv.hidden = false;
+        const html = ['<div style="max-height: 400px; overflow-y: auto; margin-top: 8px;">'];
+        html.push('<table style="width: 100%; font-size: 12px;"><tr><th style="text-align:left">Ad</th><th style="text-align:left">Keywords</th></tr>');
+        for (const r of allResults) {
+          const ad = ads.find(a => a.id === r.id);
+          const kwStr = (r.keywords || []).map(k => k.label + ' (' + k.confidence.toFixed(2) + ')').join(', ') || '—';
+          html.push('<tr><td>' + escapeHtml(ad?.title || r.id) + '</td><td>' + escapeHtml(kwStr) + '</td></tr>');
+        }
+        html.push('</table></div>');
+        resultsDiv.innerHTML = html.join('');
+      } catch (err) {
+        status.textContent = 'Error';
+        log.textContent = 'Error: ' + err.message;
+      } finally {
+        btnIds.forEach(id => { document.getElementById(id).disabled = false; });
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
     /* ============================================================================
      * AI DAILY STORY CURATION & STAGING QUEUE (5 Stories/Category · 3x/Day)
      * ============================================================================ */
@@ -2924,7 +3650,7 @@ export function getAdminPage() {
       const ai = state.aiCuration || {};
       const stagedCount = Array.isArray(ai.stagedPicks) ? ai.stagedPicks.length : 0;
       if (countEl) {
-        countEl.textContent = stagedCount > 0 ? '(' + stagedCount + ' staged)' : '(0 staged)';
+        countEl.textContent = '(' + stagedCount + ')';
       }
 
       bar.replaceChildren();
@@ -3597,6 +4323,7 @@ export function getAdminPage() {
           ? ''
           : '?provider=' + encodeURIComponent(state.activeProvider);
         const data = await request('/admin/api/status' + query);
+        state.lastStatus = data;
         state.providers = data.providers;
         state.pendingStories = data.pendingStories || [];
         state.decidedStories = data.recentStories || [];
@@ -3614,6 +4341,12 @@ export function getAdminPage() {
         renderProviderLogs();
         renderAiStagingSection();
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
+        const unclassifiedEl = document.getElementById('validate-unclassified-count');
+        if (unclassifiedEl) {
+          unclassifiedEl.textContent = typeof data.unclassifiedCount === 'number'
+            ? data.unclassifiedCount.toLocaleString() + ' stories awaiting interest classification.'
+            : '';
+        }
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
           : '';
@@ -3633,7 +4366,9 @@ export function getAdminPage() {
           performStorySearch();
         }
         refreshStoryAges();
-        loadAds();
+        renderVitals();
+        renderSectionMenu();
+        loadAds().finally(() => { refreshVitalsExtras(); });
         messageEl.textContent = 'Database status refreshed.';
       } catch (error) {
         messageEl.className = 'error';
@@ -4415,6 +5150,178 @@ export function getAdminPage() {
       });
       preview.append(context);
 
+      // ── Full story fields: the entire JSON object, viewable here.
+      // Everything with a write path is editable: keywords and display
+      // categories save with this preview via their dedicated endpoints.
+      const fieldsSection = document.createElement('div');
+      fieldsSection.className = 'preview-context';
+      const fieldsTitle = document.createElement('strong');
+      fieldsTitle.textContent = 'All story fields';
+      fieldsSection.append(fieldsTitle);
+      const fieldsHint = document.createElement('p');
+      fieldsHint.className = 'admin-hint';
+      fieldsHint.textContent = 'Interest keywords and display categories save with this preview. ID, country and region are derived values, shown for reference.';
+      fieldsSection.append(fieldsHint);
+
+      const kwLabel = document.createElement('div');
+      kwLabel.style.cssText = 'font-weight:600;margin-top:0.5rem;';
+      kwLabel.textContent = 'Interest keywords';
+      fieldsSection.append(kwLabel);
+      const kwChips = document.createElement('div');
+      kwChips.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;margin:0.35rem 0;';
+      const renderKwChips = () => {
+        kwChips.replaceChildren();
+        const current = Array.isArray(draft.interest_keywords) ? draft.interest_keywords : [];
+        if (current.length === 0) {
+          const none = document.createElement('span');
+          none.className = 'admin-hint';
+          none.textContent = 'No keywords';
+          kwChips.append(none);
+        }
+        current.forEach((kwId) => {
+          const found = (window.LITTLABLES_KEYWORDS || []).find((k) => k.id === kwId);
+          const chip = document.createElement('span');
+          chip.className = 'meta-badge-status meta-approved';
+          chip.style.cssText = 'cursor:pointer;';
+          chip.textContent = (found ? ((found.icon ? found.icon + ' ' : '') + found.label) : kwId) + ' ×';
+          chip.title = 'Remove';
+          chip.addEventListener('click', () => {
+            draft.interest_keywords = draft.interest_keywords.filter((k) => k !== kwId);
+            renderKwChips();
+          });
+          kwChips.append(chip);
+        });
+      };
+      renderKwChips();
+      fieldsSection.append(kwChips);
+      const kwPickerBtn = document.createElement('button');
+      kwPickerBtn.type = 'button';
+      kwPickerBtn.className = 'secondary small-btn';
+      kwPickerBtn.textContent = 'Edit keywords…';
+      const kwPickerWrap = document.createElement('div');
+      kwPickerBtn.addEventListener('click', () => {
+        if (kwPickerWrap.children.length > 0) { kwPickerWrap.replaceChildren(); return; }
+        const picker = document.createElement('div');
+        picker.style.cssText = 'display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;max-height:22rem;overflow-y:auto;padding:0.5rem;border:1px solid var(--news-border, #334155);border-radius:0.5rem;';
+        const hint = document.createElement('span');
+        hint.className = 'admin-hint';
+        hint.textContent = 'Uncheck all to clear.';
+        picker.append(hint);
+        const boxes = [];
+        const groups = [];
+        (window.LITTLABLES_KEYWORDS || []).forEach((kw) => {
+          if (groups.indexOf(kw.group) === -1) groups.push(kw.group);
+        });
+        groups.forEach((group) => {
+          const groupTitle = document.createElement('strong');
+          groupTitle.style.cssText = 'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;opacity:0.8;margin-top:0.25rem;';
+          groupTitle.textContent = group;
+          picker.append(groupTitle);
+          const groupRow = document.createElement('div');
+          groupRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;';
+          (window.LITTLABLES_KEYWORDS || []).filter((kw) => kw.group === group).forEach((kw) => {
+            const lab = document.createElement('label');
+            lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = kw.id;
+            cb.checked = (draft.interest_keywords || []).indexOf(kw.id) !== -1;
+            lab.append(cb);
+            lab.append(document.createTextNode((kw.icon ? kw.icon + ' ' : '') + kw.label));
+            groupRow.append(lab);
+            boxes.push(cb);
+          });
+          picker.append(groupRow);
+        });
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.25rem;';
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'small-btn';
+        applyBtn.textContent = 'Apply';
+        applyBtn.addEventListener('click', () => {
+          draft.interest_keywords = boxes.filter((cb) => cb.checked).map((cb) => cb.value);
+          renderKwChips();
+          kwPickerWrap.replaceChildren();
+        });
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'secondary small-btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => kwPickerWrap.replaceChildren());
+        btnRow.append(applyBtn, cancelBtn);
+        picker.append(btnRow);
+        kwPickerWrap.append(picker);
+      });
+      fieldsSection.append(kwPickerBtn, kwPickerWrap);
+
+      const catLabel = document.createElement('div');
+      catLabel.style.cssText = 'font-weight:600;margin-top:0.75rem;';
+      catLabel.textContent = 'Display categories (override)';
+      fieldsSection.append(catLabel);
+      const catRow = document.createElement('div');
+      catRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin:0.35rem 0;';
+      ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'].forEach((catId) => {
+        const catObj = categories.find((c) => c.id === catId) || { label: catId };
+        const lab = document.createElement('label');
+        lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = catId;
+        cb.checked = Array.isArray(draft.display_categories) && draft.display_categories.indexOf(catId) !== -1;
+        cb.addEventListener('change', () => {
+          const chosen = Array.from(catRow.querySelectorAll('input:checked')).map((el) => el.value);
+          draft.display_categories = chosen.length > 0 ? chosen : null;
+        });
+        lab.append(cb);
+        lab.append(document.createTextNode(catObj.icon ? catObj.icon + ' ' + catObj.label : catObj.label));
+        catRow.append(lab);
+      });
+      fieldsSection.append(catRow);
+
+      const fieldRow = (label, value, note) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'font-size:0.85rem;margin-top:0.35rem;overflow-wrap:anywhere;';
+        const strong = document.createElement('strong');
+        strong.textContent = label + ': ';
+        row.append(strong);
+        row.append(document.createTextNode(value === '' || value == null ? '—' : String(value)));
+        if (note) {
+          const hint = document.createElement('span');
+          hint.className = 'admin-hint';
+          hint.textContent = ' ' + note;
+          row.append(hint);
+        }
+        fieldsSection.append(row);
+      };
+      editableField(fieldsSection, 'provider', 'provider', { display: (value) => value || 'Not set' });
+      fieldRow('ID', draft.id, draft.id == null ? '(new story)' : '');
+      fieldRow('Country code', draft.country_code, 'derived from keywords');
+      fieldRow('Region', draft.region, 'derived from keywords');
+      fieldRow('Provider country', draft.provider_country, 'derived from provider data');
+
+      const rawBtn = document.createElement('button');
+      rawBtn.type = 'button';
+      rawBtn.className = 'secondary small-btn';
+      rawBtn.style.marginTop = '0.75rem';
+      rawBtn.textContent = 'Show raw JSON';
+      const rawWrap = document.createElement('div');
+      rawBtn.addEventListener('click', () => {
+        if (rawWrap.children.length > 0) {
+          rawWrap.replaceChildren();
+          rawBtn.textContent = 'Show raw JSON';
+          return;
+        }
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;font-size:0.75rem;background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:0.5rem;max-height:20rem;overflow-y:auto;margin-top:0.4rem;';
+        pre.textContent = JSON.stringify(draft, null, 2);
+        rawWrap.append(pre);
+        rawBtn.textContent = 'Hide raw JSON';
+      });
+      fieldsSection.append(rawBtn, rawWrap);
+
+      preview.append(fieldsSection);
+
       if (state.previewStatusMessage) {
         const statusMsg = document.createElement('p');
         statusMsg.id = 'preview-status';
@@ -4655,16 +5562,31 @@ export function getAdminPage() {
       state.previewStoryId = story.id ?? null;
       state.previewStatusMessage = '';
       state.previewStatusType = 'muted';
+      // Carry every field the caller had into the draft, so the preview shows
+      // the entire story object — not just the 11 display fields it used to keep.
+      const keywords = story.interest_keywords || story.interestKeywords || [];
+      const cats = story.display_categories !== undefined && story.display_categories !== null
+        ? story.display_categories
+        : (story.displayCategories !== undefined && story.displayCategories !== null ? story.displayCategories : null);
+      state.previewOrigKeywords = Array.isArray(keywords) ? [...keywords] : [];
+      state.previewOrigCats = Array.isArray(cats) ? [...cats] : null;
       state.previewDraft = trimStoryDraftFields({
+        id: story.id ?? null,
         title: decodeHtmlEntities(story.title || ''),
         link: decodeHtmlEntities(story.link || ''),
         image: decodeHtmlEntities(story.image || ''),
         description: decodeHtmlEntities(story.description || ''),
         content: decodeHtmlEntities(story.content || ''),
         aiSummary: decodeHtmlEntities(story.aiSummary || ''),
-        pubDate: story.pubDate || new Date().toISOString(),
-        source: story.source || '',
-        category: story.category || 'all',
+        pubDate: story.pubDate || story.publishedAt || new Date().toISOString(),
+        source: story.source || story.provider || '',
+        provider: story.provider || story.source || '',
+        category: story.category || story.queryCategory || 'all',
+        interest_keywords: state.previewOrigKeywords,
+        display_categories: state.previewOrigCats,
+        country_code: story.country_code || story.countryCode || '',
+        region: story.region || '',
+        provider_country: story.provider_country || story.providerCountry || '',
         approved: story.approved === true,
         removed: story.removed === true
       });
@@ -4702,12 +5624,14 @@ export function getAdminPage() {
       const draft = trimStoryDraftFields(state.previewDraft);
       const existingId = state.previewStoryId;
       try {
+        let storyId = existingId;
         if (existingId === null) {
-          await request('/admin/api/stories', {
+          const created = await request('/admin/api/stories', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(draft)
           });
+          storyId = created.id;
         } else {
           await request('/admin/api/stories/' + encodeURIComponent(existingId), {
             method: 'PATCH',
@@ -4729,6 +5653,35 @@ export function getAdminPage() {
             category: draft.category,
             updatedAt: new Date().toISOString(),
             ...(approve ? { approved: true, removed: false, decisionAction: 'approve' } : {})
+          });
+          // Keep the validation list row in sync with preview edits.
+          patchValidationRow(existingId, {
+            title: draft.title,
+            articleUrl: draft.link,
+            imageUrl: draft.image,
+            description: draft.description,
+            provider: draft.source,
+            publishedAt: draft.pubDate,
+            queryCategory: draft.category,
+            ...(approve ? { approved: true } : {})
+          });
+        }
+        // The main story PATCH only writes the 9 core columns, so keyword
+        // and display-category overrides go through their dedicated endpoints.
+        const keywordsChanged = JSON.stringify(draft.interest_keywords || []) !== JSON.stringify(state.previewOrigKeywords || []);
+        const catsChanged = JSON.stringify(draft.display_categories || null) !== JSON.stringify(state.previewOrigCats || null);
+        if (storyId != null && keywordsChanged) {
+          await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/interest-keywords', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interest_keywords: (draft.interest_keywords || []).length > 0 ? draft.interest_keywords : null })
+          });
+        }
+        if (storyId != null && catsChanged) {
+          await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/display-categories', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ display_categories: draft.display_categories })
           });
         }
         previewDialog.close();
@@ -4954,8 +5907,723 @@ export function getAdminPage() {
       } catch {}
     }
 
+    /* Embedding category validation */
+    // Registry of rendered validation rows by story id, so row content can
+    // update live when a story is edited/approved from its row or its preview.
+    var validationRowRegistry = new Map();
+    var patchValidationRow = function (storyId, patch) {
+      var entry = validationRowRegistry.get(Number(storyId));
+      if (!entry || !patch) return;
+      Object.assign(entry.m, patch);
+      var fresh = entry.render(entry.m);
+      entry.row.replaceWith(fresh);
+      validationRowRegistry.set(Number(storyId), { m: entry.m, row: fresh, render: entry.render });
+    };
+    var updateValidationRowApproval = function (storyId, approved) {
+      patchValidationRow(storyId, { approved: approved === true });
+    };
+    const validateBtn = document.getElementById('validate-categories-btn');
+    const validateStatus = document.getElementById('validate-categories-status');
+    const validateResults = document.getElementById('validate-categories-results');
+    if (validateBtn) {
+      validateBtn.addEventListener('click', async () => {
+        validateBtn.disabled = true;
+        validateBtn.textContent = 'Validating…';
+        if (validateResults) validateResults.replaceChildren();
+        const BATCH_SIZE = 20;
+        const totalRequested = parseInt(document.getElementById('validate-categories-limit').value, 10) || 200;
+        let totalValidated = 0;
+        let allMismatches = [];
+        let allValidatedStories = [];
+        try {
+          let totalStored = 0;
+          let storeError = null;
+          let warmupRounds = 0;
+          const MAX_WARMUP_ROUNDS = 12;
+          // Fast warmup status check first (1 DB read, 0 AI calls) so progress
+          // shows immediately instead of waiting for a slow backfill round.
+          try {
+            const chkRes = await fetch('/admin/api/stories/validate-categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ warmup_check: true }),
+            });
+            const chk = await chkRes.json();
+            if (chkRes.ok && chk.warmingUp && validateStatus) {
+              validateStatus.textContent = 'Warming up keyword vectors (' + chk.warmupDone + '/' + chk.warmupTotal + ')…';
+            }
+          } catch (chkErr) {
+            // Non-fatal: the main loop will surface warmup state anyway.
+          }
+          while (totalValidated < totalRequested) {
+            const remaining = totalRequested - totalValidated;
+            if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
+            const catFilter = (document.getElementById('validate-category-filter')?.value || '').trim();
+            const postBody = { limit: Math.min(BATCH_SIZE, remaining) };
+            if (catFilter) postBody.category = catFilter;
+            const res = await fetch('/admin/api/stories/validate-categories', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(postBody),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Validation failed');
+            if (data.warmingUp) {
+              // Keyword vectors are still backfilling: keep going automatically
+              // until they are complete, then story validation proceeds.
+              warmupRounds += 1;
+              if (warmupRounds > MAX_WARMUP_ROUNDS) {
+                throw new Error('Keyword warmup is not progressing' + (data.status ? ' — ' + data.status : '') + '. Check the worker logs.');
+              }
+              if (validateStatus) validateStatus.textContent = 'Warming up keyword vectors (' + data.warmupDone + '/' + data.warmupTotal + ')…';
+              continue;
+            }
+            totalValidated += data.validated;
+            totalStored += data.stored || 0;
+            if (data.storeError && !storeError) storeError = data.storeError;
+            allMismatches = allMismatches.concat(data.mismatches || []);
+            allValidatedStories = allValidatedStories.concat(data.results || []);
+            if (data.validated === 0) break;
+          }
+          if (validateStatus) {
+            let msg = 'Validated ' + totalValidated + ' stories, ' + allMismatches.length + ' mismatches found.';
+            msg += ' (' + totalStored + ' stored)';
+            if (storeError) msg += ' Error: ' + storeError;
+            validateStatus.textContent = msg;
+          }
+          if (validateResults) {
+            // Collect from batch loop (we'll accumulate in the loop above)
+            if (allValidatedStories.length === 0) {
+              const p = document.createElement('p');
+              p.className = 'admin-hint';
+              p.textContent = 'No stories were validated in this run.';
+              validateResults.appendChild(p);
+            } else {
+              var OVERRIDABLE_IDS = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
+              var catLabel = function (id) {
+                var found = categories.find(function (c) { return c.id === id; });
+                return found ? found.label : id;
+              };
+              var kwLabel = function (id) {
+                var found = (window.LITTLABLES_KEYWORDS || []).find(function (k) { return k.id === id; });
+                return found ? ((found.icon ? found.icon + ' ' : '') + found.label) : id;
+              };
+              var fmtValDate = function (m) {
+                var raw = m.publishedAt || m.fetchedAt;
+                if (!raw) return '';
+                var d = new Date(raw);
+                return isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+              };
+              var refreshValidationRow = function (row, m) {
+                var fresh = createValidationRow(m);
+                row.replaceWith(fresh);
+              };
+              var applyDisplayCategories = function (storyId, cats, row, m, btns) {
+                btns.forEach(function (b) { b.disabled = true; });
+                fetch('/admin/api/stories/' + storyId + '/display-categories', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ display_categories: cats }),
+                }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                  .then(function (out) {
+                    if (!out.ok) throw new Error(out.data.error || 'Update failed');
+                    m.displayCategories = out.data.display_categories;
+                    refreshValidationRow(row, m);
+                  })
+                  .catch(function (err) {
+                    if (validateStatus) validateStatus.textContent = 'Category update failed: ' + (err.message || 'unknown error');
+                    btns.forEach(function (b) { b.disabled = false; });
+                  });
+              };
+              var applyInterestKeywords = function (storyId, keywords, row, m, btns) {
+                btns.forEach(function (b) { b.disabled = true; });
+                fetch('/admin/api/stories/' + storyId + '/interest-keywords', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ interest_keywords: keywords }),
+                }).then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                  .then(function (out) {
+                    if (!out.ok) throw new Error(out.data.error || 'Update failed');
+                    m.interestKeywords = out.data.interest_keywords;
+                    refreshValidationRow(row, m);
+                  })
+                  .catch(function (err) {
+                    if (validateStatus) validateStatus.textContent = 'Keyword update failed: ' + (err.message || 'unknown error');
+                    btns.forEach(function (b) { b.disabled = false; });
+                  });
+              };
+              var createValidationRow = function (m) {
+                if (m.approved !== true) m.approved = false;
+                var row = document.createElement('article');
+                row.className = 'story';
+                row.tabIndex = 0;
+                row.dataset.mismatch = m._isMismatch ? '1' : '0';
+                row.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
+                row.setAttribute('aria-label', 'Preview story: ' + decodeHtmlEntities(m.title || 'Untitled'));
+                var openValidationPreview = function () {
+                  openStoryPreview({
+                    id: m.id,
+                    title: m.title,
+                    link: m.articleUrl,
+                    image: m.imageUrl,
+                    description: m.description,
+                    category: m.queryCategory,
+                    provider: m.provider,
+                    source: m.provider,
+                    pubDate: m.publishedAt,
+                    interest_keywords: m.interestKeywords,
+                    display_categories: m.displayCategories,
+                    approved: false,
+                    removed: false
+                  });
+                };
+                row.addEventListener('click', function (event) {
+                  if (event.target.closest('button, input, label, select, textarea')) return;
+                  openValidationPreview();
+                });
+                row.addEventListener('keydown', function (event) {
+                  if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    openValidationPreview();
+                  }
+                });
+
+                var fallbackImg = 'https://littlables.com/img/' + (m.queryCategory || 'all') + '_1.jpg';
+                var image = document.createElement('img');
+                image.src = m.imageUrl || fallbackImg;
+                image.alt = '';
+                image.loading = 'lazy';
+                if (typeof attachSmoothImageLoader === 'function') attachSmoothImageLoader(image, null, fallbackImg);
+                row.appendChild(image);
+
+                var details = document.createElement('div');
+                details.className = 'story-details';
+                var title = document.createElement('h3');
+                var link = document.createElement('a');
+                link.href = m.articleUrl || '#';
+                link.textContent = decodeHtmlEntities(m.title || 'Untitled');
+                link.addEventListener('click', function (event) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openValidationPreview();
+                });
+                title.appendChild(link);
+                details.appendChild(title);
+
+                var meta = document.createElement('p');
+                meta.className = 'story-meta';
+                var addMeta = function (text, cls) {
+                  if (!text) return;
+                  var s = document.createElement('span');
+                  if (cls) s.className = cls;
+                  s.textContent = text;
+                  meta.appendChild(s);
+                };
+                addMeta(m.provider || 'unknown', 'meta-provider');
+                if (m.articleUrl) addMeta(getStoryDomain(m.articleUrl), 'meta-domain');
+                var dateStr = fmtValDate(m);
+                if (dateStr) addMeta(dateStr, 'meta-date');
+
+                var catLine = document.createElement('span');
+                catLine.className = 'meta-category';
+                catLine.textContent = 'query=' + catLabel(m.queryCategory) + ' → AI=' + catLabel(m.embeddingCategory) +
+                  ' (' + (m.confidence != null ? Number(m.confidence).toFixed(2) : 'n/a') + ')';
+                meta.appendChild(catLine);
+
+                var badge = document.createElement('span');
+                badge.className = 'meta-badge-status ' + (m._isMismatch ? 'meta-banned' : 'meta-approved');
+                badge.textContent = m._isMismatch ? 'MISMATCH' : '✓ match';
+                meta.appendChild(badge);
+
+                if (m.approved === true) {
+                  var scoop = document.createElement('span');
+                  scoop.className = 'meta-badge-status meta-approved';
+                  scoop.textContent = "🧸 Littlables' Little Scoop";
+                  meta.appendChild(scoop);
+                }
+
+                var override = Array.isArray(m.displayCategories) && m.displayCategories.length > 0 ? m.displayCategories : null;
+                if (override) {
+                  var ovBadge = document.createElement('span');
+                  ovBadge.className = 'meta-badge-status meta-approved';
+                  ovBadge.textContent = 'Showing in: ' + override.map(catLabel).join(', ');
+                  meta.appendChild(ovBadge);
+                }
+
+                var kws = Array.isArray(m.interestKeywords) && m.interestKeywords.length > 0 ? m.interestKeywords : null;
+                if (kws) {
+                  var kwBadge = document.createElement('span');
+                  kwBadge.className = 'meta-badge-status meta-approved';
+                  // Prefer keywordMatches (carries confidence from the tagging run);
+                  // fall back to plain stored ids (e.g. hand-tagged keywords).
+                  var kwConf = {};
+                  (Array.isArray(m.keywordMatches) ? m.keywordMatches : []).forEach(function (km) {
+                    kwConf[km.id] = km.confidence;
+                  });
+                  kwBadge.textContent = '🔖 ' + kws.map(function (id) {
+                    var label = kwLabel(id);
+                    var kw = (window.LITTLABLES_KEYWORDS || []).find(function (k) { return k.id === id; });
+                    if (kw && kw.excluded) label = '🚫 ' + label;
+                    return kwConf[id] != null ? label + ' (' + Number(kwConf[id]).toFixed(2) + ')' : label;
+                  }).join(', ');
+                  // Flagged keywords hide the story from front-page feeds.
+                  if (kws.some(function (id) {
+                    var kw = (window.LITTLABLES_KEYWORDS || []).find(function (k) { return k.id === id; });
+                    return kw && kw.excluded;
+                  })) {
+                    kwBadge.style.borderColor = '#f87171';
+                    kwBadge.style.color = '#fca5a5';
+                  }
+                  meta.appendChild(kwBadge);
+                }
+                // Country/region badge (derived from keywords)
+                if (m.countryCode || m.region) {
+                  var regionBadge = document.createElement('span');
+                  regionBadge.className = 'meta-badge-status';
+                  var regionLabel = m.region === 'global' ? '🌍 Global' : (m.countryCode ? m.countryCode + ' · ' + m.region : m.region);
+                  regionBadge.textContent = '📍 ' + regionLabel;
+                  regionBadge.style.borderColor = '#60a5fa';
+                  regionBadge.style.color = '#93c5fd';
+                  meta.appendChild(regionBadge);
+                }
+                details.appendChild(meta);
+
+                var main = document.createElement('div');
+                main.className = 'story-main';
+                main.appendChild(details);
+                row.appendChild(main);
+
+                var actions = document.createElement('div');
+                actions.className = 'story-actions';
+                var rowBtns = [];
+                var mkBtn = function (label, cls) {
+                  var b = document.createElement('button');
+                  b.type = 'button';
+                  b.className = cls || 'secondary small-btn';
+                  b.textContent = label;
+                  actions.appendChild(b);
+                  rowBtns.push(b);
+                  return b;
+                };
+                var approveBtn = null;
+                if (m.approved !== true) {
+                  approveBtn = mkBtn('Approve', 'small-btn');
+                }
+                var banBtn = mkBtn('Ban', 'secondary small-btn');
+                var fadeOutRow = function () {
+                  row.style.transition = 'opacity 0.3s';
+                  row.style.opacity = '0';
+                  setTimeout(function () {
+                    row.remove();
+                    validationRowRegistry.delete(Number(m.id));
+                  }, 320);
+                };
+                if (approveBtn) {
+                  approveBtn.addEventListener('click', function () {
+                    approveBtn.disabled = true;
+                    banBtn.disabled = true;
+                    approveStory(m.id).then(function () {
+                      updateValidationRowApproval(m.id, true);
+                    }).catch(function () {
+                      approveBtn.disabled = false;
+                      banBtn.disabled = false;
+                    });
+                  });
+                }
+                banBtn.addEventListener('click', function () {
+                  if (approveBtn) approveBtn.disabled = true;
+                  banBtn.disabled = true;
+                  banStory(m.id).then(fadeOutRow).catch(function () {
+                    if (approveBtn) approveBtn.disabled = false;
+                    banBtn.disabled = false;
+                  });
+                });
+                var hasAi = m._isMismatch && m.embeddingCategory && OVERRIDABLE_IDS.indexOf(m.embeddingCategory) !== -1;
+                if (!override) {
+                  if (hasAi) {
+                    mkBtn('Use AI', 'small-btn').addEventListener('click', function () {
+                      applyDisplayCategories(m.id, [m.embeddingCategory], row, m, rowBtns);
+                    });
+                    // "Use both" is redundant when the query category is 'all'
+                    // (it would resolve to just the AI category after filtering).
+                    if (m.embeddingCategory !== m.queryCategory && m.queryCategory !== 'all') {
+                      mkBtn('Use both', 'small-btn').addEventListener('click', function () {
+                        var both = [m.queryCategory, m.embeddingCategory].filter(function (c, i, a) {
+                          return c && OVERRIDABLE_IDS.indexOf(c) !== -1 && a.indexOf(c) === i;
+                        });
+                        applyDisplayCategories(m.id, both, row, m, rowBtns);
+                      });
+                    }
+                  }
+                  var pickBtn = mkBtn('Interests', 'secondary small-btn');
+                  pickBtn.addEventListener('click', function () { togglePicker(row, m, actions, pickBtn, rowBtns); });
+                } else {
+                  var changeBtn = mkBtn('Interests', 'secondary small-btn');
+                  changeBtn.addEventListener('click', function () { togglePicker(row, m, actions, changeBtn, rowBtns); });
+                }
+                var kwBtn = mkBtn('Keywords', 'secondary small-btn');
+                kwBtn.addEventListener('click', function () { toggleKeywordPicker(row, m, actions, kwBtn, rowBtns); });
+                var aiBtn = mkBtn('🤖 AI tags', 'secondary small-btn');
+                aiBtn.addEventListener('click', function () {
+                  aiBtn.disabled = true;
+                  var originalLabel = aiBtn.textContent;
+                  aiBtn.textContent = 'Thinking…';
+                  fetch('/admin/api/stories/' + m.id + '/llm-keywords', { method: 'POST' })
+                    .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+                    .then(function (out) {
+                      if (!out.ok) throw new Error(out.data.error || 'AI tagging failed');
+                      patchValidationRow(m.id, {
+                        interestKeywords: out.data.interest_keywords,
+                        keywordMatches: [],
+                      });
+                    })
+                    .catch(function (err) {
+                      if (validateStatus) validateStatus.textContent = 'AI tagging failed: ' + (err.message || 'unknown error');
+                    })
+                    .finally(function () {
+                      aiBtn.disabled = false;
+                      aiBtn.textContent = originalLabel;
+                    });
+                });
+                row.appendChild(actions);
+                validationRowRegistry.set(Number(m.id), { m: m, row: row, render: createValidationRow });
+                return row;
+              };
+              var togglePicker = function (row, m, actions, anchorBtn, rowBtns) {
+                var existing = actions.querySelector('.cat-picker, .kw-picker');
+                if (existing) { existing.remove(); return; }
+                var picker = document.createElement('div');
+                picker.className = 'cat-picker';
+                picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem;flex-basis:100%;';
+                var hint = document.createElement('span');
+                hint.className = 'admin-hint';
+                hint.style.flexBasis = '100%';
+                hint.textContent = 'Uncheck all to clear the override.';
+                picker.appendChild(hint);
+                var current = Array.isArray(m.displayCategories) && m.displayCategories.length > 0
+                  ? m.displayCategories
+                  : (m._isMismatch && m.embeddingCategory ? [m.queryCategory, m.embeddingCategory] : [m.queryCategory]);
+                var boxes = [];
+                OVERRIDABLE_IDS.forEach(function (id) {
+                  var lab = document.createElement('label');
+                  lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+                  var cb = document.createElement('input');
+                  cb.type = 'checkbox';
+                  cb.value = id;
+                  cb.checked = current.indexOf(id) !== -1;
+                  lab.appendChild(cb);
+                  lab.appendChild(document.createTextNode(catLabel(id)));
+                  picker.appendChild(lab);
+                  boxes.push(cb);
+                });
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'small-btn';
+                applyBtn.textContent = 'Apply';
+                applyBtn.addEventListener('click', function () {
+                  var chosen = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+                  applyDisplayCategories(m.id, chosen.length > 0 ? chosen : null, row, m, rowBtns.concat([applyBtn]));
+                });
+                var cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'secondary small-btn';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', function () { picker.remove(); });
+                picker.appendChild(applyBtn);
+                picker.appendChild(cancelBtn);
+                actions.appendChild(picker);
+              };
+              var toggleKeywordPicker = function (row, m, actions, anchorBtn, rowBtns) {
+                var existing = actions.querySelector('.cat-picker, .kw-picker');
+                if (existing) { existing.remove(); return; }
+                var picker = document.createElement('div');
+                picker.className = 'kw-picker';
+                picker.style.cssText = 'display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;flex-basis:100%;max-height:22rem;overflow-y:auto;padding:0.5rem;border:1px solid var(--news-border, #334155);border-radius:0.5rem;';
+                var hint = document.createElement('span');
+                hint.className = 'admin-hint';
+                hint.textContent = 'Tag this story with interest keywords. Uncheck all to clear.';
+                picker.appendChild(hint);
+                var current = Array.isArray(m.interestKeywords) && m.interestKeywords.length > 0 ? m.interestKeywords : [];
+                var boxes = [];
+                var allKws = window.LITTLABLES_KEYWORDS || [];
+                var groups = [];
+                allKws.forEach(function (kw) {
+                  if (groups.indexOf(kw.group) === -1) groups.push(kw.group);
+                });
+                groups.forEach(function (group) {
+                  var groupTitle = document.createElement('strong');
+                  groupTitle.style.cssText = 'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;opacity:0.8;margin-top:0.25rem;';
+                  groupTitle.textContent = group;
+                  picker.appendChild(groupTitle);
+                  var groupRow = document.createElement('div');
+                  groupRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;';
+                  allKws.filter(function (kw) { return kw.group === group; }).forEach(function (kw) {
+                    var lab = document.createElement('label');
+                    lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+                    var cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = kw.id;
+                    cb.checked = current.indexOf(kw.id) !== -1;
+                    lab.appendChild(cb);
+                    lab.appendChild(document.createTextNode((kw.icon ? kw.icon + ' ' : '') + kw.label));
+                    groupRow.appendChild(lab);
+                    boxes.push(cb);
+                  });
+                  picker.appendChild(groupRow);
+                });
+                var btnRow = document.createElement('div');
+                btnRow.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.25rem;';
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'small-btn';
+                applyBtn.textContent = 'Apply';
+                applyBtn.addEventListener('click', function () {
+                  var chosen = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+                  applyInterestKeywords(m.id, chosen.length > 0 ? chosen : null, row, m, rowBtns.concat([applyBtn]));
+                });
+                var cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'secondary small-btn';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', function () { picker.remove(); });
+                btnRow.appendChild(applyBtn);
+                btnRow.appendChild(cancelBtn);
+                picker.appendChild(btnRow);
+                actions.appendChild(picker);
+              };
+              var list = document.createElement('div');
+              list.id = 'validate-results-list';
+              list.style.display = 'flex';
+              list.style.flexDirection = 'column';
+              list.style.gap = '0.5rem';
+              validationRowRegistry.clear();
+              // Sort order from the dropdown: matched first by default.
+              var sortOrder = (document.getElementById('validate-sort-order')?.value || 'matched');
+              var matchRows = allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}));
+              var mismatchRows = allMismatches.map(m => ({...m, _isMismatch: true}));
+              var sorted = sortOrder === 'matched' ? [...matchRows, ...mismatchRows] : [...mismatchRows, ...matchRows];
+              for (const m of sorted) {
+                list.appendChild(createValidationRow(m));
+              }
+              validateResults.appendChild(list);
+            }
+          }
+          const countEl = document.getElementById('embedding-validation-count');
+          if (countEl) countEl.textContent = allMismatches.length ? '(' + allMismatches.length + ')' : '';
+        } catch (err) {
+          if (validateStatus) validateStatus.textContent = 'Error: ' + (err.message || 'Validation failed');
+        } finally {
+          validateBtn.disabled = false;
+          validateBtn.textContent = 'Validate Categories';
+          // Refresh the unclassified count (and panel data) after the run.
+          refreshData();
+        }
+      });
+    }
+
+    // Re-sort the currently displayed validation results when the sort
+    // dropdown changes (no re-validation needed — just reorder the rows).
+    const sortSelect = document.getElementById('validate-sort-order');
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => {
+        const list = document.getElementById('validate-results-list');
+        if (!list) return;
+        const rows = [...list.children];
+        const matched = rows.filter(r => r.dataset.mismatch !== '1');
+        const unmatched = rows.filter(r => r.dataset.mismatch === '1');
+        const ordered = sortSelect.value === 'matched' ? [...matched, ...unmatched] : [...unmatched, ...matched];
+        ordered.forEach(r => list.appendChild(r));
+      });
+    }
+
     restoreSectionLayout();
     refreshData();
+
+    // ── Analytics dashboard ──
+    (function initAnalytics() {
+      var regionSel = document.getElementById('analytics-region');
+      var countrySel = document.getElementById('analytics-country');
+      var refreshBtn = document.getElementById('analytics-refresh');
+      var statusEl = document.getElementById('analytics-status');
+      var resultsEl = document.getElementById('analytics-results');
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('.analytics-tab'));
+      if (!regionSel || !resultsEl) return;
+      var activeTab = 'search';
+
+      // Populate country dropdown from the Countries keyword group
+      try {
+        var countries = (LITTLABLES_KEYWORDS || []).filter(function (k) { return k.group === 'Countries'; });
+        countries.sort(function (a, b) { return a.label.localeCompare(b.label); });
+        countries.forEach(function (k) {
+          // id is like 'country-us' -> 'US'
+          var code = (k.id || '').replace(/^country-/, '').toUpperCase();
+          var opt = document.createElement('option');
+          opt.value = code;
+          opt.textContent = k.icon + ' ' + k.label;
+          countrySel.appendChild(opt);
+        });
+      } catch (e) { /* ignore */ }
+
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      function renderTable(cols, rows) {
+        if (!rows || rows.length === 0) {
+          return '<p class="admin-hint">No data yet — check back after real traffic flows in.</p>';
+        }
+        var html = '<div style="overflow-x: auto;"><table class="admin-table"><thead><tr>';
+        cols.forEach(function (c) { html += '<th>' + esc(c.label) + '</th>'; });
+        html += '</tr></thead><tbody>';
+        rows.forEach(function (r) {
+          html += '<tr>';
+          cols.forEach(function (c) {
+            var v = r[c.key];
+            if (c.format === 'pct' && typeof v === 'number') v = (v * 100).toFixed(1) + '%';
+            if (c.format === 'num' && typeof v === 'number') v = v.toLocaleString();
+            html += '<td>' + esc(v) + '</td>';
+          });
+          html += '</tr>';
+        });
+        return html + '</tbody></table></div>';
+      }
+
+      var TAB_CONFIG = {
+        search: {
+          label: 'Top searches',
+          cols: [
+            { key: 'query', label: 'Query' },
+            { key: 'searches', label: 'Searches', format: 'num' },
+            { key: 'avg_results', label: 'Avg results', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        search_gaps: {
+          label: 'Searches with no results (content gaps)',
+          cols: [
+            { key: 'query', label: 'Query' },
+            { key: 'searches', label: 'Searches', format: 'num' },
+            { key: 'avg_results', label: 'Avg results' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        keywords: {
+          label: 'Keyword click-through rate',
+          cols: [
+            { key: 'keyword', label: 'Keyword' },
+            { key: 'views', label: 'Views', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'ctr', label: 'CTR', format: 'pct' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        boards: {
+          label: 'Board topics built',
+          cols: [
+            { key: 'keyword', label: 'Keyword' },
+            { key: 'boards_built', label: 'Boards built', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        acquisition: {
+          label: 'Traffic sources',
+          cols: [
+            { key: 'referrer_domain', label: 'Referrer' },
+            { key: 'utm_source', label: 'UTM source' },
+            { key: 'sessions', label: 'Sessions', format: 'num' },
+            { key: 'views', label: 'Views', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        dwell: {
+          label: 'Reading time per story',
+          cols: [
+            { key: 'story_title', label: 'Story' },
+            { key: 'dwell_events', label: 'Reads', format: 'num' },
+            { key: 'avg_dwell_seconds', label: 'Avg seconds', format: 'num' },
+            { key: 'median_dwell_seconds', label: 'Median seconds', format: 'num' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        ads: {
+          label: 'Ad click-through rate',
+          cols: [
+            { key: 'ad_title', label: 'Ad' },
+            { key: 'network', label: 'Network' },
+            { key: 'impressions', label: 'Impressions', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'ctr', label: 'CTR', format: 'pct' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+        ad_networks: {
+          label: 'Ad performance by network',
+          cols: [
+            { key: 'network', label: 'Network' },
+            { key: 'ads', label: 'Ads', format: 'num' },
+            { key: 'impressions', label: 'Impressions', format: 'num' },
+            { key: 'clicks', label: 'Clicks', format: 'num' },
+            { key: 'ctr', label: 'CTR', format: 'pct' },
+            { key: 'country_code', label: 'Country' },
+            { key: 'region', label: 'Region' },
+          ],
+        },
+      };
+
+      function setActiveTab(name) {
+        activeTab = name;
+        tabs.forEach(function (t) {
+          var isActive = t.getAttribute('data-analytics-tab') === name;
+          t.classList.toggle('sign-in-button', isActive);
+          t.classList.toggle('primary-button', isActive);
+        });
+        loadAnalytics();
+      }
+
+      async function loadAnalytics() {
+        var cfg = TAB_CONFIG[activeTab];
+        if (statusEl) statusEl.textContent = 'Loading…';
+        try {
+          var params = new URLSearchParams({
+            type: activeTab,
+            region: regionSel.value,
+            country: countrySel.value,
+            limit: '100',
+          });
+          var res = await fetch('/admin/api/analytics?' + params.toString(), { credentials: 'same-origin' });
+          var data = await res.json();
+          if (!data.ok) throw new Error(data.reason || 'Request failed');
+          resultsEl.innerHTML = '<h3 style="margin: 0 0 0.5rem;">' + esc(cfg.label) + '</h3>' + renderTable(cfg.cols, data.rows);
+          if (statusEl) statusEl.textContent = '';
+        } catch (err) {
+          if (statusEl) statusEl.textContent = 'Error: ' + (err.message || 'failed');
+        }
+      }
+
+      tabs.forEach(function (t) {
+        t.addEventListener('click', function () { setActiveTab(t.getAttribute('data-analytics-tab')); });
+      });
+      if (refreshBtn) refreshBtn.addEventListener('click', loadAnalytics);
+      if (regionSel) regionSel.addEventListener('change', loadAnalytics);
+      if (countrySel) countrySel.addEventListener('change', loadAnalytics);
+      // Load when the section is first opened
+      var toggle = document.getElementById('analytics-toggle');
+      if (toggle) toggle.addEventListener('click', function () {
+        var body = document.getElementById('analytics-body');
+        if (body && !body.hidden && !resultsEl.innerHTML) loadAnalytics();
+      });
+      // Style the first tab as active
+      setActiveTab('search');
+    })();
+
     setInterval(refreshStoryAges, 1000);
     setInterval(() => {
       if (state.providers.some((provider) => provider.status === 'running')) refreshData();
