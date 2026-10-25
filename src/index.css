@@ -458,8 +458,9 @@ body {
 }
 
 .refresh-news-button .balloon-string {
-  transform-box: fill-box;
-  transform-origin: top center;
+  /* Wiggle pivots at the knot where the string meets the balloon */
+  transform-box: view-box;
+  transform-origin: 12px 12.2px;
 }
 
 .refresh-news-button.is-loading .balloon-string {
