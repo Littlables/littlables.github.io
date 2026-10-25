@@ -803,8 +803,8 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'profile', label: 'Profile' },
     { id: 'avatar', label: 'Avatar' },
-    { id: 'interests', label: 'Interests' },
     { id: 'theme', label: 'Theme' },
+    { id: 'interests', label: 'Interests' },
     { id: 'boards', label: 'Playrooms' },
   ];
 
