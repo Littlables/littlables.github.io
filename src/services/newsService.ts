@@ -157,61 +157,6 @@ const byPublicationDate = (first: NewsItem, second: NewsItem) => {
 };
 
 /**
- * Homepage ('all') ordering.
- *
- * A first-time visitor (and anyone reviewing the site, e.g. an advertiser
- * brand manager) judges Littlables from the first cards they see with zero
- * clicks. Those cards should show what the site is for — cozy lifestyle and
- * creative stories — not the newest breaking / political headline from the
- * wire, which can be the freshest item even when it is off-brand.
- *
- * So for the default landing feed only:
- *  1. Lead with a rotation of Creative Arts, Childcare & Family, and
- *     Animals & Nature, so the opening screen is a colourful mix of all
- *     three rather than a block of one category.
- *  2. Follow with Uplifting News, which is also brand-safe.
- *  3. Show everything else (Future Tech, Global Currents / world, and the
- *     uncategorised 'all' wire) afterwards, in its existing order.
- *
- * Within each category the incoming order is preserved (approved stories
- * with images, newest first). Category-specific feeds are unaffected.
- */
-const HOMEPAGE_LEAD_CATEGORIES: StandardNewsCategory[] = ['arts', 'childcare', 'animals'];
-
-function effectiveStoryCategory(item: NewsItem): NewsCategory {
-  return item.category && isValidCategory(item.category) ? item.category : 'all';
-}
-
-export function orderStoriesForHomepage(stories: NewsItem[]): NewsItem[] {
-  const leadBuckets = HOMEPAGE_LEAD_CATEGORIES.map(category =>
-    stories.filter(item => effectiveStoryCategory(item) === category)
-  );
-
-  // Round-robin the lead categories: arts, childcare, animals, arts, ...
-  const lead: NewsItem[] = [];
-  for (let index = 0; lead.length < stories.length; index++) {
-    let addedAtThisIndex = false;
-    for (const bucket of leadBuckets) {
-      if (index < bucket.length) {
-        lead.push(bucket[index]);
-        addedAtThisIndex = true;
-      }
-    }
-    if (!addedAtThisIndex) break;
-  }
-
-  const leadSet = new Set<NewsItem>(lead);
-  const uplifting = stories.filter(
-    item => !leadSet.has(item) && effectiveStoryCategory(item) === 'uplifting'
-  );
-  const rest = stories.filter(
-    item => !leadSet.has(item) && effectiveStoryCategory(item) !== 'uplifting'
-  );
-
-  return [...lead, ...uplifting, ...rest];
-}
-
-/**
  * Searches the story table across the Worker endpoint, Supabase table, and all category feeds
  * for a custom topic keyword.
  */
@@ -311,15 +256,10 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
       const combinedApproved: NewsItem[] = [];
       const combinedUnapproved: NewsItem[] = [];
 
-      // 1. First add all approved stories (from all and other categories), prioritizing ones with custom images
+      // 1. First add all approved stories (from all and other categories),
+      // preserving the worker's reaction-ranked order. No re-sort here: a
+      // date or image sort would undo within-day reaction ranking.
       const allApprovedStories = [...baseItems.filter(i => i.approved === true), ...extraApproved];
-      allApprovedStories.sort((a, b) => {
-        // Prioritize stories that have custom images
-        const aHasImg = a.image && a.image.trim().length > 0 ? 1 : 0;
-        const bHasImg = b.image && b.image.trim().length > 0 ? 1 : 0;
-        if (aHasImg !== bHasImg) return bHasImg - aHasImg;
-        return byPublicationDate(a, b);
-      });
 
       for (const item of allApprovedStories) {
         if (!seenUrls.has(item.link)) {
@@ -338,7 +278,7 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
 
       const merged = [...combinedApproved, ...combinedUnapproved];
       return merged.length > 0
-        ? orderStoriesForHomepage(merged)
+        ? merged
         : (FALLBACK_STORIES.all || []);
     }
 
@@ -348,13 +288,13 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
       throw new Error(`News feed returned no stories for category: ${category}`);
     }
 
+    // Preserve the worker's reaction-ranked order: filtering keeps order,
+    // so no re-sort here (a date sort would undo within-day ranking).
     const approvedItems = feedItems
-      .filter(item => item.approved === true)
-      .sort(byPublicationDate);
+      .filter(item => item.approved === true);
 
     const unapprovedItems = feedItems
-      .filter(item => item.approved !== true)
-      .sort(byPublicationDate);
+      .filter(item => item.approved !== true);
 
     const merged = [...approvedItems, ...unapprovedItems];
     return merged.length > 0 ? merged : (FALLBACK_STORIES[category] || FALLBACK_STORIES.all);
