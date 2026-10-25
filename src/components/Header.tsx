@@ -107,10 +107,11 @@ export const Header: React.FC<HeaderProps> = ({
             <g className="balloon-orbit">
               <ellipse cx="12" cy="6" rx="4.5" ry="5" />
               <path d="M11 11 L13 11 L12 12.2 Z" fill="currentColor" stroke="none" />
-              {/* Long string curving around the button, tip nearly touching the balloon's top */}
+              {/* Single trailing tail curving around the left and bottom — ends
+                  well clear of the balloon so it reads as one string, not a loop */}
               <path
                 className="balloon-string"
-                d="M12 12.2 C 9 14.5, 5.5 14, 4.5 11 C 3.5 14.5, 6.5 19.5, 12 19.5 C 17.5 19.5, 20.5 16, 20.5 11.5 C 20.5 7.5, 19 4.5, 16.8 2.8"
+                d="M12 12.2 C 9 14, 6 15, 4.5 13 C 3.5 16, 7 19.5, 11 19.5 C 14 19.5, 17 18, 18.5 16"
                 strokeWidth="1.5"
               />
               <path d="M10.2 3 C 9.6 4, 9.4 5, 9.6 6" opacity="0.45" strokeWidth="1.5" />

@@ -448,7 +448,7 @@ body {
 }
 
 .refresh-news-button.is-loading .balloon-orbit {
-  animation: balloonOrbit 1.1s linear infinite;
+  animation: balloonOrbit 1.4s linear infinite;
 }
 
 @keyframes balloonOrbit {
@@ -469,10 +469,10 @@ body {
 
 @keyframes stringWiggle {
   0%, 100% {
-    transform: rotate(-6deg);
+    transform: rotate(-14deg);
   }
   50% {
-    transform: rotate(7deg);
+    transform: rotate(14deg);
   }
 }
 
