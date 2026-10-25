@@ -780,6 +780,13 @@ a:hover {
   transition: color 0.15s ease;
 }
 
+/* Visited ad titles keep the styled color: without this the browser's
+   default visited color restyles them after the first click. Placed before
+   the hover rules so hover still wins on hover. */
+.ad-card-title:visited {
+  color: var(--news-text, #f8fafc);
+}
+
 .news-card-ad:hover .ad-card-title,
 .ad-card-title:hover {
   color: var(--news-title-hover, #f59e0b);
@@ -791,10 +798,6 @@ a:hover {
   line-height: 1.5;
   font-family: inherit;
   flex: 1;
-}
-
-.adsbygoogle {
-  display: block;
 }
 
 .ad-badge {
@@ -829,6 +832,11 @@ a:hover {
   margin-top: auto;
   width: fit-content;
   transition: all 0.2s;
+}
+
+/* Same visited-color pin as the title, before the hover rule so hover wins. */
+.ad-cta-btn:visited {
+  color: #fbbf24;
 }
 
 .ad-cta-btn:hover {

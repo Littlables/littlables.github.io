@@ -10,7 +10,6 @@ interface AdCardProps {
 }
 
 export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
-  const adPushedRef = useRef(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const cardRef = useRef<HTMLElement | null>(null);
@@ -42,15 +41,6 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   }, [ad.id]);
 
   useEffect(() => {
-    if (!adPushedRef.current && typeof window !== 'undefined') {
-      try {
-        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
-        adPushedRef.current = true;
-      } catch {}
-    }
-  }, []);
-
-  useEffect(() => {
     if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
       setImageLoaded(true);
     } else {
@@ -61,6 +51,9 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   const network = getAdNetwork(ad.url, ad.sponsor);
   const umamiEvent = `Clicked-${network}-Card`;
 
+  // Single tracking point for the whole card: every click inside the card
+  // tracks exactly once here. Anchor clicks then use native navigation;
+  // all other regions open the link directly.
   const handleCardClick = (e: React.MouseEvent) => {
     if (ad.url && ad.url !== '#') {
       trackAdClick(ad);
@@ -69,13 +62,6 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
       // If user clicked directly on an <a> element, let native link behavior handle it
       if (target.closest('a')) return;
       window.open(ad.url, '_blank', 'noopener,noreferrer');
-    }
-  };
-
-  const handleLinkClick = () => {
-    if (ad.url && ad.url !== '#') {
-      trackAdClick(ad);
-      trackAdEngagementClick(ad);
     }
   };
 
@@ -143,7 +129,6 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           data-umami-event={umamiEvent}
           data-umami-event-url={ad.url || ''}
           data-umami-event-title={ad.title}
-          onClick={handleLinkClick}
         >
           {ad.title}
         </a>
@@ -152,15 +137,10 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           {ad.desc.length > 750 ? ad.desc.slice(0, 750) + "..." : ad.desc}
         </p>
 
-        {/* Official Google AdSense In-Feed Responsive Fluid Tag */}
-        <ins
-          className="adsbygoogle"
-          data-ad-format="fluid"
-          data-ad-layout-key="-fb+5w+4e-db+86"
-          data-ad-client="ca-pub-6117076538261387"
-          data-ad-slot="1234567890"
-        ></ins>
-
+        {/* The AdSense unit used to sit here between the description and the
+            footer. It rendered as an empty ~200px iframe that swallowed every
+            click in that gap (iframes never bubble to the card handler), so it
+            is removed: the whole card now opens the product link. */}
         <div className="news-card-footer">
           <a
             href={ad.url || '#'}
@@ -170,7 +150,6 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
             data-umami-event={umamiEvent}
             data-umami-event-url={ad.url || ''}
             data-umami-event-title={ad.title}
-            onClick={handleLinkClick}
           >
             {ad.cta}
           </a>
