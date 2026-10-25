@@ -7,7 +7,7 @@ import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
 import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
-import { AdminEditDialog } from './components/AdminEditDialog';
+import { StoryEditView } from './components/StoryEditView';
 import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdCard } from './components/AdCard';
 import { StoryModal } from './components/StoryModal';
@@ -724,9 +724,10 @@ export const App: React.FC = () => {
       />
 
       {adminEditStory && (
-        <AdminEditDialog
+        <StoryEditView
           story={adminEditStory}
           onClose={() => setAdminEditStory(null)}
+          onSaved={() => loadFeed(category)}
         />
       )}
 
