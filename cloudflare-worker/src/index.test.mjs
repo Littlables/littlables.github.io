@@ -1300,3 +1300,48 @@ test('hourly scheduled cron trigger and admin auto-sync toggle control automatic
 
 
 
+
+test('image check reports missing and broken images with pagination', async () => {
+  const originalFetch = globalThis.fetch;
+  const rows = [
+    { id: 3, title: 'No pic', article_url: 'https://example.com/3', image_url: '', category: 'animals', approved: true, removed: false },
+    { id: 2, title: 'Good pic', article_url: 'https://example.com/2', image_url: 'https://img.example.com/good.jpg', category: 'animals', approved: true, removed: false },
+    { id: 1, title: 'Bad pic', article_url: 'https://example.com/1', image_url: 'https://img.example.com/bad.jpg', category: 'world', approved: false, removed: false },
+  ];
+  globalThis.fetch = async (input, options) => {
+    const url = String(input);
+    if (url.includes('/rest/v1/news_stories')) {
+      const u = new URL(url);
+      const idFilter = u.searchParams.get('id');
+      let out = rows;
+      if (idFilter && idFilter.startsWith('lt.')) {
+        const before = Number(idFilter.slice(3));
+        out = rows.filter((r) => r.id < before);
+      }
+      return Response.json(out.slice(0, 40));
+    }
+    if (url === 'https://img.example.com/good.jpg') return new Response(null, { status: 200 });
+    if (url === 'https://img.example.com/bad.jpg') return new Response(null, { status: 404 });
+    throw new Error('unexpected fetch: ' + url);
+  };
+  try {
+    const cookie = await adminCookie();
+    const env = { ...authEnv, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'test-key' };
+    const headers = { Cookie: cookie.split(';')[0] };
+    // batch=1: only the first image-bearing story is HEAD-checked per call.
+    const res1 = await worker.fetch(new Request('https://worker.example/admin/api/stories/check-images?batch=1', { headers }), env);
+    const data1 = await res1.json();
+    assert.equal(res1.status, 200);
+    assert.deepEqual(data1.noImage.map((s) => s.id), [3]);
+    assert.deepEqual(data1.broken.map((s) => s.id), []);
+    assert.equal(data1.done, false);
+    assert.equal(data1.nextBefore, 2);
+    const res2 = await worker.fetch(new Request(`https://worker.example/admin/api/stories/check-images?batch=1&before=${data1.nextBefore}`, { headers }), env);
+    const data2 = await res2.json();
+    assert.deepEqual(data2.broken.map((s) => s.id), [1]);
+    assert.equal(data2.broken[0].status, 404);
+    assert.equal(data2.done, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

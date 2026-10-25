@@ -415,6 +415,7 @@ export function getAdminPage() {
       border-radius: 10px;
     }
     .story { grid-template-columns: 80px minmax(0, 1fr) auto; }
+    .story.story-no-thumb { grid-template-columns: minmax(0, 1fr) auto; }
     .story.ai-pick-row { grid-template-columns: auto 80px minmax(0, 1fr) auto; }
     .ad-row { grid-template-columns: auto 80px minmax(0, 1fr) auto; }
     .ad-select {
@@ -1606,6 +1607,31 @@ export function getAdminPage() {
         <div id="analytics-results" aria-live="polite"></div>
       </div>
     </section>
+
+    <!-- BROKEN IMAGES SECTION -->
+    <section aria-labelledby="broken-images-title" class="admin-card-section" data-section-id="broken-images">
+      <div class="section-header">
+        <h2 id="broken-images-title">
+          <button id="broken-images-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="broken-images-body" data-section-toggle="broken-images">
+            <span id="broken-images-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>Broken Images <span id="broken-images-count"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="broken-images-body" class="section-body" hidden>
+        <p class="admin-hint">Scans stories newest-first for missing images and image links that no longer load. Fix a story with Edit (the preview lets you replace the image URL).</p>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+          <button id="check-images-btn" class="small-btn" type="button">Find broken images</button>
+          <button id="stop-images-btn" class="secondary small-btn" type="button" hidden>Stop</button>
+          <span id="check-images-status" class="muted"></span>
+        </div>
+        <div id="check-images-results" aria-live="polite"></div>
+      </div>
+    </section>
   </main>
 
   <!-- UNIFIED PREVIEW DIALOG (Single Close Button inside Preview Actions) -->
@@ -1815,6 +1841,7 @@ export function getAdminPage() {
       { id: 'decisions', label: 'History', body: 'decisions-body', defaultOpen: false },
       { id: 'banned', label: 'Banned', body: 'banned-body', defaultOpen: false },
       { id: 'analytics', label: 'Analytics', body: 'analytics-body', defaultOpen: false },
+      { id: 'broken-images', label: 'Broken Images', body: 'broken-images-body', defaultOpen: false },
     ];
     const sectionTargets = Object.fromEntries(
       SECTIONS.map((s) => [s.id, {
@@ -6509,6 +6536,134 @@ export function getAdminPage() {
 
     restoreSectionLayout();
     refreshData();
+
+    // ── Broken Images scan ──
+    (function initBrokenImages() {
+      const runBtn = document.getElementById('check-images-btn');
+      const stopBtn = document.getElementById('stop-images-btn');
+      const statusEl = document.getElementById('check-images-status');
+      const resultsEl = document.getElementById('check-images-results');
+      const countEl = document.getElementById('broken-images-count');
+      if (!runBtn || !resultsEl) return;
+      let scanning = false;
+      let stopRequested = false;
+
+      function renderFoundRow(item, reason) {
+        const row = document.createElement('article');
+        row.className = 'story story-no-thumb';
+        const details = document.createElement('div');
+        details.className = 'story-details';
+        const title = document.createElement('h3');
+        const link = document.createElement('a');
+        link.href = item.link || '#';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = item.title || '(untitled)';
+        title.append(link);
+        const meta = document.createElement('p');
+        meta.className = 'story-meta';
+        const badge = document.createElement('span');
+        badge.className = 'meta-badge-status ' + (item.removed ? 'meta-banned' : item.approved ? 'meta-approved' : 'meta-pending');
+        badge.textContent = item.removed ? 'Banned' : item.approved ? 'Approved' : 'Pending';
+        const reasonSpan = document.createElement('span');
+        reasonSpan.className = 'meta-badge-status meta-banned';
+        reasonSpan.textContent = reason;
+        meta.append(badge, reasonSpan);
+        details.append(title, meta);
+        const actions = document.createElement('div');
+        actions.className = 'story-actions';
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'secondary small-btn';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => openStoryPreview({
+          id: item.id, title: item.title || '', link: item.link || '',
+          image: item.imageUrl || '', category: item.category || 'all',
+        }));
+        const linkBtn = document.createElement('button');
+        linkBtn.type = 'button';
+        linkBtn.className = 'secondary small-btn';
+        linkBtn.textContent = '🔗 Copy link';
+        linkBtn.title = 'Copy the frontpage expanded-view link for this story';
+        linkBtn.addEventListener('click', () => copyFrontpageStoryLink(linkBtn, {
+          title: item.title, link: item.link, category: item.category,
+        }));
+        actions.append(editBtn, linkBtn);
+        row.append(details, actions);
+        return row;
+      }
+      function renderGroups(noImage, broken) {
+        resultsEl.replaceChildren();
+        const total = noImage.length + broken.length;
+        if (countEl) countEl.textContent = total ? '(' + total + ')' : '';
+        if (!total) {
+          if (!scanning) {
+            const p = document.createElement('p');
+            p.className = 'muted';
+            p.textContent = 'No broken images found in the scanned stories.';
+            resultsEl.append(p);
+          }
+          return;
+        }
+        if (noImage.length) {
+          const h = document.createElement('h3');
+          h.textContent = 'No image (' + noImage.length + ')';
+          resultsEl.append(h);
+          noImage.forEach((item) => resultsEl.append(renderFoundRow(item, 'No image')));
+        }
+        if (broken.length) {
+          const h = document.createElement('h3');
+          h.textContent = 'Broken image (' + broken.length + ')';
+          resultsEl.append(h);
+          broken.forEach((item) => {
+            const reason = item.status === 'timeout' ? 'Timeout'
+              : item.status === 'invalid' ? 'Invalid URL'
+              : item.status === 'error' ? 'Unreachable'
+              : 'HTTP ' + item.status;
+            resultsEl.append(renderFoundRow(item, reason));
+          });
+        }
+      }
+      async function runScan() {
+        if (scanning) return;
+        scanning = true;
+        stopRequested = false;
+        runBtn.disabled = true;
+        runBtn.textContent = 'Scanning…';
+        stopBtn.hidden = false;
+        const foundNoImage = [];
+        const foundBroken = [];
+        let before = null;
+        let checked = 0;
+        try {
+          while (!stopRequested) {
+            const query = before ? '?before=' + encodeURIComponent(before) : '';
+            const data = await request('/admin/api/stories/check-images' + query);
+            checked += data.checked || 0;
+            foundNoImage.push(...(data.noImage || []));
+            foundBroken.push(...(data.broken || []));
+            renderGroups(foundNoImage, foundBroken);
+            statusEl.textContent = 'Checked ' + checked + ' stories… Found ' +
+              foundNoImage.length + ' with no image, ' + foundBroken.length + ' broken.';
+            if (data.done || !data.nextBefore) break;
+            before = data.nextBefore;
+          }
+          statusEl.textContent = stopRequested
+            ? 'Stopped after ' + checked + ' stories. Found ' + foundNoImage.length + ' with no image, ' + foundBroken.length + ' broken.'
+            : 'Done — checked ' + checked + ' stories. Found ' + foundNoImage.length + ' with no image, ' + foundBroken.length + ' broken.';
+          if (!foundNoImage.length && !foundBroken.length && !stopRequested) renderGroups(foundNoImage, foundBroken);
+        } catch (err) {
+          statusEl.textContent = 'Scan failed: ' + (err.message || 'unknown error');
+        } finally {
+          scanning = false;
+          runBtn.disabled = false;
+          runBtn.textContent = 'Find broken images';
+          stopBtn.hidden = true;
+        }
+      }
+      runBtn.addEventListener('click', runScan);
+      stopBtn.addEventListener('click', () => { stopRequested = true; });
+    })();
 
     // ── Analytics dashboard ──
     (function initAnalytics() {

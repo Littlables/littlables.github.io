@@ -1410,6 +1410,93 @@ async function serveAdmin(request, env) {
     }
   }
 
+  // Scan stories for missing or broken images, newest first, one chunk per call.
+  // GET /admin/api/stories/check-images?before=<lastId>&batch=<n>
+  // - `before`: only stories with id < before are examined (cursor, newest first).
+  // - `batch`: max image URLs HEAD-checked per call (default 15, keeps the
+  //   invocation well under the 50-subrequest limit: 1 DB fetch + batch HEADs).
+  // The client loops with the returned nextBefore until done. No-image stories
+  // cost no fetches, so they are all reported from every page examined.
+  if (url.pathname === '/admin/api/stories/check-images' && request.method === 'GET') {
+    const before = Number(url.searchParams.get('before') || 0) || 0;
+    const batch = Math.min(30, Math.max(1, Number(url.searchParams.get('batch') || 15) || 15));
+    try {
+      const page = new URLSearchParams({
+        select: 'id,title,article_url,image_url,category,approved,removed',
+        order: 'id.desc',
+        limit: '40',
+      });
+      if (before > 0) page.set('id', `lt.${before}`);
+      const res = await fetch(supabaseUrl(env, STORIES_TABLE, page), { headers: supabaseHeaders(env) });
+      if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+      const rows = await res.json();
+
+      const noImage = [];
+      const toCheck = [];
+      let lastProcessedId = null;
+      let stoppedEarly = false;
+      for (const row of rows) {
+        const imageUrl = (row.image_url || '').trim();
+        if (!imageUrl) {
+          noImage.push({
+            id: row.id, title: row.title, link: row.article_url,
+            category: row.category, approved: row.approved, removed: row.removed,
+          });
+          lastProcessedId = row.id;
+          continue;
+        }
+        if (toCheck.length >= batch) { stoppedEarly = true; break; }
+        toCheck.push(row);
+        lastProcessedId = row.id;
+      }
+
+      // HEAD-check in parallel chunks of 5 with a 5s timeout each.
+      const broken = [];
+      for (let i = 0; i < toCheck.length; i += 5) {
+        const chunk = toCheck.slice(i, i + 5);
+        const results = await Promise.all(chunk.map(async (row) => {
+          const raw = (row.image_url || '').trim();
+          let target = raw;
+          if (target.startsWith('//')) target = 'https:' + target;
+          if (target.startsWith('data:')) return { row, ok: true, status: 'data' };
+          if (!/^https?:\/\//i.test(target)) return { row, ok: false, status: 'invalid' };
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 5000);
+            try {
+              const head = await fetch(target, { method: 'HEAD', redirect: 'follow', signal: controller.signal });
+              return { row, ok: head.ok, status: head.status };
+            } finally {
+              clearTimeout(timer);
+            }
+          } catch (err) {
+            return { row, ok: false, status: err?.name === 'AbortError' ? 'timeout' : 'error' };
+          }
+        }));
+        results.forEach(({ row, ok, status }) => {
+          if (ok) return;
+          broken.push({
+            id: row.id, title: row.title, link: row.article_url,
+            category: row.category, approved: row.approved, removed: row.removed,
+            imageUrl: row.image_url, status,
+          });
+        });
+      }
+
+      const done = !stoppedEarly && rows.length < 40;
+      return jsonResponse({
+        checked: (lastProcessedId === null ? 0 : noImage.length + toCheck.length),
+        noImage,
+        broken,
+        nextBefore: stoppedEarly || rows.length === 40 ? lastProcessedId : null,
+        done,
+      });
+    } catch (err) {
+      console.error('Image check failed:', err);
+      return jsonResponse({ error: 'Image check failed' }, 502);
+    }
+  }
+
   // Auto-tag a single story with interest keywords (on-demand).
   // POST /admin/api/stories/auto-tag { id }
   // Classifies via embeddings, saves to DB, returns keywords.
