@@ -999,11 +999,12 @@ a:hover {
   background: transparent;
   font: inherit;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .site-footer a:hover,
 .site-info-close:hover {
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 .site-info-dialog {
