@@ -227,6 +227,32 @@ test('getStoredNewsFeed ranks same-day stories by total reactions', async () => 
   }
 });
 
+test('getStoredNewsFeed keeps date order when the reactions lookup fails', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    if (requestUrl.pathname === '/rest/v1/article_reactions') {
+      return new Response('{"code":"PGRST205","message":"Could not find the table"}', {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    if (requestUrl.searchParams.get('approved') === 'eq.false') return Response.json([]);
+    return Response.json([
+      { provider: 'gnews', category: 'childcare', title: 'Toy story', article_url: 'https://publisher.example/toy', approved: true, published_at: '2026-10-17T14:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Dino story', article_url: 'https://publisher.example/dino', approved: true, published_at: '2026-10-17T12:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Family story', article_url: 'https://publisher.example/family', approved: true, published_at: '2026-10-17T10:00:00Z' }
+    ]);
+  };
+  try {
+    const feed = await getStoredNewsFeed(env, 'all');
+    // No totals available: same-day stories stay in recency order.
+    assert.deepEqual(feed.items.map(item => item.title), ['Toy story', 'Dino story', 'Family story']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('getSpaceFeedPreview returns interest sample plus diagnostics for a front-page space', async () => {
   const originalFetch = globalThis.fetch;
   const requestUrls = [];

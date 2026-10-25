@@ -93,8 +93,11 @@ export function computeStoryId(link, title) {
 }
 
 // One PostgREST query for every story in the feed: total reactions
-// (love + mind + cozy) per story ID. Fail-open: any error logs and returns
-// an empty map, so the feed keeps date order instead of breaking.
+// (love + mind + cozy) per story ID. Fail-open: any failure logs and
+// returns an empty map, so the feed keeps date order instead of breaking.
+// Diagnostic logging (2026-10-25): the production lookup failed with its
+// error text swallowed by the log pipeline, so every failure path logs the
+// HTTP status and response body explicitly as plain strings.
 async function fetchReactionTotals(env, items) {
   const totals = new Map();
   const ids = [...new Set(items
@@ -109,13 +112,28 @@ async function fetchReactionTotals(env, items) {
     const response = await fetch(supabaseUrl(env, REACTIONS_TABLE, params), {
       headers: supabaseHeaders(env)
     });
-    const rows = await readRows(response, 'Reaction totals lookup');
+    const bodyText = await response.text();
+    if (!response.ok) {
+      console.error(`Reaction totals lookup HTTP ${response.status} (ids=${ids.length}): ${bodyText.slice(0, 300)}`);
+      return totals;
+    }
+    let rows;
+    try {
+      rows = JSON.parse(bodyText);
+    } catch (parseErr) {
+      console.error(`Reaction totals lookup unparseable body (ids=${ids.length}, first 300 chars): ${bodyText.slice(0, 300)}`);
+      return totals;
+    }
+    if (!Array.isArray(rows)) {
+      console.error(`Reaction totals lookup non-array body (ids=${ids.length}, first 300 chars): ${bodyText.slice(0, 300)}`);
+      return totals;
+    }
     for (const row of rows) {
       const count = Number(row.count) || 0;
       totals.set(row.story_id, (totals.get(row.story_id) || 0) + count);
     }
   } catch (err) {
-    console.error('Reaction totals lookup failed, keeping date order:', err);
+    console.error(`Reaction totals lookup threw (ids=${ids.length}): message=${err && err.message ? err.message : String(err)} stack=${err && err.stack ? err.stack : 'none'}`);
   }
   return totals;
 }
