@@ -680,6 +680,7 @@ body {
 .news-card-title {
   font-size: 1.1rem;
   font-weight: 700;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.35;
   color: var(--news-text);
   text-decoration: none;
@@ -2863,4 +2864,25 @@ textarea.board-input {
   outline: none;
   border-color: var(--pill-border, rgba(79, 70, 229, 0.35));
   box-shadow: 0 0 0 2px var(--pill-bg, rgba(79, 70, 229, 0.12));
+}
+
+/* System font opt-out: when the reader checks "Use system font" in theme
+   settings, App sets data-system-font="true" on <html> and every webfont
+   rule above falls back to the system stack. Off by default (no attribute),
+   so the webfonts show unless opted out. */
+html[data-system-font="true"] .news-widget-title,
+html[data-system-font="true"] .news-category-bar,
+html[data-system-font="true"] .site-footer-brand,
+html[data-system-font="true"] .news-card-title,
+html[data-system-font="true"] .news-card-desc,
+html[data-system-font="true"] .news-card-ai-summary,
+html[data-system-font="true"] .story-modal-desc,
+html[data-system-font="true"] .cat-pill,
+html[data-system-font="true"] .news-card-badge,
+html[data-system-font="true"] .ad-badge,
+html[data-system-font="true"] .ad-sponsor-label,
+html[data-system-font="true"] .reaction-pill,
+html[data-system-font="true"] .story-scoop-badge,
+html[data-system-font="true"] .story-provider-badge {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }

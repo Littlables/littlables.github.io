@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { NewsCategory, NewsItem, AdItem, ReactionType, ReactionCounts } from './types';
 import { SAVED_CATEGORY_KEY, CATEGORIES } from './constants/config';
 import { useTheme } from './hooks/useTheme';
+import { useSystemFont } from './hooks/useSystemFont';
 import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
 import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
@@ -119,6 +120,7 @@ function prioritizeByInterests(stories: NewsItem[], interests: PillConfig[]): Ne
 
 export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
+  useSystemFont();
   const { profile } = useAuth();
   const { isAdmin } = useAdminStatus();
   const [adminEditStory, setAdminEditStory] = useState<NewsItem | null>(null);

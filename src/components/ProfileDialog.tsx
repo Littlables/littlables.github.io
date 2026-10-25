@@ -29,6 +29,7 @@ import {
 import { t } from '../constants/translations';
 import { TranslationStrings } from '../constants/translations';
 import { useTheme } from '../hooks/useTheme';
+import { useSystemFont } from '../hooks/useSystemFont';
 
 interface ProfileDialogProps {
   isOpen: boolean;
@@ -74,6 +75,7 @@ function normalizeSocialLink(key: string, value: string): string {
 export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const { user, profile, updateProfile, uploadAvatarFile, checkUsernameAvailable, signOut } = useAuth();
   const { theme: localTheme, setTheme: setLocalTheme } = useTheme();
+  const { systemFont, setSystemFont } = useSystemFont();
 
   const [tab, setTab] = useState<Tab>('profile');
   const [displayName, setDisplayName] = useState('');
@@ -1160,6 +1162,19 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
             </label>
             <p className="profile-hint profile-hint-compact">
               Off by default. When on, boards you visit will appear in your theme instead of the owner's.
+            </p>
+
+            <label className="profile-section-label" style={{ marginTop: '1.5rem' }}>Fonts</label>
+            <label className="board-pill-option" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={systemFont}
+                onChange={(e) => setSystemFont(e.target.checked)}
+              />
+              <span>Use system font</span>
+            </label>
+            <p className="profile-hint profile-hint-compact">
+              Off by default. When on, the site uses your device's system font instead of Fredoka, Quicksand, and Varela Round. This only affects your device.
             </p>
           </div>
         )}
