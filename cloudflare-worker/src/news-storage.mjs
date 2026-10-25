@@ -1003,12 +1003,12 @@ export async function getNewsProviderFetchLogsFromDb(env, {
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed,interest_keywords',
     decision_at: 'not.is.null',
     order: 'decision_at.desc'
   });
   const pendingQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action,interest_keywords',
     approved: 'eq.false',
     removed: 'eq.false',
     or: '(decision_action.is.null,decision_action.eq.undo)',
@@ -1017,7 +1017,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
   });
   if (pendingProvider) pendingQuery.set('provider', `eq.${pendingProvider}`);
   const bannedQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed,interest_keywords',
     removed: 'eq.true',
     order: 'removed_at.desc.nullslast',
     limit: '100'
