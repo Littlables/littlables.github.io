@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>Welcome to Littlables — confirm your email</title>
+<!--
+  Littlables Supabase email template — Confirm signup.
+  Subject (set in the Supabase dashboard alongside this body):
+    Welcome to Littlables — confirm your email
+  Dashboard location: Authentication → Templates → Confirm signup.
+  Same treatment as the Magic Link template: the link stays front and
+  center, the 6-digit code ({{ .Token }}) is the fallback for the
+  dialog's "enter the 6-digit code" step, so brand-new sign-ups get the
+  same experience as returning sign-ins instead of a link-only email.
+  Variables used: {{ .ConfirmationURL }}, {{ .Token }}, {{ .Email }}.
+  Email clients strip JavaScript, so there is no working copy-to-
+  clipboard button inside an email — the code is set large, centered,
+  and letter-spaced for easy manual copying (long-press on mobile).
+  The sign-in link returns to the site the user started from: the app
+  passes emailRedirectTo (window.location.origin) with signInWithOtp.
+  All styles are inline and the layout is table-based for email
+  clients. No webfonts are loaded; the stack falls back gracefully.
+-->
+</head>
+<body style="margin:0; padding:0; background-color:#0b0f19; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0b0f19;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%; max-width:600px; background-color:#1e293b; border:1px solid rgba(255,255,255,0.08); border-radius:20px;">
+<tr><td align="center" style="padding:32px 32px 8px 32px;">
+<a href="https://littlables.com" style="font-family:'Fredoka','Comic Sans MS','Trebuchet MS',Verdana,sans-serif; font-size:32px; font-weight:700; color:#f8fafc; text-decoration:none; letter-spacing:0.5px;">littlables</a>
+<p style="margin:8px 0 0 0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:14px; color:#94a3b8;">A Little Scoop of the World</p>
+</td></tr>
+<tr><td align="center" style="padding:24px 32px 0 32px;">
+<h1 style="margin:0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:24px; line-height:1.3; color:#f8fafc;">Welcome to Littlables!</h1>
+<p style="margin:16px 0 0 0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:16px; line-height:1.6; color:#e2e8f0;">Tap the button below to confirm your email and finish setting up your account for {{ .Email }}. No password needed, ever.</p>
+</td></tr>
+<tr><td align="center" style="padding:24px 32px 0 32px;">
+<a href="{{ .ConfirmationURL }}" style="display:inline-block; background:linear-gradient(135deg,#6366f1 0%,#a855f7 100%); background-color:#6366f1; color:#ffffff; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:17px; font-weight:700; text-decoration:none; padding:14px 36px; border-radius:999px;">Confirm my email</a>
+</td></tr>
+<tr><td align="center" style="padding:28px 32px 0 32px;">
+<p style="margin:0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:14px; color:#94a3b8;">Prefer to type a code instead? Enter this one in the sign-in box:</p>
+<p style="margin:16px 0 0 0; font-family:'Courier New',Courier,monospace; font-size:34px; font-weight:700; letter-spacing:10px; color:#f8fafc; background-color:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.25); border-radius:12px; padding:16px 8px 16px 18px;">{{ .Token }}</p>
+<p style="margin:12px 0 0 0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:13px; color:#94a3b8;">Long-press (or select) the code to copy it — email can't carry a working copy button, so this big friendly box is the next best thing.</p>
+</td></tr>
+<tr><td align="center" style="padding:28px 32px 32px 32px;">
+<p style="margin:0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:13px; line-height:1.6; color:#94a3b8;">Didn't sign up? You can safely ignore this — no account changes.<br><br><a href="https://littlables.com" style="color:#818cf8; text-decoration:underline;">Visit Littlables</a> &nbsp;·&nbsp; <a href="https://littlables.com/about" style="color:#818cf8; text-decoration:underline;">About</a> &nbsp;·&nbsp; <a href="mailto:hello@littlables.com" style="color:#818cf8; text-decoration:underline;">Contact us</a></p>
+</td></tr>
+</table>
+<p style="margin:16px 0 0 0; font-family:'Quicksand','Trebuchet MS',Verdana,sans-serif; font-size:12px; color:#64748b;">littlables — a cozy, family-friendly news playground.</p>
+</td></tr>
+</table>
+</body>
+</html>
