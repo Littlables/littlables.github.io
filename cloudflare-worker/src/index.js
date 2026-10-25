@@ -1103,18 +1103,27 @@ async function serveAdmin(request, env) {
         max_tokens: 200,
         temperature: 0.1,
       });
-      // Extract usable text from the model response. Normally this is a
-      // string or { response: string }, but Workers AI has returned other
-      // shapes here (which previously crashed on rawText.match), so handle
-      // the plausible variants and report the actual shape when none fit.
-      const extractAiText = (res) => {
+      // Extract usable text from the model response. Workers AI returns an
+      // OpenAI-compatible object for this model: the text lives in
+      // choices[0].message.content, while `response` is itself an object.
+      // Older shapes (plain string, { response: string }) still handled.
+      const extractAiText = (res, depth = 0) => {
         if (typeof res === 'string') return res;
-        if (res && typeof res.response === 'string') return res.response;
-        if (res && Array.isArray(res.response)) {
+        if (!res || typeof res !== 'object') return '';
+        if (typeof res.response === 'string') return res.response;
+        if (Array.isArray(res.response)) {
           return res.response.filter((p) => typeof p === 'string').join('');
         }
-        if (res && typeof res.result === 'string') return res.result;
-        if (res && typeof res.text === 'string') return res.text;
+        const choice = Array.isArray(res.choices) ? res.choices[0] : null;
+        if (choice) {
+          if (choice.message && typeof choice.message.content === 'string') return choice.message.content;
+          if (typeof choice.text === 'string') return choice.text;
+        }
+        if (typeof res.result === 'string') return res.result;
+        if (typeof res.text === 'string') return res.text;
+        if (res.response && typeof res.response === 'object' && depth < 2) {
+          return extractAiText(res.response, depth + 1);
+        }
         return '';
       };
       const rawText = extractAiText(aiRes);
