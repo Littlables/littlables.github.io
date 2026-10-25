@@ -379,9 +379,13 @@ export function parseTopicFromUrl(): NewsCategory | null {
       return isValidCategory(cleaned) ? cleaned.toLowerCase() : cleaned;
     }
 
-    // Check hash e.g. #childcare, #puppy, or #/topic/puppy
+    // Check hash e.g. #childcare, #puppy, or #/topic/puppy. Supabase auth
+    // redirects land with a token fragment (#access_token=...&type=magiclink);
+    // that must never be read as a topic, or the feed loads for the token
+    // blob instead of the real category.
     const rawHash = url.hash.replace(/^#\/?/, '');
-    if (rawHash && !rawHash.startsWith('story/')) {
+    const isAuthFragment = /(^|&)(access_token|refresh_token)=/.test(rawHash);
+    if (rawHash && !isAuthFragment && !rawHash.startsWith('story/')) {
       const hashParts = rawHash.split('/').filter(Boolean);
       if (hashParts[0] === 'topic' && hashParts[1]) {
         const candidate = decodeURIComponent(hashParts.slice(1).join(' ')).trim();

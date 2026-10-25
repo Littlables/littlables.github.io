@@ -51,6 +51,20 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// After a magic-link (or OAuth) redirect, Supabase leaves its token
+// fragment — or a bare "#" — in the address bar. Once the session is
+// known, the fragment has served its purpose, so drop it, keeping any
+// query params (e.g. ?topic=animals) intact. Real topic hashes
+// (#topic/...) are left alone.
+function cleanAuthFragmentFromUrl() {
+  if (typeof window === 'undefined') return;
+  if (!window.location.href.includes('#')) return;
+  const rawHash = window.location.hash.replace(/^#\/?/, '');
+  const isAuthFragment = /(^|&)(access_token|refresh_token)=/.test(rawHash);
+  if (rawHash !== '' && !isAuthFragment) return;
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -67,11 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     client.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
+      if (session) cleanAuthFragmentFromUrl();
     });
 
     // Listen for auth changes
     const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) cleanAuthFragmentFromUrl();
     });
 
     return () => subscription.unsubscribe();
