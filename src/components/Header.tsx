@@ -110,15 +110,16 @@ export const Header: React.FC<HeaderProps> = ({
           </svg>
         </button>
 
-        <button
-          id="settings-btn"
-          type="button"
-          className="header-icon-button settings-cog-button"
-          title="Settings"
-          aria-label="Open Settings"
-          data-umami-event="Open-Settings"
-          onClick={onOpenSettings}
-        >
+        {!user && (
+          <button
+            id="settings-btn"
+            type="button"
+            className="header-icon-button settings-cog-button"
+            title="Settings"
+            aria-label="Open Settings"
+            data-umami-event="Open-Settings"
+            onClick={onOpenSettings}
+          >
           <svg
             width="18"
             height="18"
@@ -137,7 +138,8 @@ export const Header: React.FC<HeaderProps> = ({
             <circle cx="14" cy="12" r="0.9" fill="currentColor" stroke="none" />
             <ellipse cx="12" cy="15.2" rx="1.8" ry="1.2" />
           </svg>
-        </button>
+          </button>
+        )}
 
         {isAdmin && (
           <span
