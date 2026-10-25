@@ -23,7 +23,7 @@ export const HALLOWEEN_BATCH = [
     source: 'The Best Ideas for Kids',
     category: 'arts',
     image: 'https://www.thebestideasforkids.com/wp-content/uploads/2022/10/Paper-Plate-Pumpkin-Craft-640x960.jpg',
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: 'Tissue Paper Pumpkins',
@@ -32,7 +32,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Smashed Peas and Carrots',
     category: 'arts',
     image: 'https://smashedpeasandcarrots.com/wp-content/uploads/2011/10/IMG_5214.1.jpg',
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: 'Making a Paper Mache Pumpkin',
@@ -41,7 +41,7 @@ export const HALLOWEEN_BATCH = [
     source: 'RHS',
     category: 'arts',
     image: 'https://www.rhs.org.uk/getmedia/2307c2da-453c-47ee-9fcf-8bba57683de2/paper-mache-pumpkin-final_940x627.jpg?width=940&height=627&ext=.jpg',
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: '75+ Easy Halloween Crafts for Kids',
@@ -50,7 +50,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Sarah Scoop',
     category: 'arts',
     image: FALLBACK_IMG('arts'),
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: 'Halloween Crafts for a 3-Year-Old',
@@ -68,7 +68,7 @@ export const HALLOWEEN_BATCH = [
     source: "I'm the Chef Too",
     category: 'arts',
     image: FALLBACK_IMG('arts'),
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: 'Halloween Season at LEGOLAND California: Brick or Treat Fun the Whole Family Will Love',
@@ -77,7 +77,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Fun With Kids in LA',
     category: 'world',
     image: 'https://static.wixstatic.com/media/f7111f_2c4e63fda0f64621b3080d6fb5fed527~mv2.jpg/v1/fill/w_800,h_555,al_c,q_85,enc_avif,quality_auto/f7111f_2c4e63fda0f64621b3080d6fb5fed527~mv2.jpg',
-    interests: ['theme-parks', 'halloween']
+    interests: ['theme-parks', 'holidays', 'halloween']
   },
   {
     title: 'Florida Family Halloween Events: LEGOLAND Brick or Treat & SeaWorld Spooktacular',
@@ -95,7 +95,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Fairytale Journeys',
     category: 'world',
     image: 'https://static.wixstatic.com/media/0eaea1_81912993c88742478ef75af43c414ebe~mv2.png/v1/fill/w_980,h_513,al_c,q_90,usm_0.66_1.00_0.01,enc_avif,quality_auto/0eaea1_81912993c88742478ef75af43c414ebe~mv2.png',
-    interests: ['theme-parks', 'halloween']
+    interests: ['theme-parks', 'holidays', 'halloween']
   },
   {
     title: 'Spooky Fun: Easy Halloween Crafts Kids Will Love',
@@ -104,7 +104,7 @@ export const HALLOWEEN_BATCH = [
     source: "I'm the Chef Too",
     category: 'arts',
     image: FALLBACK_IMG('arts'),
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: 'Easy Halloween Crafts Using Things You Already Have at Home',
@@ -113,7 +113,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Your Zen Mama',
     category: 'arts',
     image: FALLBACK_IMG('arts'),
-    interests: ['kids-crafts', 'halloween']
+    interests: ['kids-crafts', 'holidays', 'halloween']
   },
   {
     title: 'Easy Halloween Crafts for Kids: Spooky Fun for Growing Voices',
@@ -131,7 +131,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Approaching Home',
     category: 'childcare',
     image: 'https://approachinghome.com/wp-content/uploads/2025/08/a-fun-kids-halloween-party-in-a-living-r_ODEEO6iZS5W3WZKn8trLZQ_9QaHD12-TC2h8dE47iVddw-683x1024.avif',
-    interests: ['holidays', 'halloween']
+    interests: ['holidays', 'kids-crafts', 'halloween']
   },
   {
     title: '10 Spooktacular & Affordable Halloween Family Activities',
@@ -149,7 +149,7 @@ export const HALLOWEEN_BATCH = [
     source: 'K-State Research and Extension',
     category: 'childcare',
     image: 'https://www.johnson.k-state.edu/images/programs/4h/agent-articles/Pic%203%20Cyla%20KFL%20October.jpg',
-    interests: ['experiments', 'halloween']
+    interests: ['experiments', 'science', 'halloween']
   },
   {
     title: 'Halloween With Kids: 10 Budget-Friendly Ways to Have Fun',
@@ -158,7 +158,7 @@ export const HALLOWEEN_BATCH = [
     source: 'The Bookish Mama',
     category: 'childcare',
     image: 'https://thebookishmama.com/wp-content/uploads/2026/08/thumbnail-768x1024.jpg',
-    interests: ['holidays', 'halloween']
+    interests: ['holidays', 'kids-crafts', 'halloween']
   },
   {
     title: 'Halloween Around the World',
@@ -167,7 +167,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Wherever Family',
     category: 'world',
     image: FALLBACK_IMG('world'),
-    interests: ['holidays', 'halloween']
+    interests: ['holidays', 'world-cultures', 'halloween']
   },
   {
     title: '8 Halloween Animals | Animals for Kids',
@@ -176,7 +176,7 @@ export const HALLOWEEN_BATCH = [
     source: 'ClassX',
     category: 'animals',
     image: FALLBACK_IMG('animals'),
-    interests: ['animals-nature', 'halloween']
+    interests: ['animals-nature', 'wildlife', 'halloween']
   },
   {
     title: 'Spooky STEM and Coding: Halloween Activities for Kids',
@@ -185,7 +185,7 @@ export const HALLOWEEN_BATCH = [
     source: 'WhalesBot',
     category: 'tech',
     image: FALLBACK_IMG('tech'),
-    interests: ['coding', 'halloween']
+    interests: ['coding', 'experiments', 'halloween']
   },
   {
     title: 'Exploring the Significance of the Teal Pumpkin Project',
@@ -194,7 +194,7 @@ export const HALLOWEEN_BATCH = [
     source: 'Care.com',
     category: 'uplifting',
     image: FALLBACK_IMG('uplifting'),
-    interests: ['holidays', 'halloween']
+    interests: ['holidays', 'community-heroes', 'halloween']
   }
 ];
 
@@ -215,23 +215,26 @@ export async function stageHalloweenBatch(env) {
   }
 
   // Interest keywords are not part of the ingest row shape, so tag them in a
-  // second pass — but only rows that have no tags yet, so re-runs enrich
-  // first-push rows without clobbering hand-set tags.
+  // second pass. Rows with no tags get the full batch list; rows with fewer
+  // than 3 tags are topped up to it (every batch story carries at least 3).
+  // Rows already at 3+ tags are left alone, so hand-set tags are preserved
+  // once a story is fully tagged.
   const interestsByUrl = new Map(HALLOWEEN_BATCH.map(story => [story.link, story.interests]));
   const lookupQuery = new URLSearchParams({
-    select: 'id,article_url',
-    provider: 'eq.' + HALLOWEEN_BATCH_PROVIDER,
-    interest_keywords: 'is.null'
+    select: 'id,article_url,interest_keywords',
+    provider: 'eq.' + HALLOWEEN_BATCH_PROVIDER
   });
   const lookupResponse = await fetch(supabaseUrl(env, STORIES_TABLE, lookupQuery), {
     headers: supabaseHeaders(env)
   });
-  const untaggedRows = await readRows(lookupResponse, 'Halloween batch untagged rows lookup');
+  const batchRows = await readRows(lookupResponse, 'Halloween batch rows lookup');
   let interestsSet = 0;
   let interestsFailed = 0;
-  for (const row of untaggedRows) {
+  for (const row of batchRows) {
     const interests = interestsByUrl.get(row.article_url);
     if (!interests) continue;
+    // Skip rows already fully tagged (3+); only NULL and short rows get patched.
+    if (Array.isArray(row.interest_keywords) && row.interest_keywords.length >= 3) continue;
     const patchQuery = new URLSearchParams({ id: 'eq.' + row.id });
     try {
       const patchResponse = await fetch(supabaseUrl(env, STORIES_TABLE, patchQuery), {

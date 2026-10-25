@@ -602,6 +602,50 @@ test('Halloween batch staging inserts unapproved stories with images and tags in
   }
 });
 
+test('Halloween batch staging tops up rows with fewer than three interests', async () => {
+  const originalFetch = globalThis.fetch;
+  const patchedRows = [];
+  globalThis.fetch = async (input, options) => {
+    const method = options?.method || 'GET';
+    if (method === 'PATCH') {
+      patchedRows.push(JSON.parse(options.body));
+      return Response.json([]);
+    }
+    if (method === 'GET') {
+      // One pre-existing row with only 2 tags, one already fully tagged.
+      return Response.json([
+        { id: 1, article_url: 'https://www.thebestideasforkids.com/paper-plate-pumpkin/', interest_keywords: ['kids-crafts', 'halloween'] },
+        { id: 2, article_url: 'https://portcharlotte.macaronikid.com/articles/6a918d2cd85a1b102f61c5d7/2026-halloween-events-worth-the-drive-from-port-charlotte', interest_keywords: ['theme-parks', 'zoos', 'halloween'] }
+      ]);
+    }
+    return Response.json([]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/stage-halloween-batch', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+        }
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.interestsSet, 1);
+    assert.equal(body.interestsFailed, 0);
+    assert.equal(patchedRows.length, 1);
+    assert.deepEqual(patchedRows[0].interest_keywords, ['kids-crafts', 'holidays', 'halloween']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('story edit endpoint updates card details without changing moderation state', async () => {
   const originalFetch = globalThis.fetch;
   let requested;
