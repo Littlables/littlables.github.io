@@ -2279,6 +2279,56 @@ export function getAdminPage() {
       }
     }
 
+    /* Frontpage story links: mirrors getStoryId (src/services/supabaseService.ts)
+       and getStorySlug (src/services/urlService.ts) in the frontend, so the
+       dashboard builds the exact same expanded-view URL the frontpage opens.
+       Links point at prod (littlables.com) per Katie's call. */
+    const FRONTPAGE_ORIGIN = 'https://littlables.com';
+    function getFrontpageStoryId(title, link) {
+      const str = ((link || '') + (title || '')).toLowerCase().trim();
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return 's_' + Math.abs(hash).toString(36).slice(0, 10);
+    }
+    function getFrontpageStorySlug(story) {
+      const storyId = getFrontpageStoryId(story.title, story.link);
+      const titleSlug = (story.title || '')
+        .toLowerCase()
+        .replace(/['’]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 56)
+        .replace(/-+$/g, '');
+      return titleSlug ? storyId + '-' + titleSlug : storyId;
+    }
+    function getFrontpageStoryUrl(story) {
+      const category = story.category || 'all';
+      return FRONTPAGE_ORIGIN + '/?topic=' + encodeURIComponent(category) +
+        '&story=' + encodeURIComponent(getFrontpageStorySlug(story));
+    }
+    async function copyFrontpageStoryLink(button, story) {
+      const url = getFrontpageStoryUrl(story);
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        // Fallback for browsers without async clipboard access
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch {}
+        ta.remove();
+      }
+      const original = button.textContent;
+      button.textContent = '✓ Copied';
+      setTimeout(() => { button.textContent = original; }, 2000);
+    }
+
     function formatElapsed(timestamp) {
       const elapsed = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
       const days = Math.floor(elapsed / 86400);
@@ -2760,6 +2810,17 @@ export function getAdminPage() {
         openStoryPreview(story);
       });
       actions.append(editBtn);
+
+      const linkBtn = document.createElement('button');
+      linkBtn.type = 'button';
+      linkBtn.className = 'secondary small-btn';
+      linkBtn.textContent = '🔗 Copy link';
+      linkBtn.title = 'Copy the frontpage expanded-view link for this story';
+      linkBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyFrontpageStoryLink(linkBtn, story);
+      });
+      actions.append(linkBtn);
 
       // Auto-tag button (search results): classify on-demand, save, update live
       if (isSearch) {
@@ -4106,6 +4167,16 @@ export function getAdminPage() {
         openStoryPreview(pick);
       });
 
+      const stagedLinkBtn = document.createElement('button');
+      stagedLinkBtn.type = 'button';
+      stagedLinkBtn.className = 'secondary small-btn';
+      stagedLinkBtn.textContent = '🔗 Copy link';
+      stagedLinkBtn.title = 'Copy the frontpage expanded-view link for this story';
+      stagedLinkBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        copyFrontpageStoryLink(stagedLinkBtn, pick);
+      });
+
       const approveBtn = document.createElement('button');
       approveBtn.type = 'button';
       approveBtn.className = 'small-btn btn-approve-accent';
@@ -4136,7 +4207,7 @@ export function getAdminPage() {
         banStory(pick.id);
       });
 
-      actions.append(editBtn, approveBtn, disapproveBtn, banBtn);
+      actions.append(editBtn, stagedLinkBtn, approveBtn, disapproveBtn, banBtn);
       row.append(actions);
       return row;
     }
