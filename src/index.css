@@ -440,40 +440,10 @@ body {
   cursor: not-allowed;
 }
 
-/* Refresh button balloon: parked at the top at rest, orbits with a
-   wiggling trailing string while loading — like a cat chasing its tail. */
-.refresh-news-button .balloon-orbit {
-  transform-box: view-box;
-  transform-origin: center;
-}
-
-.refresh-news-button.is-loading .balloon-orbit {
-  animation: balloonOrbit 1.4s linear infinite;
-}
-
-@keyframes balloonOrbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.refresh-news-button .balloon-string {
-  /* Wiggle pivots at the knot where the string meets the balloon */
-  transform-box: view-box;
-  transform-origin: 12px 12.2px;
-}
-
-.refresh-news-button.is-loading .balloon-string {
-  animation: stringWiggle 0.55s ease-in-out infinite;
-}
-
-@keyframes stringWiggle {
-  0%, 100% {
-    transform: rotate(-14deg);
-  }
-  50% {
-    transform: rotate(14deg);
-  }
+/* 3D playground button: same round header button, bold label */
+.header-3d-button {
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 @media (max-width: 640px) {

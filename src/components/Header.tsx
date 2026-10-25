@@ -5,7 +5,6 @@ import { CHARACTER_AVATARS } from '../constants/avatars';
 
 interface HeaderProps {
   onHomeClick: () => void;
-  onRefresh: () => void;
   onOpenSettings: () => void;
   onOpenSignIn: () => void;
   onOpenProfile: () => void;
@@ -19,7 +18,6 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   onHomeClick,
-  onRefresh,
   onOpenSettings,
   onOpenSignIn,
   onOpenProfile,
@@ -83,40 +81,15 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="news-header-controls">
         <button
-          id="refresh-news-btn"
+          id="playground-3d-btn"
           type="button"
-          className={`header-icon-button refresh-news-button ${isLoading ? 'is-loading' : ''}`}
-          title={t('refreshBtn') || 'Refresh Stories'}
-          aria-label={isLoading ? 'Refreshing stories' : (t('refreshBtn') || 'Refresh Stories')}
-          data-umami-event="Refresh-Feed"
-          onClick={onRefresh}
-          disabled={isLoading}
+          className="header-icon-button header-3d-button"
+          title="3D"
+          aria-label="Open 3D playground"
+          data-umami-event="Open-3D-Playground"
+          onClick={() => window.open('https://playground.google/g/viMkwl', '_blank', 'noopener,noreferrer')}
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {/* Balloon riding a circular path; orbits while loading */}
-            <g className="balloon-orbit">
-              <ellipse cx="12" cy="6" rx="4.5" ry="5" />
-              <path d="M11 11 L13 11 L12 12.2 Z" fill="currentColor" stroke="none" />
-              {/* Long wavy string hugging the outer edge: left, around the bottom,
-                  up the right side — ends clear of the balloon, no loop */}
-              <path
-                className="balloon-string"
-                d="M12 12.2 Q 8 14.5, 5 13.5 Q 2.5 13, 3 16.5 Q 3.5 20, 7 21 Q 10.5 22, 13.5 20.5 Q 16.5 19, 19 19.5 Q 21.5 20, 21.5 16.5 Q 21.5 13, 20 10.5"
-                strokeWidth="1.5"
-              />
-              <path d="M10.2 3 C 9.6 4, 9.4 5, 9.6 6" opacity="0.45" strokeWidth="1.5" />
-            </g>
-          </svg>
+          3D
         </button>
 
         {!user && (

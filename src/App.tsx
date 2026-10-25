@@ -543,7 +543,6 @@ export const App: React.FC = () => {
       <div className="news-widget-wrapper">
         <Header
           onHomeClick={handleHomeRefresh}
-          onRefresh={() => loadFeed(category)}
           onOpenSettings={() => setActiveDialog('settings')}
           onOpenSignIn={() => setActiveDialog('signin')}
           onOpenProfile={() => setActiveDialog('profile')}
