@@ -81,14 +81,10 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
   const [origKeywords, setOrigKeywords] = useState<string[]>([]);
   const [origCategories, setOrigCategories] = useState<string[]>([]);
 
-  // Lock body scroll while this full-screen view is open.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  // NOTE: no body-overflow effect here on purpose — App's single
+  // useLockBodyScroll owns that (see App.tsx). A second save/restore owner
+  // raced it during the modal→view transition and left the page stuck
+  // unscrollable or unlocked behind the view.
 
   useEffect(() => {
     if (!story) return;
@@ -221,7 +217,10 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a] text-white">
+    // Full-screen view: dynamic viewport height so the mobile browser
+    // toolbar showing/hiding doesn't resize it mid-scroll (the flicker),
+    // and overscroll-contain so scrolling can't chain out to the page behind.
+    <div className="fixed inset-x-0 top-0 z-50 h-[100dvh] overflow-y-auto overscroll-contain bg-[#0f172a] text-white">
       <div className="max-w-2xl mx-auto px-4 py-4 pb-12">
         <div className="flex items-center justify-between mb-4">
           <button

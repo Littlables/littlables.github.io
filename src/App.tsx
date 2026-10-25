@@ -170,8 +170,12 @@ export const App: React.FC = () => {
   const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
 
   // Lock background scrolling whenever any dialog/modal window is open,
-  // so scrolling inside the window can't chain out to the page behind it
-  useLockBodyScroll(activeDialog !== null || selectedStory !== null);
+  // so scrolling inside the window can't chain out to the page behind it.
+  // The edit view is included: it must share this single lock, not manage
+  // body overflow itself — two save/restore owners racing in the modal→view
+  // transition left the page stuck unscrollable (footer unreachable) or
+  // unlocked behind the view (flickery chained scrolling).
+  useLockBodyScroll(activeDialog !== null || selectedStory !== null || adminEditStory !== null);
 
   // App-level toast popover: floats above everything, unaffected by layout,
   // and persists even if the dialog that triggered it is closed
