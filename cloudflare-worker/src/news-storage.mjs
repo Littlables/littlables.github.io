@@ -854,6 +854,13 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
     order: 'removed_at.desc.nullslast',
     limit: '100'
   });
+  // Stories awaiting interest classification: not removed, no interest tags yet.
+  // These are invisible to Phase 3 interest feeds (except via zero-match fallback).
+  const unclassifiedQuery = new URLSearchParams({
+    select: 'id',
+    removed: 'eq.false',
+    interest_keywords: 'is.null'
+  });
   const providerCountRequests = providers.map(provider => {
     const query = new URLSearchParams({
       select: 'id',
@@ -863,7 +870,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
       headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
     });
   });
-  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse, ...providerCountResponses] = await Promise.all([
+  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse, unclassifiedResponse, ...providerCountResponses] = await Promise.all([
     fetch(supabaseUrl(env, STORIES_TABLE, storyCountQuery), {
       headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
     }),
@@ -879,12 +886,19 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
     fetch(supabaseUrl(env, SYNC_TABLE, 'select=provider,status,started_at,last_attempt_at,last_success_at,stories_saved,last_error,updated_by'), {
       headers: supabaseHeaders(env)
     }),
+    fetch(supabaseUrl(env, STORIES_TABLE, unclassifiedQuery), {
+      headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
+    }),
     ...providerCountRequests
   ]);
   if (!countResponse.ok) throw new Error(`Story count lookup failed (HTTP ${countResponse.status})`);
   const contentRange = countResponse.headers.get('Content-Range') || '';
   const total = Number(contentRange.match(/\/(\d+|\*)$/)?.[1]);
   if (!Number.isFinite(total)) throw new Error('Story count lookup returned no exact count');
+  if (!unclassifiedResponse.ok) throw new Error(`Unclassified count lookup failed (HTTP ${unclassifiedResponse.status})`);
+  const unclassifiedRange = unclassifiedResponse.headers.get('Content-Range') || '';
+  const unclassifiedTotal = Number(unclassifiedRange.match(/\/(\d+|\*)$/)?.[1]);
+  if (!Number.isFinite(unclassifiedTotal)) throw new Error('Unclassified count lookup returned no exact count');
   const recentRows = await readRows(recentResponse, 'Recent story lookup');
   const pendingRows = await readRows(pendingResponse, 'Unapproved story lookup');
   const bannedRows = await readRows(bannedResponse, 'Banned story lookup');
@@ -914,6 +928,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
   }));
   return {
     totalStories: total,
+    unclassifiedCount: unclassifiedTotal,
     recentStories: recentRows.map(row => ({
       ...normalizeStory(row),
       id: row.id,

@@ -1459,6 +1459,11 @@ async function serveAdmin(request, env) {
       }
       const maxStories = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
       const BATCH = 50;
+      // Optional old-category filter: only validate stories whose legacy
+      // `category` column matches (from the Classify section dropdown).
+      const filterCategory = typeof body.category === 'string' && NEWS_CATEGORIES.includes(body.category)
+        ? body.category
+        : null;
 
       let totalValidated = 0;
       let totalStored = 0;
@@ -1517,6 +1522,7 @@ async function serveAdmin(request, env) {
           limit: String(Math.min(BATCH, maxStories - totalValidated)),
           offset: String(offset),
         });
+        if (filterCategory) query.set('category', `eq.${filterCategory}`);
         const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
           headers: supabaseHeaders(env),
         });

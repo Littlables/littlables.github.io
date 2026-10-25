@@ -1261,7 +1261,19 @@ export function getAdminPage() {
       </div>
       <div id="embedding-validation-body" class="section-body">
         <p class="admin-hint">Validates story categories using semantic embeddings. Flags stories where the AI-predicted category disagrees with the query-assigned category.</p>
+        <p id="validate-unclassified-count" class="admin-hint" style="margin: 0.75rem 0 0;"></p>
         <div style="display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; flex-wrap: wrap;">
+          <label for="validate-category-filter" class="admin-hint" style="margin: 0;">Old category:</label>
+          <select id="validate-category-filter" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="">All categories</option>
+            <option value="childcare">Childcare &amp; Family</option>
+            <option value="animals">Animals &amp; Nature</option>
+            <option value="arts">Creative Arts</option>
+            <option value="tech">Future Tech &amp; AI</option>
+            <option value="world">Global Currents</option>
+            <option value="uplifting">Uplifting News</option>
+            <option value="all">All</option>
+          </select>
           <label for="validate-categories-limit" class="admin-hint" style="margin: 0;">Stories to validate:</label>
           <input id="validate-categories-limit" type="number" min="1" max="2000" value="200" style="width: 5rem; padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);" />
           <button id="validate-categories-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
@@ -4324,6 +4336,12 @@ export function getAdminPage() {
         renderProviderLogs();
         renderAiStagingSection();
         document.getElementById('total').textContent = data.totalStories.toLocaleString();
+        const unclassifiedEl = document.getElementById('validate-unclassified-count');
+        if (unclassifiedEl) {
+          unclassifiedEl.textContent = typeof data.unclassifiedCount === 'number'
+            ? data.unclassifiedCount.toLocaleString() + ' stories awaiting interest classification.'
+            : '';
+        }
         document.getElementById('pending-count').textContent = state.pendingStories.length
           ? '(' + state.pendingStories.length + (state.pendingStories.length === 100 ? '+' : '') + ')'
           : '';
@@ -5935,10 +5953,13 @@ export function getAdminPage() {
           while (totalValidated < totalRequested) {
             const remaining = totalRequested - totalValidated;
             if (validateStatus) validateStatus.textContent = 'Validating… (' + totalValidated + '/' + totalRequested + ' done)';
+            const catFilter = (document.getElementById('validate-category-filter')?.value || '').trim();
+            const postBody = { limit: Math.min(BATCH_SIZE, remaining) };
+            if (catFilter) postBody.category = catFilter;
             const res = await fetch('/admin/api/stories/validate-categories', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ limit: Math.min(BATCH_SIZE, remaining) }),
+              body: JSON.stringify(postBody),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Validation failed');
@@ -6384,6 +6405,8 @@ export function getAdminPage() {
         } finally {
           validateBtn.disabled = false;
           validateBtn.textContent = 'Validate Categories';
+          // Refresh the unclassified count (and panel data) after the run.
+          refreshData();
         }
       });
     }
