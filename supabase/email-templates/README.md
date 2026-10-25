@@ -1,4 +1,4 @@
-# Littlables Supabase email templates
+# littlables Supabase email templates
 
 Source copies of the auth emails, kept in the repo so they can be reviewed
 and versioned. Supabase does not read these files — they must be pasted
@@ -8,9 +8,9 @@ change.
 ## Files
 
 - `magic-link.html` — returning sign-ins (the `signInWithOtp` email for an
-  existing account). Subject: **Your Littlables sign-in link**
+  existing account). Subject: **Your littlables sign-in link**
 - `confirm-signup.html` — brand-new sign-ups (same flow, first time).
-  Subject: **Welcome to Littlables — confirm your email**
+  Subject: **Welcome to littlables — confirm your email**
 
 Both keep the link front and center as a button and show the 6-digit
 `{{ .Token }}` code underneath for the dialog's code-entry step, so new
