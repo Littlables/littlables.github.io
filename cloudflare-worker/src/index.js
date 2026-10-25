@@ -1103,9 +1103,21 @@ async function serveAdmin(request, env) {
         max_tokens: 200,
         temperature: 0.1,
       });
-      const rawText = typeof aiRes === 'string' ? aiRes
-        : typeof aiRes?.response === 'string' ? aiRes.response
-        : '';
+      // Extract usable text from the model response. Normally this is a
+      // string or { response: string }, but Workers AI has returned other
+      // shapes here (which previously crashed on rawText.match), so handle
+      // the plausible variants and report the actual shape when none fit.
+      const extractAiText = (res) => {
+        if (typeof res === 'string') return res;
+        if (res && typeof res.response === 'string') return res.response;
+        if (res && Array.isArray(res.response)) {
+          return res.response.filter((p) => typeof p === 'string').join('');
+        }
+        if (res && typeof res.result === 'string') return res.result;
+        if (res && typeof res.text === 'string') return res.text;
+        return '';
+      };
+      const rawText = extractAiText(aiRes);
       const jsonMatch = rawText.match(/\[[\s\S]*?\]/);
       let picked = [];
       if (jsonMatch) {
@@ -1114,12 +1126,16 @@ async function serveAdmin(request, env) {
           if (Array.isArray(parsed)) picked = parsed;
         } catch { /* fall through to empty */ }
       }
-      // If the model returned no usable text at all (unexpected response
-      // shape), fail instead of silently clearing the story's existing tags.
-      // Previously this crashed on rawText.match; erroring preserves the
-      // old no-store outcome without the crash.
+      // If the model returned no usable text at all, fail instead of
+      // silently clearing the story's existing tags — and include the
+      // response shape so the next failure is diagnosable.
       if (!jsonMatch && rawText === '') {
-        return jsonResponse({ error: 'LLM returned an unusable response — tags unchanged' }, 502);
+        const shape = aiRes === null || aiRes === undefined ? String(aiRes)
+          : Array.isArray(aiRes) ? 'array'
+          : typeof aiRes === 'object'
+            ? `object keys=[${Object.keys(aiRes).join(',')}] responseType=${typeof aiRes.response}`
+            : typeof aiRes;
+        return jsonResponse({ error: `LLM returned an unusable response (shape: ${shape}) — tags unchanged` }, 502);
       }
       const clean = normalizeInterestKeywords(picked);
       const result = await setStoryInterestKeywords(env, storyId, clean);
