@@ -1276,6 +1276,11 @@ export function getAdminPage() {
           </select>
           <label for="validate-categories-limit" class="admin-hint" style="margin: 0;">Stories to validate:</label>
           <input id="validate-categories-limit" type="number" min="1" max="2000" value="200" style="width: 5rem; padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);" />
+          <label for="validate-sort-order" class="admin-hint" style="margin: 0;">Sort:</label>
+          <select id="validate-sort-order" style="padding: 0.5rem; border-radius: 0.4rem; border: 1px solid var(--news-border, #334155); background: var(--news-card-bg, #1e293b); color: var(--news-text, #f1f5f9);">
+            <option value="matched">Matched first</option>
+            <option value="unmatched">Unmatched first</option>
+          </select>
           <button id="validate-categories-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
             Validate Categories
           </button>
@@ -6052,6 +6057,7 @@ export function getAdminPage() {
                 var row = document.createElement('article');
                 row.className = 'story';
                 row.tabIndex = 0;
+                row.dataset.mismatch = m._isMismatch ? '1' : '0';
                 row.style.borderLeft = m._isMismatch ? '3px solid #ef4444' : '3px solid #22c55e';
                 row.setAttribute('aria-label', 'Preview story: ' + decodeHtmlEntities(m.title || 'Untitled'));
                 var openValidationPreview = function () {
@@ -6386,12 +6392,16 @@ export function getAdminPage() {
                 actions.appendChild(picker);
               };
               var list = document.createElement('div');
+              list.id = 'validate-results-list';
               list.style.display = 'flex';
               list.style.flexDirection = 'column';
               list.style.gap = '0.5rem';
               validationRowRegistry.clear();
-              // Show mismatches first, then matches
-              var sorted = [...allMismatches.map(m => ({...m, _isMismatch: true})), ...allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}))];
+              // Sort order from the dropdown: matched first by default.
+              var sortOrder = (document.getElementById('validate-sort-order')?.value || 'matched');
+              var matchRows = allValidatedStories.filter(s => !s.mismatch).map(s => ({...s, _isMismatch: false}));
+              var mismatchRows = allMismatches.map(m => ({...m, _isMismatch: true}));
+              var sorted = sortOrder === 'matched' ? [...matchRows, ...mismatchRows] : [...mismatchRows, ...matchRows];
               for (const m of sorted) {
                 list.appendChild(createValidationRow(m));
               }
@@ -6408,6 +6418,21 @@ export function getAdminPage() {
           // Refresh the unclassified count (and panel data) after the run.
           refreshData();
         }
+      });
+    }
+
+    // Re-sort the currently displayed validation results when the sort
+    // dropdown changes (no re-validation needed — just reorder the rows).
+    const sortSelect = document.getElementById('validate-sort-order');
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => {
+        const list = document.getElementById('validate-results-list');
+        if (!list) return;
+        const rows = [...list.children];
+        const matched = rows.filter(r => r.dataset.mismatch !== '1');
+        const unmatched = rows.filter(r => r.dataset.mismatch === '1');
+        const ordered = sortSelect.value === 'matched' ? [...matched, ...unmatched] : [...unmatched, ...matched];
+        ordered.forEach(r => list.appendChild(r));
       });
     }
 
