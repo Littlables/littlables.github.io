@@ -1,6 +1,7 @@
 import { upsertNewsStories, supabaseUrl, supabaseHeaders, readRows, STORIES_TABLE } from './news-storage.mjs';
 
-// One-time kid-safe Halloween batch (Oct 2026). These are staged as
+// One-time kid-safe Halloween batch (Oct 2026): 20 stories across all
+// six front-page categories. These are staged as
 // UNAPPROVED stories: they land in Pending Approval for the normal
 // approve/reject flow and never get the curated/approved placement until
 // an admin approves them. Re-running is safe:
@@ -79,15 +80,6 @@ export const HALLOWEEN_BATCH = [
     interests: ['theme-parks', 'halloween']
   },
   {
-    title: "Knott's Spooky Farm 2026: Guide for Families",
-    link: 'https://www.funwithkidsinla.com/post/knotts-spooky-farm-guide-for-families',
-    description: "Daytime trick-or-treating through Ghost Town with Snoopy and the Peanuts gang — 'All Fun. No Fear.', September 24 through October 31, 2026.",
-    source: 'Fun With Kids in LA',
-    category: 'world',
-    image: 'https://static.wixstatic.com/media/f7111f_5bf0962b703c4bd3b42d3bb14468d49d~mv2.webp/v1/fill/w_980,h_653,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/f7111f_5bf0962b703c4bd3b42d3bb14468d49d~mv2.webp',
-    interests: ['theme-parks', 'halloween']
-  },
-  {
     title: 'Florida Family Halloween Events: LEGOLAND Brick or Treat & SeaWorld Spooktacular',
     link: 'https://portcharlotte.macaronikid.com/articles/6a918d2cd85a1b102f61c5d7/2026-halloween-events-worth-the-drive-from-port-charlotte',
     description: 'LEGOLAND Florida Brick or Treat (select dates September 5–October 31, 2026) and SeaWorld Orlando Halloween Spooktacular (August 29–November 1, 2026): daytime trick-or-treating and playful seasonal characters for younger kids.',
@@ -106,40 +98,103 @@ export const HALLOWEEN_BATCH = [
     interests: ['theme-parks', 'halloween']
   },
   {
-    title: "Kennywood's Phantom Fall Fest and Hersheypark's Trick-or-Treat Trail",
-    link: 'https://www.theweather.com/news/lifestyle/the-5-spookiest-halloween-destinations-haunted-towns-ghosts-and-legends.html',
-    description: 'Hersheypark trick-or-treat trail: kids 12 and under collect candy at 14 stops, plus a scare-free Avenue of the Afterlife, through November 1, 2026.',
-    source: 'The Weather',
-    category: 'world',
-    image: 'https://services.meteored.com/img/article/the-5-spookiest-halloween-destinations-haunted-towns-ghosts-and-legends-1792335091938_1280.jpg',
-    interests: ['theme-parks', 'halloween']
+    title: 'Spooky Fun: Easy Halloween Crafts Kids Will Love',
+    link: 'https://www.imthecheftoo.com/blogs/stem-for-kids/spooky-fun-easy-halloween-crafts-kids-will-love',
+    description: 'Paper plate spiders and bats, ghost garlands, no-carve pumpkin decorating, mummy jars and edible monster treats.',
+    source: "I'm the Chef Too",
+    category: 'arts',
+    image: FALLBACK_IMG('arts'),
+    interests: ['kids-crafts', 'halloween']
   },
   {
-    title: 'Boo at the Zoo — Santa Barbara',
-    link: 'https://lafamilytravel.com/halloween-in-la-and-around-california/',
-    description: 'Daytime Boo October 16–31: scavenger hunt, costume parade, story time and a hay maze — no scares at all, best for ages 2–10.',
-    source: 'LA Family Travel',
-    category: 'animals',
-    image: 'https://lafamilytravelwordpressbucket.s3.us-east-2.amazonaws.com/wp-content/uploads/2023/10/09122857/boo_at_the_zoo_3_pumpkin_lion.webp',
-    interests: ['zoos', 'halloween']
+    title: 'Easy Halloween Crafts Using Things You Already Have at Home',
+    link: 'https://www.yourzenmama.com/new-blog/easy-halloween-crafts-using-things-you-already-have-at-home',
+    description: 'Paper plate ghosts, toilet roll bats, egg carton spiders, ghost jars and cardboard haunted houses — all from the recycling box.',
+    source: 'Your Zen Mama',
+    category: 'arts',
+    image: FALLBACK_IMG('arts'),
+    interests: ['kids-crafts', 'halloween']
   },
   {
-    title: 'Stage Fright: A Halloween Family Festival at Klyde Warren Park',
-    link: 'https://cravedfw.com/2026/10/13/family-friendly-dfw-halloween/',
-    description: 'A free family festival in Dallas on October 31, 10am–1pm: crafts, performances and one more round of costumes before trick-or-treating.',
-    source: 'Crave DFW',
+    title: 'Easy Halloween Crafts for Kids: Spooky Fun for Growing Voices',
+    link: 'https://speechblubs.com/blog/easy-halloween-crafts-for-kids-spooky-fun-for-growing-voices',
+    description: 'Toddler and preschooler crafts — sensory ghosts, no-carve pumpkin monsters, yarn mummies and straw-blown ghost art.',
+    source: 'Speech Blubs',
+    category: 'childcare',
+    image: FALLBACK_IMG('arts'),
+    interests: ['toddlers', 'kids-crafts', 'halloween']
+  },
+  {
+    title: '18 Halloween Party Ideas for Kids 2025: Fun, Safe, and Creative Celebrations',
+    link: 'https://approachinghome.com/halloween-party-ideas-for-kids/',
+    description: 'Pumpkin painting, scavenger hunts, spooky science, costume parades, pumpkin bowling and trick-or-treat bag decorating.',
+    source: 'Approaching Home',
+    category: 'childcare',
+    image: 'https://approachinghome.com/wp-content/uploads/2025/08/a-fun-kids-halloween-party-in-a-living-r_ODEEO6iZS5W3WZKn8trLZQ_9QaHD12-TC2h8dE47iVddw-683x1024.avif',
+    interests: ['holidays', 'halloween']
+  },
+  {
+    title: '10 Spooktacular & Affordable Halloween Family Activities',
+    link: 'https://janetknowsbest.com/10-spooktacular-affordable-halloween-family-activities',
+    description: 'DIY decorations, a costume fashion show, a spooky sensory bin, game night, haunted treats and a dance party — all budget-friendly.',
+    source: 'Janet Knows Best',
+    category: 'childcare',
+    image: 'https://janetknowsbest.com/wp-content/uploads/2024/07/affordable-halloween-activites-576x1024.png',
+    interests: ['toddlers', 'holidays', 'halloween']
+  },
+  {
+    title: 'Spooky STEM: Halloween Science Activities for Kids',
+    link: 'https://www.johnson.k-state.edu/programs/4-h/agent-articles/spooky-stem-halloween-science-activities-for-kids.html',
+    description: 'Fizzy pumpkin volcanoes, pumpkin seed slime, bone bridges, candy catapults and shadow puppets — hands-on Halloween science.',
+    source: 'K-State Research and Extension',
+    category: 'childcare',
+    image: 'https://www.johnson.k-state.edu/images/programs/4h/agent-articles/Pic%203%20Cyla%20KFL%20October.jpg',
+    interests: ['experiments', 'halloween']
+  },
+  {
+    title: 'Halloween With Kids: 10 Budget-Friendly Ways to Have Fun',
+    link: 'https://thebookishmama.com/halloween-activities-for-kids-on-a-budget/',
+    description: 'Ghost bowling, closet costumes, a Halloween treasure hunt, a witch’s potion and a kitchen day — no craft-store splurge needed.',
+    source: 'The Bookish Mama',
+    category: 'childcare',
+    image: 'https://thebookishmama.com/wp-content/uploads/2026/08/thumbnail-768x1024.jpg',
+    interests: ['holidays', 'halloween']
+  },
+  {
+    title: 'Halloween Around the World',
+    link: 'https://whereverfamily.com/halloween-around-the-world-2/',
+    description: 'How other countries mark the season: Mexico’s Day of the Dead, Ireland’s Samhain roots and Spain’s Day of the Witches.',
+    source: 'Wherever Family',
     category: 'world',
     image: FALLBACK_IMG('world'),
     interests: ['holidays', 'halloween']
   },
   {
-    title: 'Best Halloween Destinations for Families in the USA (2026)',
-    link: 'https://themomtrotter.com/the-best-places-for-families-to-celebrate-halloween-in-the-usa/',
-    description: 'Anoka, Sleepy Hollow, Salem, St. Helens and New Orleans — family Halloween trips from parades to pumpkin displays.',
-    source: 'The Mom Trotter',
-    category: 'world',
-    image: 'https://themomtrotter.com/wp-content/uploads/2022/10/Best-Halloween-Destinations-for-Families-in-the-USA.jpg-1024x683.jpeg',
-    interests: ['travel', 'halloween']
+    title: '8 Halloween Animals | Animals for Kids',
+    link: 'https://classx.org/8-halloween-animals-animals-for-kids-wild-animals/',
+    description: 'Owls, rats, bats, cats, spiders, ravens, wolves and toads — why the spookiest animals are actually nature’s helpers.',
+    source: 'ClassX',
+    category: 'animals',
+    image: FALLBACK_IMG('animals'),
+    interests: ['animals-nature', 'halloween']
+  },
+  {
+    title: 'Spooky STEM and Coding: Halloween Activities for Kids',
+    link: 'https://www.whalesbot.ai/blog/spooky-stem-and-coding-halloween-activities-for-kids',
+    description: 'Scratch Halloween games — Whack-a-Ghost, Candy Clicker, Flying Witch — plus secret coding pictures and melting monsters.',
+    source: 'WhalesBot',
+    category: 'tech',
+    image: FALLBACK_IMG('tech'),
+    interests: ['coding', 'halloween']
+  },
+  {
+    title: 'Exploring the Significance of the Teal Pumpkin Project',
+    link: 'https://www.care.com/c/teal-pumpkin-project/',
+    description: 'A teal pumpkin on the porch means non-food treats for trick-or-treaters — making Halloween safer and more inclusive for kids with food allergies.',
+    source: 'Care.com',
+    category: 'uplifting',
+    image: FALLBACK_IMG('uplifting'),
+    interests: ['holidays', 'halloween']
   }
 ];
 

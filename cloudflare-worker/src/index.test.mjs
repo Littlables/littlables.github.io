@@ -577,12 +577,12 @@ test('Halloween batch staging inserts unapproved stories with images and tags in
     );
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.staged, 14);
+    assert.equal(body.staged, 20);
     assert.equal(body.duplicatesSkipped, 0);
-    assert.equal(body.interestsSet, 14);
+    assert.equal(body.interestsSet, 20);
     assert.equal(body.interestsFailed, 0);
-    assert.equal(savedRows.length, 14);
-    assert.deepEqual(Object.keys(body.byCategory).sort(), ['animals', 'arts', 'childcare', 'world']);
+    assert.equal(savedRows.length, 20);
+    assert.deepEqual(Object.keys(body.byCategory).sort(), ['animals', 'arts', 'childcare', 'tech', 'uplifting', 'world']);
     for (const row of savedRows) {
       assert.equal(row.provider, 'halloween-batch');
       // Unapproved by default: the insert must NOT set approved=true, so the
@@ -591,7 +591,7 @@ test('Halloween batch staging inserts unapproved stories with images and tags in
       assert.ok(row.title && row.article_url && row.source_name && row.category);
       assert.match(row.image_url, /^https:\/\//);
     }
-    assert.equal(patchedRows.length, 14);
+    assert.equal(patchedRows.length, 20);
     for (const patch of patchedRows) {
       assert.ok(Array.isArray(patch.interest_keywords));
       assert.ok(patch.interest_keywords.length >= 1 && patch.interest_keywords.length <= 3);
