@@ -17,6 +17,8 @@ import {
   setStoryInterestKeywords,
   getStoriesByKeyword,
   getSpaceFeedPreview,
+  extractAiText,
+  runAiStoryCuration,
   getPersistedKeywordEmbeddings,
   getKeywordVectorStatus,
   clearKeywordVectorCache,
@@ -1381,4 +1383,45 @@ test('getPlayroomFeed resolves username+slug to playroom', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('extractAiText reads choices-first like the AI tags extractor', () => {
+  assert.equal(extractAiText({ choices: [{ message: { content: 'hello' } }] }), 'hello');
+  assert.equal(extractAiText({ choices: [{ message: { content: 'hi' } }], response: { nested: true } }), 'hi');
+  assert.equal(extractAiText('plain'), 'plain');
+  assert.equal(extractAiText({ response: 'old shape' }), 'old shape');
+  assert.equal(extractAiText({ response: { choices: [{ message: { content: 'nested' } }] } }), 'nested');
+  assert.equal(extractAiText({ response: {} }), '');
+  assert.equal(extractAiText(null), '');
+});
+
+test('AI curation uses choices-style model responses instead of silently falling back to heuristics', async () => {
+  const aiEnv = {
+    AI: {
+      run: async (model) => {
+        assert.match(model, /llama-3\.2-3b-instruct/);
+        return {
+          choices: [{ message: { content: JSON.stringify([{ id: 2, score: 95, reason: 'AI picked this one' }]) } }]
+        };
+      }
+    }
+  };
+  const pendingRows = [
+    { id: 1, provider: 'gnews', category: 'animals', title: 'Rescue otters learn to stack cups at the aquarium', article_url: 'https://publisher.example/otters', description: 'Otter enrichment fun', source_name: 'Example', published_at: '2026-10-25T10:00:00Z', fetched_at: '2026-10-25T11:00:00Z' },
+    { id: 2, provider: 'gnews', category: 'animals', title: 'A backyard observatory spots a rare comet', article_url: 'https://publisher.example/comet', description: 'Stargazing news', source_name: 'Example', published_at: '2026-10-25T10:00:00Z', fetched_at: '2026-10-25T11:00:00Z' }
+  ];
+  const result = await runAiStoryCuration(aiEnv, {
+    force: true,
+    triggerSource: 'manual',
+    preloadedRecentRows: [],
+    preloadedBannedRows: [],
+    preloadedPendingRows: pendingRows
+  });
+  assert.equal(result.skipped, false);
+  assert.equal(result.totalStagedInRun, 2);
+  assert.equal(result.stagedByCategory.animals, 2);
+  const topPick = result.aiCuration.stagedPicks.find(p => p.category === 'animals' && p.rank === 1);
+  assert.equal(topPick.storyId, 2);
+  assert.equal(topPick.score, 95);
+  assert.equal(topPick.reason, 'AI picked this one');
 });

@@ -2099,6 +2099,31 @@ function scoreCandidateStory(story, signals, tasteProfile, engagementSignals = {
   };
 }
 
+// Extract usable text from a Workers AI model response. Mirrors the AI tags
+// extractor in index.js: Workers AI returns an OpenAI-compatible object for
+// llama-3.2-3b-instruct, with the text in choices[0].message.content,
+// while `response` is itself an object. Older shapes still handled, so a
+// plain string or { response: string } keeps working.
+export function extractAiText(res, depth = 0) {
+  if (typeof res === 'string') return res;
+  if (!res || typeof res !== 'object') return '';
+  if (typeof res.response === 'string') return res.response;
+  if (Array.isArray(res.response)) {
+    return res.response.filter((p) => typeof p === 'string').join('');
+  }
+  const choice = Array.isArray(res.choices) ? res.choices[0] : null;
+  if (choice) {
+    if (choice.message && typeof choice.message.content === 'string') return choice.message.content;
+    if (typeof choice.text === 'string') return choice.text;
+  }
+  if (typeof res.result === 'string') return res.result;
+  if (typeof res.text === 'string') return res.text;
+  if (res.response && typeof res.response === 'object' && depth < 2) {
+    return extractAiText(res.response, depth + 1);
+  }
+  return '';
+}
+
 async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}) {
   // First pre-score all candidates deterministically
   const scoredCandidates = candidates.map(story => {
@@ -2143,7 +2168,10 @@ async function selectCategoryPicksWithAi(env, category, candidates, signals, tas
         temperature: 0.25
       });
 
-      const rawText = typeof response?.response === 'string' ? response.response.trim() : '';
+      const rawText = extractAiText(response).trim();
+      if (!rawText) {
+        console.warn(`AI curation extraction yielded no text for category ${category}: responseType=${typeof response}`);
+      }
       const jsonMatch = rawText.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
