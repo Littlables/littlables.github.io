@@ -1103,7 +1103,9 @@ async function serveAdmin(request, env) {
         max_tokens: 200,
         temperature: 0.1,
       });
-      const rawText = typeof aiRes === 'string' ? aiRes : (aiRes?.response || '');
+      const rawText = typeof aiRes === 'string' ? aiRes
+        : typeof aiRes?.response === 'string' ? aiRes.response
+        : '';
       const jsonMatch = rawText.match(/\[[\s\S]*?\]/);
       let picked = [];
       if (jsonMatch) {
@@ -1111,6 +1113,13 @@ async function serveAdmin(request, env) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (Array.isArray(parsed)) picked = parsed;
         } catch { /* fall through to empty */ }
+      }
+      // If the model returned no usable text at all (unexpected response
+      // shape), fail instead of silently clearing the story's existing tags.
+      // Previously this crashed on rawText.match; erroring preserves the
+      // old no-store outcome without the crash.
+      if (!jsonMatch && rawText === '') {
+        return jsonResponse({ error: 'LLM returned an unusable response — tags unchanged' }, 502);
       }
       const clean = normalizeInterestKeywords(picked);
       const result = await setStoryInterestKeywords(env, storyId, clean);
