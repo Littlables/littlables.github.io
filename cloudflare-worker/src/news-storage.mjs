@@ -74,6 +74,87 @@ export function effectiveDisplayCategories(row) {
   return [fallback];
 }
 
+// Reaction ranking: content with more total reactions shows above other
+// content from the same publish day. Reaction rows are keyed by a
+// frontend-computed story ID (not a UUID or URL), so the worker recomputes
+// the same ID to join reactions onto feed stories.
+export const REACTIONS_TABLE = 'article_reactions';
+
+// Mirrors getStoryId() in src/services/supabaseService.ts exactly — the
+// frontend hashes (link + title), lowercased and trimmed. Keep in sync.
+export function computeStoryId(link, title) {
+  const str = ((link || '') + (title || '')).toLowerCase().trim();
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return 's_' + Math.abs(hash).toString(36).slice(0, 10);
+}
+
+// One PostgREST query for every story in the feed: total reactions
+// (love + mind + cozy) per story ID. Fail-open: any error logs and returns
+// an empty map, so the feed keeps date order instead of breaking.
+async function fetchReactionTotals(env, items) {
+  const totals = new Map();
+  const ids = [...new Set(items
+    .map(item => computeStoryId(item.link || item.article_url, item.title))
+    .filter(Boolean))];
+  if (ids.length === 0) return totals;
+  try {
+    const params = new URLSearchParams({
+      select: 'story_id,reaction_type,count',
+      story_id: `in.(${ids.join(',')})`
+    });
+    const response = await fetch(supabaseUrl(env, REACTIONS_TABLE, params), {
+      headers: supabaseHeaders(env)
+    });
+    const rows = await readRows(response, 'Reaction totals lookup');
+    for (const row of rows) {
+      const count = Number(row.count) || 0;
+      totals.set(row.story_id, (totals.get(row.story_id) || 0) + count);
+    }
+  } catch (err) {
+    console.error('Reaction totals lookup failed, keeping date order:', err);
+  }
+  return totals;
+}
+
+// Pure sort: newest publish day first; within a day, most total reactions
+// first; ties by recency; zero-reaction stories keep date order among
+// themselves. Returns a new array; the input is untouched.
+export function sortItemsByDayReactions(items, totals) {
+  const dayOf = item => {
+    const raw = item.pubDate || item.published_at || '';
+    return raw ? String(raw).slice(0, 10) : '0000-00-00';
+  };
+  const timeOf = item => {
+    const ms = Date.parse(item.pubDate || item.published_at || item.fetchedAt || item.fetched_at || '');
+    return Number.isNaN(ms) ? 0 : ms;
+  };
+  const withIndex = items.map((item, index) => ({ item, index }));
+  withIndex.sort((a, b) => {
+    const dayA = dayOf(a.item);
+    const dayB = dayOf(b.item);
+    if (dayA !== dayB) return dayA < dayB ? 1 : -1;
+    const totalA = totals.get(computeStoryId(a.item.link || a.item.article_url, a.item.title)) || 0;
+    const totalB = totals.get(computeStoryId(b.item.link || b.item.article_url, b.item.title)) || 0;
+    if (totalA !== totalB) return totalB - totalA;
+    const timeDiff = timeOf(b.item) - timeOf(a.item);
+    if (timeDiff !== 0) return timeDiff;
+    return a.index - b.index;
+  });
+  return withIndex.map(entry => entry.item);
+}
+
+// Rank one feed's items by day + reactions. Sorts once on load — live
+// reactions do not reshuffle an already-loaded feed. Adds no fields.
+export async function applyReactionRanking(env, items) {
+  if (!items || items.length === 0) return items;
+  const totals = await fetchReactionTotals(env, items);
+  return sortItemsByDayReactions(items, totals);
+}
+
 export async function getStoredNewsFeed(env, category) {
   // Phase 3 cutover: front-page spaces use interest-overlap matching first.
   // A balloon belongs to a space iff its interest_keywords overlap the
@@ -85,7 +166,7 @@ export async function getStoredNewsFeed(env, category) {
   if (spaceDef && (spaceDef.interestIds || []).length > 0) {
     try {
       const interestItems = await getSpaceInterestFeed(env, category, spaceDef.interestIds);
-      if (interestItems.length > 0) return { provider: 'supabase', items: interestItems };
+      if (interestItems.length > 0) return { provider: 'supabase', items: await applyReactionRanking(env, interestItems) };
     } catch (err) {
       console.error('Space interest feed failed, falling back to category:', err);
     }
@@ -183,7 +264,7 @@ async function getLegacyCategoryFeed(env, category) {
     seenUrls.add(row.article_url);
     items.push({ ...normalizeStory(row), approved: row.approved });
   }
-  return { provider: 'supabase', items };
+  return { provider: 'supabase', items: await applyReactionRanking(env, items) };
 }
 
 const KEYWORD_EMBEDDINGS_TABLE = 'keyword_embeddings';
@@ -2682,10 +2763,9 @@ export async function getStoriesByInterests(env, interestIds) {
       else unapproved.push(item);
     }
   }
-  const byDate = (a, b) => new Date(b.published_at || b.fetched_at || 0) - new Date(a.published_at || a.fetched_at || 0);
-  approved.sort(byDate);
-  unapproved.sort(byDate);
-  return { provider: 'supabase', items: [...approved, ...unapproved] };
+  const rankedApproved = await applyReactionRanking(env, approved);
+  const rankedUnapproved = await applyReactionRanking(env, unapproved);
+  return { provider: 'supabase', items: [...rankedApproved, ...rankedUnapproved] };
 }
 
 // Front-page composite spaces map 1:1 to legacy category column values,
@@ -2901,9 +2981,8 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
       else unapproved.push(item);
     }
   }
-  const byDate = (a, b) => new Date(b.published_at || b.fetched_at || 0) - new Date(a.published_at || a.fetched_at || 0);
-  approved.sort(byDate);
-  unapproved.sort(byDate);
+  const rankedApproved = await applyReactionRanking(env, approved);
+  const rankedUnapproved = await applyReactionRanking(env, unapproved);
 
-  return { playroom, spaces, items: [...approved, ...unapproved] };
+  return { playroom, spaces, items: [...rankedApproved, ...rankedUnapproved] };
 }

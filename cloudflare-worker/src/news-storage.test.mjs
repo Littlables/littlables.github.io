@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applyReactionRanking,
   approveNewsStory,
   banNewsStory,
   claimNewsProviderSync,
+  computeStoryId,
   createApprovedCustomNewsStory,
   effectiveDisplayCategories,
   finishNewsProviderSync,
@@ -18,6 +20,7 @@ import {
   getPersistedKeywordEmbeddings,
   getKeywordVectorStatus,
   clearKeywordVectorCache,
+  sortItemsByDayReactions,
   undoNewsStoryDecision,
   updateNewsStory,
   upsertNewsStories
@@ -61,17 +64,21 @@ test('stored feed query returns normalized publisher story shape', async () => {
   };
   try {
     const feed = await getStoredNewsFeed(env, 'childcare');
-    assert.equal(requestUrls.length, 2);
-    assert.ok(requestUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
+    const storyUrls = requestUrls.filter(requestUrl => requestUrl.pathname === '/rest/v1/news_stories');
+    const reactionUrls = requestUrls.filter(requestUrl => requestUrl.pathname === '/rest/v1/article_reactions');
+    assert.equal(storyUrls.length, 2);
+    assert.equal(reactionUrls.length, 1);
+    assert.equal(reactionUrls[0].searchParams.get('select'), 'story_id,reaction_type,count');
+    assert.ok(storyUrls.every(requestUrl => requestUrl.pathname === '/rest/v1/news_stories'));
     // Phase 3: interest-overlap OR as top-level param, ANDed with the exclusion filter (De Morgan form).
-    assert.ok(requestUrls.every(requestUrl => {
+    assert.ok(storyUrls.every(requestUrl => {
       const or = requestUrl.searchParams.get('or');
       return or?.startsWith('(interest_keywords.ov.{') && or?.endsWith(',display_categories.cs.{childcare})');
     }));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or')?.includes('childcare-family-general')));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('not.and') === '(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,clickbait,death,politics,elections,government})'));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
+    assert.ok(storyUrls.every(requestUrl => requestUrl.searchParams.get('or')?.includes('childcare-family-general')));
+    assert.ok(storyUrls.every(requestUrl => requestUrl.searchParams.get('not.and') === '(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,clickbait,death,politics,elections,government})'));
+    assert.ok(storyUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
+    assert.ok(storyUrls.every(requestUrl => requestUrl.searchParams.get('removed') === 'eq.false'));
     assert.equal(feed.provider, 'supabase');
     assert.deepEqual(feed.items[0], {
       provider: 'gnews',
@@ -93,7 +100,7 @@ test('stored feed query returns normalized publisher story shape', async () => {
     assert.equal(feed.items[1].fetchedAt, '2026-10-17T13:00:00Z');
     assert.equal(feed.items[0].approved, true);
     assert.equal(feed.items[1].approved, false);
-    assert.deepEqual(new Set(requestUrls.map(requestUrl => requestUrl.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
+    assert.deepEqual(new Set(storyUrls.map(requestUrl => requestUrl.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -120,8 +127,10 @@ test('getStoredNewsFeed falls back to legacy category query when interest matche
   };
   try {
     const feed = await getStoredNewsFeed(env, 'childcare');
-    // 2 interest + 2 legacy category fetches
-    assert.equal(requestUrls.length, 4);
+    // 2 interest + 2 legacy category fetches + 1 reaction totals fetch
+    assert.equal(requestUrls.length, 5);
+    const storyQueries = requestUrls.filter(u => u.pathname === '/rest/v1/news_stories');
+    assert.equal(storyQueries.length, 4);
     const legacyQueries = requestUrls.filter(u => u.searchParams.get('or') === '(and(category.eq.childcare,display_categories.is.null),display_categories.cs.{childcare})');
     assert.equal(legacyQueries.length, 2);
     assert.equal(feed.items.length, 1);
@@ -146,6 +155,73 @@ test('getStoredNewsFeed excludes flagged keywords from the all category', async 
     ));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('computeStoryId matches the frontend getStoryId algorithm', () => {
+  // Values computed from the frontend function in supabaseService.ts.
+  assert.equal(computeStoryId('https://publisher.example/family', 'Family story'), 's_4z2l0j');
+  assert.equal(computeStoryId('https://publisher.example/dino', 'Dino story'), 's_qosezd');
+  assert.equal(computeStoryId('https://publisher.example/toy', 'Toy story'), 's_yagyed');
+});
+
+test('sortItemsByDayReactions ranks most-reacted first within each day', () => {
+  const items = [
+    { title: 'Newer, few reactions', link: 'https://x.example/a', pubDate: '2026-10-17T14:00:00Z' },
+    { title: 'Older, many reactions', link: 'https://x.example/b', pubDate: '2026-10-17T09:00:00Z' },
+    { title: 'Yesterday, most reactions', link: 'https://x.example/c', pubDate: '2026-10-16T09:00:00Z' },
+    { title: 'No reactions', link: 'https://x.example/d', pubDate: '2026-10-17T10:00:00Z' },
+    { title: 'No reactions 2', link: 'https://x.example/e', pubDate: '2026-10-17T11:00:00Z' }
+  ];
+  const totals = new Map([
+    [computeStoryId('https://x.example/a', 'Newer, few reactions'), 2],
+    [computeStoryId('https://x.example/b', 'Older, many reactions'), 15],
+    [computeStoryId('https://x.example/c', 'Yesterday, most reactions'), 100]
+  ]);
+  const ranked = sortItemsByDayReactions(items, totals);
+  // Same day: reactions dominate recency; zero-reaction ties break by recency;
+  // the older day sorts after the whole newer day, however many reactions it has.
+  assert.deepEqual(ranked.map(item => item.title), [
+    'Older, many reactions',
+    'Newer, few reactions',
+    'No reactions 2',
+    'No reactions',
+    'Yesterday, most reactions'
+  ]);
+  // Input untouched.
+  assert.equal(items[0].title, 'Newer, few reactions');
+});
+
+test('getStoredNewsFeed ranks same-day stories by total reactions', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    if (requestUrl.pathname === '/rest/v1/article_reactions') {
+      return Response.json([
+        { story_id: 's_qosezd', reaction_type: 'love', count: 10 },
+        { story_id: 's_qosezd', reaction_type: 'mind', count: 5 },
+        { story_id: 's_yagyed', reaction_type: 'love', count: 2 },
+        { story_id: 's_99efjv', reaction_type: 'love', count: 100 }
+      ]);
+    }
+    if (requestUrl.searchParams.get('approved') === 'eq.false') return Response.json([]);
+    return Response.json([
+      { provider: 'gnews', category: 'childcare', title: 'Toy story', article_url: 'https://publisher.example/toy', approved: true, published_at: '2026-10-17T14:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Dino story', article_url: 'https://publisher.example/dino', approved: true, published_at: '2026-10-17T12:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Family story', article_url: 'https://publisher.example/family', approved: true, published_at: '2026-10-17T10:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Old story', article_url: 'https://publisher.example/old', approved: true, published_at: '2026-10-16T09:00:00Z' }
+    ]);
+  };
+  try {
+    const feed = await getStoredNewsFeed(env, 'all');
+    assert.deepEqual(feed.items.map(item => item.title), [
+      'Dino story',
+      'Toy story',
+      'Family story',
+      'Old story'
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1080,6 +1156,87 @@ test('getStoriesByInterests handles category IDs via front-page feeds', async ()
     const result = await getStoriesByInterests(env, ['childcare']);
     assert.equal(result.items.length, 1);
     assert.equal(result.items[0].title, 'Category story');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoriesByInterests ranks same-day stories by total reactions', async () => {
+  const { getStoriesByInterests } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    if (requestUrl.pathname === '/rest/v1/article_reactions') {
+      return Response.json([
+        { story_id: 's_qosezd', reaction_type: 'love', count: 10 },
+        { story_id: 's_qosezd', reaction_type: 'mind', count: 5 },
+        { story_id: 's_yagyed', reaction_type: 'love', count: 2 }
+      ]);
+    }
+    if (requestUrl.searchParams.get('approved') === 'eq.false') return Response.json([]);
+    return Response.json([
+      { provider: 'gnews', category: 'childcare', title: 'Toy story', article_url: 'https://publisher.example/toy', interest_keywords: ['childcare-babies'], approved: true, published_at: '2026-10-17T14:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Dino story', article_url: 'https://publisher.example/dino', interest_keywords: ['childcare-babies'], approved: true, published_at: '2026-10-17T12:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Family story', article_url: 'https://publisher.example/family', interest_keywords: ['childcare-babies'], approved: true, published_at: '2026-10-17T10:00:00Z' }
+    ]);
+  };
+  try {
+    const result = await getStoriesByInterests(env, ['childcare-babies']);
+    assert.deepEqual(result.items.map(item => item.title), ['Dino story', 'Toy story', 'Family story']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getPlayroomFeed ranks same-day stories by total reactions', async () => {
+  const { getPlayroomFeed } = await import('./news-storage.mjs');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    const table = url.pathname.split('/').pop();
+    if (table === 'profiles') {
+      return Response.json([{ id: 'user-123' }]);
+    }
+    if (table === 'playrooms' && url.searchParams.get('select') === 'id') {
+      return Response.json([{ id: 'playroom-456' }]);
+    }
+    if (table === 'playrooms') {
+      return Response.json([{
+        id: 'playroom-456',
+        user_id: 'user-123',
+        name: 'My Playroom',
+        slug: 'my-playroom'
+      }]);
+    }
+    if (table === 'playroom_spaces') {
+      return Response.json([{
+        position: 0,
+        boards: {
+          id: 'space-789',
+          name: 'Babies',
+          slug: 'babies',
+          pills: [{ type: 'keyword', id: 'childcare-babies' }]
+        }
+      }]);
+    }
+    if (table === 'article_reactions') {
+      return Response.json([
+        { story_id: 's_qosezd', reaction_type: 'love', count: 10 },
+        { story_id: 's_qosezd', reaction_type: 'mind', count: 5 },
+        { story_id: 's_yagyed', reaction_type: 'love', count: 2 }
+      ]);
+    }
+    // news_stories queries
+    if (url.searchParams.get('approved') === 'eq.false') return Response.json([]);
+    return Response.json([
+      { provider: 'gnews', category: 'childcare', title: 'Toy story', article_url: 'https://publisher.example/toy', interest_keywords: ['childcare-babies'], approved: true, published_at: '2026-10-17T14:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Dino story', article_url: 'https://publisher.example/dino', interest_keywords: ['childcare-babies'], approved: true, published_at: '2026-10-17T12:00:00Z' },
+      { provider: 'gnews', category: 'childcare', title: 'Family story', article_url: 'https://publisher.example/family', interest_keywords: ['childcare-babies'], approved: true, published_at: '2026-10-17T10:00:00Z' }
+    ]);
+  };
+  try {
+    const result = await getPlayroomFeed(env, null, null, 'littlables', 'my-playroom');
+    assert.deepEqual(result.items.map(item => item.title), ['Dino story', 'Toy story', 'Family story']);
   } finally {
     globalThis.fetch = originalFetch;
   }

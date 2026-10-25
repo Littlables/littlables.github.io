@@ -293,10 +293,12 @@ test('public feed API reads approved and unapproved stories while excluding bann
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(requests.length, 2);
-    assert.ok(requests.every(requested => requested.pathname === '/rest/v1/news_stories'));
-    assert.ok(requests.every(requested => requested.searchParams.get('removed') === 'eq.false'));
-    assert.deepEqual(new Set(requests.map(requested => requested.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
+    const storyRequests = requests.filter(requested => requested.pathname === '/rest/v1/news_stories');
+    const reactionRequests = requests.filter(requested => requested.pathname === '/rest/v1/article_reactions');
+    assert.equal(storyRequests.length, 2);
+    assert.equal(reactionRequests.length, 1);
+    assert.ok(storyRequests.every(requested => requested.searchParams.get('removed') === 'eq.false'));
+    assert.deepEqual(new Set(storyRequests.map(requested => requested.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
     assert.equal(result.items[0].link, 'https://publisher.example/family');
     assert.equal(result.items[0].approved, true);
     assert.equal(result.items[1].approved, false);
