@@ -440,16 +440,42 @@ body {
   cursor: not-allowed;
 }
 
-.refresh-news-button.is-loading svg {
-  animation: headerBalloonFloat 0.9s ease-in-out infinite;
+/* Refresh button balloon: parked on a circular track at rest, orbits with a
+   wiggling trailing string while loading — like a cat chasing its tail. */
+.refresh-news-button .balloon-track {
+  opacity: 0.35;
 }
 
-@keyframes headerBalloonFloat {
+.refresh-news-button .balloon-orbit {
+  transform-box: view-box;
+  transform-origin: center;
+}
+
+.refresh-news-button.is-loading .balloon-orbit {
+  animation: balloonOrbit 1.1s linear infinite;
+}
+
+@keyframes balloonOrbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.refresh-news-button .balloon-string {
+  transform-box: fill-box;
+  transform-origin: top center;
+}
+
+.refresh-news-button.is-loading .balloon-string {
+  animation: stringWiggle 0.55s ease-in-out infinite;
+}
+
+@keyframes stringWiggle {
   0%, 100% {
-    transform: translateY(0);
+    transform: rotate(-6deg);
   }
   50% {
-    transform: translateY(-3px);
+    transform: rotate(7deg);
   }
 }
 

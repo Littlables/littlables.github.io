@@ -103,10 +103,24 @@ export const Header: React.FC<HeaderProps> = ({
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <ellipse cx="12" cy="8.5" rx="5.5" ry="6.5" />
-            <path d="M11 15 L13 15 L12 17.2 Z" fill="currentColor" stroke="none" />
-            <path d="M12 17.2 C 12 19.5, 9.5 19.8, 9.5 22" />
-            <path d="M9.3 6.2 C 8.3 7.2, 7.8 8.8, 8 10.3" opacity="0.45" />
+            {/* Faint circular track — the balloon parks in the gap at the top */}
+            <path
+              className="balloon-track"
+              d="M15.38 4.75 A8 8 0 1 1 8.62 4.75"
+              strokeWidth="1.2"
+            />
+            {/* Balloon riding the track; orbits while loading */}
+            <g className="balloon-orbit">
+              <ellipse cx="12" cy="4" rx="3.5" ry="3.8" />
+              <path d="M11 7.8 L13 7.8 L12 9 Z" fill="currentColor" stroke="none" />
+              {/* String trails behind the balloon and wiggles as it orbits */}
+              <path
+                className="balloon-string"
+                d="M12 9 C 11 10.8, 9 11.5, 7 10.8"
+                strokeWidth="1.5"
+              />
+              <path d="M10.6 2.2 C 10 3, 9.8 3.8, 10 4.6" opacity="0.45" strokeWidth="1.5" />
+            </g>
           </svg>
         </button>
 
