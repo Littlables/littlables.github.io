@@ -83,7 +83,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn, signe
           }}
         />
         <h1 className="about-hero-title">littlables</h1>
-        <p className="about-hero-tagline">A special interest sharing and discovery playground</p>
+        <p className="about-hero-tagline">A special interest sharing and discovery playroom.</p>
         <p className="about-hero-sub">
           Your special interest curiosity playground — a cozy corner of the
           internet where curious families, animal lovers, makers, and
