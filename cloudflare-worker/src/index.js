@@ -9,7 +9,8 @@ import {
   createOAuthStateCookie,
   getAdminIdentity,
   getOAuthState,
-  isSameOrigin
+  isSameOrigin,
+  getCorsHeaders
 } from './github-auth.mjs';
 import {
   claimNewsProviderSync,
@@ -24,24 +25,54 @@ import {
   getStoredKeywordNewsFeed,
   undoNewsStoryDecision,
   updateNewsStory,
+  setStoryDisplayCategories,
+  setStoryInterestKeywords,
+  getStoriesByKeyword,
+  getStoriesByInterests,
+  getSpaceFeedPreview,
+  getPlayroomFeed,
+  getPersistedKeywordEmbeddings,
+  getKeywordVectorStatus,
+  OVERRIDABLE_CATEGORIES,
+  effectiveDisplayCategories,
   upsertNewsStories,
   searchNewsStories,
   getProviderCooldownState,
   setProviderCooldownState,
   clearProviderCooldownState,
+  persistProviderCooldown,
+  enqueueProviderRetry,
+  drainDueRetries,
+  completeRetryJob,
+  countQueuedRetries,
   getAutoSyncState,
   setAutoSyncState,
   recordNewsProviderFetchLog,
   getNewsProviderFetchLogs,
   clearNewsProviderFetchLogs,
+  pruneOldProviderLogs,
+  getNewsProviderFetchLogsFromDb,
   DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,
   getAiCurationState,
   updateAiCurationConfig,
   runAiStoryCuration,
-  bulkDecideNewsStories
+  bulkDecideNewsStories,
+  recordEngagementEvent,
+  recordBoardEvent,
+  recordSearchQuery,
+  isInternalRequest,
+  getAnalyticsStats,
+  recordAdEvent,
+  STORIES_TABLE,
+  supabaseHeaders,
+  supabaseUrl
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
+import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings } from './embedding-classifier.mjs';
+import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
+import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
+import { matchAdsToStory } from './ad-keyword-matcher.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -69,7 +100,69 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-async function serveNewsFeed(request, env) {
+async function handleEngagementEvent(request, env) {
+  try {
+    // Never log internal traffic (admin testing, dev site) — it would skew audience stats.
+    if (isInternalRequest(request)) return jsonResponse({ ok: true, reason: 'internal-skipped' }, 200);
+    const body = await request.json();
+    const result = await recordEngagementEvent(env, {
+      url: body.url,
+      title: body.title,
+      category: body.category,
+      eventType: body.eventType,
+      sessionId: body.sessionId,
+      keywords: body.keywords,
+      referrer_domain: body.referrer_domain,
+      utm_source: body.utm_source,
+      utm_medium: body.utm_medium,
+      utm_campaign: body.utm_campaign,
+      // Country from Cloudflare IP geolocation (free, no permission needed).
+      country_code: request.cf?.country || null,
+      dwell_seconds: body.dwell_seconds,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
+}
+
+async function handleBoardEvent(request, env) {
+  try {
+    if (isInternalRequest(request)) return jsonResponse({ ok: true, reason: 'internal-skipped' }, 200);
+    const body = await request.json();
+    const result = await recordBoardEvent(env, {
+      sessionId: body.sessionId,
+      keywordIds: body.keywordIds,
+      categoryIds: body.categoryIds,
+      country_code: request.cf?.country || null,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
+}
+
+async function handleAdEvent(request, env) {
+  try {
+    if (isInternalRequest(request)) return jsonResponse({ ok: true, reason: 'internal-skipped' }, 200);
+    const body = await request.json();
+    const result = await recordAdEvent(env, {
+      adId: body.adId,
+      adTitle: body.adTitle,
+      network: body.network,
+      category: body.category,
+      storyUrlHash: body.storyUrlHash,
+      eventType: body.eventType,
+      sessionId: body.sessionId,
+      country_code: request.cf?.country || null,
+    });
+    return jsonResponse(result, 200);
+  } catch (err) {
+    return jsonResponse({ ok: false, reason: 'bad-request' }, 400);
+  }
+}
+
+async function serveNewsFeed(request, env, ctx) {
   const url = new URL(request.url);
   try {
     const limit = await env.SUMMARY_RATE_LIMITER.limit({
@@ -85,6 +178,16 @@ async function serveNewsFeed(request, env) {
     ).trim();
     const normalizedCategory = rawCategory.toLowerCase();
 
+    // Interest keyword feed (for custom boards). Keywords never appear as
+    // categories; this is the dedicated read path for them.
+    const keywordParam = (url.searchParams.get('keyword') || '').trim();
+    if (keywordParam) {
+      const kw = getInterestKeyword(keywordParam);
+      if (!kw) return jsonResponse({ error: 'Unknown interest keyword' }, 400);
+      const feed = await getStoriesByKeyword(env, kw.id);
+      return jsonResponse({ ...feed, keyword: kw.id });
+    }
+
     if (NEWS_CATEGORY_SET.has(normalizedCategory)) {
       const feed = await getStoredNewsFeed(env, normalizedCategory);
       return jsonResponse(feed);
@@ -92,6 +195,16 @@ async function serveNewsFeed(request, env) {
 
     const feed = await getStoredKeywordNewsFeed(env, rawCategory);
     const ads = getAds({ query: rawCategory });
+    // Log the search query (fire-and-forget — never blocks the response).
+    // Skipped for internal traffic (admin panel, dev site).
+    const storyCount = Array.isArray(feed?.stories) ? feed.stories.length : 0;
+    if (ctx?.waitUntil && !isInternalRequest(request)) {
+      ctx.waitUntil(recordSearchQuery(env, {
+        query: rawCategory,
+        resultCount: storyCount,
+        country_code: request.cf?.country || null,
+      }));
+    }
     return jsonResponse({
       ...feed,
       topic: rawCategory,
@@ -127,110 +240,10 @@ function computeCooldownWindow(err) {
   };
 }
 
-function selectFallbackProvider(failedProviderId, env, excluded = new Set()) {
-  if (env?.DISABLE_PROVIDER_FAILOVER === 'true') return null;
-  const allProviders = getNewsProviders(env);
-  const candidates = allProviders.filter((p) => {
-    if (p.id === failedProviderId || excluded.has(p.id)) return false;
-    if (!p.configured) return false;
-    if (getProviderCooldownState(p.id)) return false;
-    return true;
-  });
-  if (!candidates.length) return null;
-  // Prefer configured API providers first if credentials exist, then keyless RSS/Atom providers (bing, reddit)
-  const withKey = candidates.find(c => Boolean(c.credential_name && env?.[c.credential_name]));
-  return withKey || candidates[0];
-}
-
-async function runFailoverCategories(failedProviderId, remainingCategories, env, excludedProviders = new Set()) {
-  if (!remainingCategories.length) {
-    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
-  }
-  const fallback = selectFallbackProvider(failedProviderId, env, excludedProviders);
-  if (!fallback) {
-    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
-  }
-  const fallbackConfig = getNewsProviderConfig(fallback.id);
-  if (!fallbackConfig) {
-    return { failoverProvider: null, failoverStoriesSaved: 0, failoverCategories: [] };
-  }
-
-  let failoverStoriesSaved = 0;
-  const coveredCategories = [];
-
-  for (const [idx, category] of remainingCategories.entries()) {
-    if (!Object.hasOwn(fallbackConfig.categories, category)) continue;
-    if (idx > 0 && fallbackConfig.updatePauseMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, Math.min(fallbackConfig.updatePauseMs, 500)));
-    }
-    let lastTelemetry = null;
-    try {
-      const feed = await getNewsFeed(fallback.id, category, ADMIN_MARKET, {
-        credentials: env,
-        cache: false,
-        onFetchTelemetry: (t) => { lastTelemetry = t; }
-      });
-      const stories = feed.items.slice(0, 10);
-      const upsertResult = await upsertNewsStories(env, fallback.id, category, stories);
-      const savedCount = upsertResult?.savedCount ?? stories.length;
-      failoverStoriesSaved += savedCount;
-      coveredCategories.push(category);
-
-      await recordNewsProviderFetchLog(env, {
-        provider: fallback.id,
-        providerLabel: fallbackConfig.label,
-        category,
-        triggerSource: 'failover',
-        status: 'succeeded',
-        httpStatus: lastTelemetry?.httpStatus ?? 200,
-        durationMs: lastTelemetry?.durationMs ?? 0,
-        attemptCount: lastTelemetry?.attemptCount ?? 1,
-        itemsFetched: feed.items.length,
-        storiesSaved: savedCount,
-        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
-        retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
-        rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
-        rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
-        requestUrl: lastTelemetry?.requestUrl || fallbackConfig.endpoint || '',
-        failoverProvider: failedProviderId,
-        errorMessage: null
-      });
-    } catch (fallbackErr) {
-      const isFallbackRateLimit = Boolean(fallbackErr?.isRateLimit || fallbackErr?.status === 429);
-      await recordNewsProviderFetchLog(env, {
-        provider: fallback.id,
-        providerLabel: fallbackConfig.label,
-        category,
-        triggerSource: 'failover',
-        status: isFallbackRateLimit ? 'rate_limited' : 'failed',
-        httpStatus: fallbackErr?.status ?? lastTelemetry?.httpStatus ?? null,
-        durationMs: fallbackErr?.durationMs ?? lastTelemetry?.durationMs ?? 0,
-        attemptCount: fallbackErr?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
-        itemsFetched: 0,
-        storiesSaved: 0,
-        retryAfterSeconds: fallbackErr?.retryAfterSeconds ?? null,
-        rateLimitRemaining: fallbackErr?.rateLimitRemaining ?? null,
-        rateLimitReset: fallbackErr?.rateLimitReset ?? null,
-        requestUrl: fallbackErr?.requestUrl || lastTelemetry?.requestUrl || fallbackConfig.endpoint || '',
-        failoverProvider: failedProviderId,
-        errorMessage: `Failover from ${failedProviderId} failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`
-      });
-      if (isFallbackRateLimit) break;
-    }
-  }
-
-  return {
-    failoverProvider: coveredCategories.length > 0 ? fallback.id : null,
-    failoverStoriesSaved,
-    failoverCategories: coveredCategories
-  };
-}
 
 async function executeProviderSync(provider, updatedBy, env, {
   triggerSource = 'manual',
-  force = false,
-  allowFailover = true,
-  excludedFailoverProviders = new Set()
+  force = false
 } = {}) {
   const config = getNewsProviderConfig(provider);
   if (!config) return { httpStatus: 404, body: { error: 'Unknown news provider' } };
@@ -284,9 +297,6 @@ async function executeProviderSync(provider, updatedBy, env, {
   }
 
   let storiesSaved = 0;
-  let failoverStoriesSaved = 0;
-  let failoverProvider = null;
-  let failoverCategories = [];
   let cooldownUntil = null;
   let hitRateLimit = false;
   const errors = [];
@@ -338,17 +348,15 @@ async function executeProviderSync(provider, updatedBy, env, {
           cooldownUntil = windowInfo.cooldownUntil;
           const remainingCategories = categories.slice(index);
 
-          if (allowFailover && remainingCategories.length > 0) {
-            excludedFailoverProviders.add(provider);
-            const failoverResult = await runFailoverCategories(
-              provider,
-              remainingCategories,
-              env,
-              excludedFailoverProviders
-            );
-            failoverProvider = failoverResult.failoverProvider;
-            failoverStoriesSaved = failoverResult.failoverStoriesSaved;
-            failoverCategories = failoverResult.failoverCategories;
+          // No cross-provider failover: queue the remaining categories for this
+          // same provider to retry after the cooldown expires.
+          let queuedCount = 0;
+          for (const rc of remainingCategories) {
+            const ok = await enqueueProviderRetry(env, provider, rc, {
+              notBefore: cooldownUntil,
+              error: message
+            });
+            if (ok) queuedCount++;
           }
 
           setProviderCooldownState(provider, {
@@ -357,9 +365,15 @@ async function executeProviderSync(provider, updatedBy, env, {
             retryAfterSeconds: windowInfo.cooldownSeconds,
             rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
             lastError: message,
-            failoverProvider,
-            failoverCategories
+            failoverProvider: null,
+            failoverCategories: []
           });
+          // Persist to DB so cooldown survives worker restarts (fire-and-forget)
+          persistProviderCooldown(env, provider, {
+            cooldownUntil,
+            rateLimitResetAt: windowInfo.rateLimitResetAt,
+            lastError: message
+          }).catch(() => {});
 
           await recordNewsProviderFetchLog(env, {
             provider,
@@ -376,12 +390,12 @@ async function executeProviderSync(provider, updatedBy, env, {
             rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
             rateLimitReset: windowInfo.rateLimitResetAt,
             requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
-            failoverProvider,
-            errorMessage: `${message}${failoverProvider ? ` · Failed over [${failoverCategories.join(', ')}] to ${failoverProvider} (+${failoverStoriesSaved} stories)` : ''}`
+            failoverProvider: null,
+            errorMessage: `${message} · queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown`
           });
 
-          if (failoverProvider) {
-            errors.push(`failover: routed remaining topics (${failoverCategories.join(', ')}) to ${failoverProvider} (+${failoverStoriesSaved} stories saved)`);
+          if (queuedCount > 0) {
+            errors.push(`queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown (${cooldownUntil})`);
           }
           // Stop querying remaining categories on the rate-limited provider immediately
           break;
@@ -413,7 +427,7 @@ async function executeProviderSync(provider, updatedBy, env, {
 
     const status = errors.length === 0
       ? 'succeeded'
-      : (storiesSaved > 0 || failoverStoriesSaved > 0)
+      : storiesSaved > 0
         ? 'partial'
         : 'failed';
     const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
@@ -428,10 +442,7 @@ async function executeProviderSync(provider, updatedBy, env, {
         errors,
         ...(hitRateLimit ? {
           rateLimited: true,
-          cooldownUntil,
-          failoverProvider,
-          failoverCategories,
-          failoverStoriesSaved
+          cooldownUntil
         } : {})
       }
     };
@@ -451,6 +462,151 @@ async function updateNewsProvider(provider, updatedBy, env, options = {}) {
   return jsonResponse(result.body, result.httpStatus);
 }
 
+/**
+ * Staggered topic sync: processes the next batch of (provider, category) pairs
+ * from the rotation queue. Designed to run every 10 minutes via cron,
+ * spreading the 42 fetches evenly across the hour instead of bursting.
+ */
+/**
+ * Drain due provider retry jobs: re-run the same provider/category fetch
+ * after its cooldown expired. Bounded to stay under the subrequest budget.
+ */
+async function drainProviderRetries(env, { limit = 10, triggerSource = 'cron:retry' } = {}) {
+  const jobs = await drainDueRetries(env, { limit });
+  if (!jobs.length) return { drained: 0, succeeded: 0, requeued: 0, failed: 0 };
+  let succeeded = 0, requeued = 0, failed = 0;
+  for (const job of jobs) {
+    const config = getNewsProviderConfig(job.provider);
+    if (!config) {
+      await completeRetryJob(env, job.id, { success: false, error: 'Unknown provider' });
+      failed++;
+      continue;
+    }
+    // Respect an active cooldown (may have been re-set since the job was queued)
+    if (getProviderCooldownState(job.provider)) {
+      await completeRetryJob(env, job.id, {
+        success: false,
+        notBefore: getProviderCooldownState(job.provider).cooldownUntil,
+        error: 'Still in cooldown, re-queued'
+      });
+      requeued++;
+      continue;
+    }
+    try {
+      const feed = await getNewsFeed(job.provider, job.category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+        onFetchTelemetry: () => {}
+      });
+      const stories = feed.items.slice(0, 10);
+      const upsertResult = await upsertNewsStories(env, job.provider, job.category, stories);
+      await recordNewsProviderFetchLog(env, {
+        provider: job.provider,
+        providerLabel: config.label,
+        category: job.category,
+        triggerSource,
+        status: 'succeeded',
+        httpStatus: 200,
+        durationMs: 0,
+        attemptCount: job.attempts + 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: upsertResult?.savedCount ?? 0,
+        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+        errorMessage: null
+      });
+      await completeRetryJob(env, job.id, { success: true });
+      succeeded++;
+    } catch (err) {
+      const isRateLimit = Boolean(err?.isRateLimit || err?.status === 429);
+      const windowInfo = isRateLimit ? computeCooldownWindow(err) : null;
+      const result = await completeRetryJob(env, job.id, {
+        success: false,
+        notBefore: windowInfo?.cooldownUntil || undefined,
+        error: err instanceof Error ? err.message : String(err)
+      });
+      if (isRateLimit) {
+        // Refresh the provider cooldown so the normal sync also backs off
+        setProviderCooldownState(job.provider, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          retryAfterSeconds: windowInfo.cooldownSeconds,
+          lastError: err instanceof Error ? err.message : String(err),
+          failoverProvider: null,
+          failoverCategories: []
+        });
+        persistProviderCooldown(env, job.provider, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          lastError: err instanceof Error ? err.message : String(err)
+        }).catch(() => {});
+      }
+      if (result === 'requeued') requeued++;
+      else failed++;
+    }
+  }
+  return { drained: jobs.length, succeeded, requeued, failed };
+}
+
+async function runStaggeredSync(env, triggerSource = 'cron', updatedBy = 'staggered-scheduler') {
+  const providers = getNewsProviders(env).filter(p => p.configured);
+  if (providers.length === 0) {
+    return { skipped: true, reason: 'No providers configured', pairsSynced: 0 };
+  }
+
+  const batch = getNextSyncBatch(providers, PAIRS_PER_RUN);
+  const results = [];
+  let totalStoriesSaved = 0;
+
+  for (const { provider, category } of batch) {
+    const config = getNewsProviderConfig(provider);
+    if (!config) continue;
+    // Small pause between fetches to avoid hammering APIs
+    if (results.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    try {
+      const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+      });
+      const stories = feed.items.slice(0, 10);
+      const upsertResult = await upsertNewsStories(env, provider, category, stories);
+      const savedCount = upsertResult?.savedCount ?? 0;
+      totalStoriesSaved += savedCount;
+      await recordNewsProviderFetchLog(env, {
+        provider,
+        providerLabel: config.label,
+        category,
+        triggerSource: triggerSource + ':staggered',
+        status: 'succeeded',
+        httpStatus: 200,
+        durationMs: 0,
+        attemptCount: 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: savedCount,
+        duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+        errorMessage: null,
+      });
+      results.push({ provider, category, status: 'succeeded', storiesSaved: savedCount });
+    } catch (err) {
+      console.error(`Staggered sync failed for ${provider}/${category}:`, err);
+      results.push({
+        provider,
+        category,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    pairsSynced: results.length,
+    totalStoriesSaved,
+    results,
+    triggerSource,
+  };
+}
+
 async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourly-scheduler', { force = false } = {}) {
   const currentAuto = getAutoSyncState();
   if (!force && !currentAuto.enabled) {
@@ -465,18 +621,15 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
   const results = [];
   let totalStoriesSaved = 0;
   let rateLimitedCount = 0;
-  const excludedFailovers = new Set();
 
   for (const provider of providers) {
     try {
       const outcome = await executeProviderSync(provider.id, updatedBy, env, {
         triggerSource,
-        force: false,
-        allowFailover: true,
-        excludedFailoverProviders: excludedFailovers
+        force: false
       });
       if (outcome.httpStatus === 200) {
-        totalStoriesSaved += (outcome.body.storiesSaved || 0) + (outcome.body.failoverStoriesSaved || 0);
+        totalStoriesSaved += (outcome.body.storiesSaved || 0);
         if (outcome.body.rateLimited || outcome.body.status === 'rate_limited') {
           rateLimitedCount++;
         }
@@ -865,6 +1018,117 @@ async function serveAdmin(request, env) {
     }
   }
 
+  const displayCatsMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/display-categories$/);
+  if (displayCatsMatch && request.method === 'PATCH') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story category updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      let body = {};
+      try { body = await request.json(); } catch { /* empty body clears the override */ }
+      const result = await setStoryDisplayCategories(env, displayCatsMatch[1], body.display_categories);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not update story categories' }, result.error === 'Story was not found' ? 404 : 400);
+      return jsonResponse({
+        id: Number(displayCatsMatch[1]),
+        display_categories: result.displayCategories,
+        overrridable_categories: OVERRIDABLE_CATEGORIES,
+      });
+    } catch (err) {
+      console.error('News story display-categories update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story categories' }, 502);
+    }
+  }
+
+  const interestKwMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/interest-keywords$/);
+  if (interestKwMatch && request.method === 'PATCH') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story keyword updates must be requested from the admin origin' }, 403);
+    }
+    try {
+      let body = {};
+      try { body = await request.json(); } catch { /* empty body clears the keywords */ }
+      const result = await setStoryInterestKeywords(env, interestKwMatch[1], body.interest_keywords);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not update story keywords' }, result.error === 'Story was not found' ? 404 : 400);
+      return jsonResponse({
+        id: Number(interestKwMatch[1]),
+        interest_keywords: result.interestKeywords,
+        interest_keyword_options: INTEREST_KEYWORDS,
+      });
+    } catch (err) {
+      console.error('News story interest-keywords update failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update story keywords' }, 502);
+    }
+  }
+
+  // LLM keyword tagging: have the model read the story and pick the keywords
+  // that actually fit (judged by meaning, not word association), then store
+  // them. Used from the validation list's "AI tags" button to correct
+  // embedding misfires. Budget: 1 story fetch + 1 LLM call + 1 PATCH.
+  const llmKwMatch = url.pathname.match(/^\/admin\/api\/stories\/(\d+)\/llm-keywords$/);
+  if (llmKwMatch && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Story keyword tagging must be requested from the admin origin' }, 403);
+    }
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    try {
+      const storyId = llmKwMatch[1];
+      const storyQuery = new URLSearchParams({ id: `eq.${storyId}`, select: 'id,title,description' });
+      const storyRes = await fetch(supabaseUrl(env, STORIES_TABLE, storyQuery), {
+        headers: supabaseHeaders(env),
+      });
+      if (!storyRes.ok) throw new Error(`Story lookup failed (HTTP ${storyRes.status})`);
+      const storyRows = await storyRes.json();
+      if (!Array.isArray(storyRows) || storyRows.length === 0) {
+        return jsonResponse({ error: 'Story was not found' }, 404);
+      }
+      const story = storyRows[0];
+      const keywordList = INTEREST_KEYWORDS.map((k) => `${k.id}: ${k.label}`).join('\n');
+      const prompt =
+        'You are tagging a family-friendly news story with topic keywords.\n\n' +
+        `Title: ${story.title || ''}\n` +
+        `Description: ${(story.description || '').slice(0, 1200)}\n\n` +
+        'Pick up to 3 keywords from this list that best describe what the story is ACTUALLY about. ' +
+        'Judge by meaning, not by words in the text — a passing mention of a person, brand, or object does not count. ' +
+        'For example, a story mentioning Elon Musk and Starlink is about satellites and geopolitics, not electric cars; ' +
+        'a story about a broken office globe is about history, not outer space.\n\n' +
+        `${keywordList}\n\n` +
+        'Respond with ONLY a JSON array of keyword ids, e.g. ["space", "science"]. If none fit well, respond with [].';
+      const aiRes = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+        messages: [
+          { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: 200,
+        temperature: 0.1,
+      });
+      const rawText = typeof aiRes === 'string' ? aiRes : (aiRes?.response || '');
+      const jsonMatch = rawText.match(/\[[\s\S]*?\]/);
+      let picked = [];
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) picked = parsed;
+        } catch { /* fall through to empty */ }
+      }
+      const clean = normalizeInterestKeywords(picked);
+      const result = await setStoryInterestKeywords(env, storyId, clean);
+      if (!result.ok) return jsonResponse({ error: result.error || 'Could not store LLM keywords' }, 502);
+      return jsonResponse({
+        id: Number(storyId),
+        interest_keywords: result.interestKeywords,
+        llm_picks: (result.interestKeywords || []).map((id) => {
+          const kw = getInterestKeyword(id);
+          return kw ? { id: kw.id, label: kw.label, icon: kw.icon } : { id };
+        }),
+      });
+    } catch (err) {
+      console.error('LLM keyword tagging failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'LLM keyword tagging failed' }, 502);
+    }
+  }
+
   const updateMatch = url.pathname.match(/^\/admin\/api\/providers\/([a-z0-9-]+)\/update$/);
   if (updateMatch && request.method === 'POST') {
     try {
@@ -1043,7 +1307,15 @@ async function serveAdmin(request, env) {
     const status = url.searchParams.get('status') || 'all';
     const category = url.searchParams.get('category') || 'all';
     const limit = Number(url.searchParams.get('limit') || 100);
-    return jsonResponse(getNewsProviderFetchLogs({ provider, status, category, limit }));
+    return jsonResponse(await getNewsProviderFetchLogsFromDb(env, { provider, status, category, limit }));
+  }
+
+  if (url.pathname === '/admin/api/analytics' && request.method === 'GET') {
+    const type = url.searchParams.get('type') || 'search';
+    const country = url.searchParams.get('country') || '';
+    const region = url.searchParams.get('region') || '';
+    const limit = Number(url.searchParams.get('limit') || 50);
+    return jsonResponse(await getAnalyticsStats(env, { type, country, region, limit }));
   }
 
   if (url.pathname === '/admin/api/logs/clear' && request.method === 'POST') {
@@ -1051,7 +1323,45 @@ async function serveAdmin(request, env) {
       return jsonResponse({ error: 'Log clearing must be requested from the admin origin' }, 403);
     }
     clearNewsProviderFetchLogs();
-    return jsonResponse({ cleared: true, ...getNewsProviderFetchLogs() });
+    try {
+      await fetch(
+        supabaseUrl(env, 'news_provider_logs', new URLSearchParams({ created_at: `lt.${new Date().toISOString()}` })),
+        { method: 'DELETE', headers: supabaseHeaders(env, { Prefer: 'return=minimal' }) }
+      );
+    } catch (err) {
+      console.warn('DB log clear failed:', err.message);
+    }
+    return jsonResponse({ cleared: true, ...(await getNewsProviderFetchLogsFromDb(env, {})) });
+  }
+
+  // Lookup a story by article URL (for homepage admin editing).
+  if (url.pathname === '/admin/api/stories/by-url' && request.method === 'GET') {
+    const articleUrl = url.searchParams.get('url') || '';
+    if (!articleUrl.trim()) return jsonResponse({ error: 'URL is required' }, 400);
+    try {
+      const query = new URLSearchParams({
+        article_url: `eq.${articleUrl}`,
+        select: 'id,title,approved,removed,display_categories,interest_keywords,category',
+        limit: '1',
+      });
+      const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), { headers: supabaseHeaders(env) });
+      if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+      const rows = await res.json();
+      if (!rows.length) return jsonResponse({ error: 'Story not found' }, 404);
+      const s = rows[0];
+      return jsonResponse({
+        id: s.id,
+        title: s.title,
+        approved: s.approved,
+        removed: s.removed,
+        display_categories: s.display_categories,
+        interest_keywords: s.interest_keywords,
+        category: s.category,
+      });
+    } catch (err) {
+      console.error('Story by-url lookup failed:', err);
+      return jsonResponse({ error: 'Could not find story' }, 502);
+    }
   }
 
   if (url.pathname === '/admin/api/stories/search' && request.method === 'GET') {
@@ -1063,6 +1373,262 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('Story search failed:', err);
       return jsonResponse({ items: [] });
+    }
+  }
+
+  // Auto-tag a single story with interest keywords (on-demand).
+  // POST /admin/api/stories/auto-tag { id }
+  // Classifies via embeddings, saves to DB, returns keywords.
+  if (url.pathname === '/admin/api/stories/auto-tag' && request.method === 'POST') {
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Must be requested from the admin origin' }, 403);
+    }
+    try {
+      const body = await request.json().catch(() => ({}));
+      const storyId = body.id;
+      if (!storyId) return jsonResponse({ error: 'Story ID required' }, 400);
+
+      // Fetch the story
+      const storyRes = await fetch(
+        supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${storyId}`, select: 'id,title,description' })),
+        { headers: supabaseHeaders(env) }
+      );
+      if (!storyRes.ok) throw new Error('Story fetch failed');
+      const rows = await storyRes.json();
+      const story = Array.isArray(rows) ? rows[0] : null;
+      if (!story) return jsonResponse({ error: 'Story not found' }, 404);
+
+      // Classify
+      const text = ((story.title || '') + ' ' + (story.description || '')).trim();
+      if (!text) return jsonResponse({ id: storyId, keywords: [] });
+
+      const keywordVectors = await getKeywordEmbeddings(env);
+      if (!keywordVectors || keywordVectors.size === 0) {
+        return jsonResponse({ error: 'Keyword vectors not warmed up' }, 503);
+      }
+      const vector = await embedText(env, text);
+      if (!vector) {
+        return jsonResponse({ error: 'Failed to embed story text', id: storyId }, 500);
+      }
+      const matches = classifyStoryKeywords(vector, keywordVectors);
+      const keywords = matches.map(m => m.id);
+
+      // Save to DB (even if empty — marks as processed)
+      const saveRes = await fetch(
+        supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${storyId}` })),
+        {
+          method: 'PATCH',
+          headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interest_keywords: keywords })
+        }
+      );
+      if (!saveRes.ok) throw new Error('Save failed: ' + saveRes.status);
+
+      return jsonResponse({
+        id: storyId,
+        keywords,
+        matches: matches.map(m => ({ id: m.id, label: m.label, confidence: m.confidence })),
+        diagnostic: {
+          textLength: text.length,
+          vectorDims: vector.length,
+          keywordVectorsCount: keywordVectors.size,
+          threshold: 0.45
+        }
+      });
+    } catch (err) {
+      return jsonResponse({ error: err.message || 'Auto-tag failed' }, 500);
+    }
+  }
+
+  // Validate story categories via embedding classifier (prototype).
+  // Classifies unapproved stories and flags mismatches for review.
+  if (url.pathname === '/admin/api/stories/validate-categories' && request.method === 'POST') {
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    try {
+      // Parse optional limit (default: process all unvalidated)
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        // empty body is fine
+      }
+      const maxStories = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
+      const BATCH = 50;
+
+      let totalValidated = 0;
+      let totalStored = 0;
+      let firstError = null;
+      const allMismatches = [];
+      const allResults = [];
+      let offset = 0;
+
+      // Lightweight warmup status check: 1 Supabase lookup, 0 AI calls.
+      // Lets the UI show "Warming up (N/113)…" immediately instead of
+      // waiting for the first slow backfill round to return.
+      if (body.warmup_check === true) {
+        const kwCheck = await getKeywordVectorStatus(env);
+        return jsonResponse({
+          warmingUp: !kwCheck.complete,
+          warmupDone: kwCheck.done,
+          warmupTotal: kwCheck.total,
+        });
+      }
+
+      // Interest keyword vectors are loaded from Supabase (embedded once and
+      // persisted) and reused for every story — no per-story AI cost.
+      // While the backfill is warming up, this runs as a standalone step and
+      // returns early so its AI calls never share an invocation budget with
+      // story validation (which would exceed the subrequest limit).
+      const kwStatus = await getPersistedKeywordEmbeddings(env);
+      if (!kwStatus.complete) {
+        const debugBits = [];
+        if (kwStatus.lookupError) debugBits.push(`lookup: ${kwStatus.lookupError}`);
+        if (kwStatus.upsertError) debugBits.push(`upsert: ${kwStatus.upsertError}`);
+        if (kwStatus.upserted) debugBits.push(`saved ${kwStatus.upserted} this run`);
+        return jsonResponse({
+          validated: 0,
+          stored: 0,
+          storeError: null,
+          mismatches: [],
+          results: [],
+          warmingUp: true,
+          warmupDone: kwStatus.done,
+          warmupTotal: kwStatus.total,
+          status: `Warming up keyword vectors (${kwStatus.done}/${kwStatus.total}) — run validation again to continue.${debugBits.length ? ' [' + debugBits.join('; ') + ']' : ''}`,
+        });
+      }
+      const keywordVectors = kwStatus.vectors;
+
+      while (totalValidated < maxStories) {
+        // Fetch next batch of unapproved stories missing category validation
+        // (and never overwriting a hand-set display override) or missing
+        // interest keyword tags.
+        const query = new URLSearchParams({
+          select: 'id,title,description,category,image_url,provider,article_url,published_at,fetched_at,display_categories,embedding_category,embedding_confidence,interest_keywords,provider_country',
+          approved: 'eq.false',
+          removed: 'eq.false',
+          or: '(and(embedding_category.is.null,display_categories.is.null),interest_keywords.is.null)',
+          order: 'fetched_at.desc',
+          limit: String(Math.min(BATCH, maxStories - totalValidated)),
+          offset: String(offset),
+        });
+        const res = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+          headers: supabaseHeaders(env),
+        });
+        if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+        const stories = await res.json();
+        if (!stories.length) break;
+
+        const results = await validateStoryCategories(env, stories, { keywordVectors });
+
+        // Store the embedding predictions. For category mismatches, auto-apply
+        // the AI's pick as the display override — Katie reviews them in the
+        // validation list. Interest keyword tags are always stored when found.
+        for (const r of results) {
+          const patch = {};
+          if (r.categoryValidated && r.embeddingCategory) {
+            patch.embedding_category = r.embeddingCategory;
+            patch.embedding_confidence = r.confidence;
+            if (r.mismatch) patch.display_categories = [r.embeddingCategory];
+          }
+          if (r.keywordsClassified) {
+            const kwIds = r.keywordMatches.map((m) => m.id);
+            patch.interest_keywords = kwIds;
+            // Country/region derivation disabled until story_region migration is confirmed.
+            // const { country_code, region } = deriveStoryRegion(kwIds);
+            // patch.country_code = country_code;
+            // patch.region = region;
+          }
+          if (Object.keys(patch).length === 0) continue;
+          const updateRes = await fetch(
+            supabaseUrl(env, STORIES_TABLE, new URLSearchParams({ id: `eq.${r.id}` })),
+            {
+              method: 'PATCH',
+              headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+              body: JSON.stringify(patch),
+            }
+          );
+          if (updateRes.ok) {
+            totalStored++;
+            if (r.mismatch && r.categoryValidated) r.displayCategories = [r.embeddingCategory];
+            if (r.keywordsClassified) r.interestKeywords = r.keywordMatches.map((m) => m.id);
+          } else {
+            const errText = await updateRes.text().catch(() => 'unknown');
+            console.error(`Failed to store embedding for story ${r.id}: ${updateRes.status} ${errText}`);
+            if (!firstError) firstError = `Story ${r.id}: ${updateRes.status} ${errText}`;
+          }
+        }
+
+        totalValidated += results.length;
+        allMismatches.push(...results.filter((r) => r.mismatch));
+        allResults.push(...results.map((r) => ({
+          id: r.id,
+          title: r.title,
+          queryCategory: r.queryCategory,
+          embeddingCategory: r.embeddingCategory,
+          confidence: r.confidence,
+          mismatch: r.mismatch,
+          imageUrl: r.imageUrl || null,
+          provider: r.provider || null,
+          articleUrl: r.articleUrl || null,
+          description: r.description || null,
+          publishedAt: r.publishedAt || null,
+          fetchedAt: r.fetchedAt || null,
+          displayCategories: r.displayCategories || null,
+          interestKeywords: r.interestKeywords || null,
+          keywordMatches: (r.keywordMatches || []).map((m) => ({
+            id: m.id,
+            label: m.label,
+            confidence: m.confidence,
+          })),
+          // Derive country/region from keywords for display (works even if DB columns don't exist yet)
+          ...(() => {
+            try {
+              const { country_code, region } = deriveStoryRegion(r.interestKeywords || []);
+              return { countryCode: country_code, region };
+            } catch { return { countryCode: null, region: 'global' }; }
+          })(),
+        })));
+        offset += stories.length;
+
+        // If we got fewer than requested, we've reached the end
+        if (stories.length < BATCH) break;
+      }
+
+      return jsonResponse({
+        validated: totalValidated,
+        stored: totalStored,
+        storeError: firstError,
+        mismatches: allMismatches.map((m) => ({
+          id: m.id,
+          title: m.title,
+          queryCategory: m.queryCategory,
+          embeddingCategory: m.embeddingCategory,
+          confidence: m.confidence,
+          imageUrl: m.imageUrl || null,
+          provider: m.provider || null,
+          articleUrl: m.articleUrl || null,
+          description: m.description || null,
+          publishedAt: m.publishedAt || null,
+          fetchedAt: m.fetchedAt || null,
+          displayCategories: m.displayCategories || null,
+          interestKeywords: m.interestKeywords || null,
+          keywordMatches: (m.keywordMatches || []).map((k) => ({
+            id: k.id,
+            label: k.label,
+            confidence: k.confidence,
+          })),
+        })),
+        results: allResults,
+      });
+    } catch (err) {
+      console.error('Category validation failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Validation failed' }, 502);
     }
   }
 
@@ -1083,7 +1649,27 @@ async function serveAdmin(request, env) {
         console.error('Admin Awin ads fetch failed:', err.message);
       }
     }
-    return jsonResponse({ ads: [...embedded, ...awinAds] });
+    const allAds = [...embedded, ...awinAds];
+    // Attach keyword tags from ad_keyword_tags (best effort)
+    try {
+      const tagsRes = await fetch(
+        supabaseUrl(env, 'ad_keyword_tags', new URLSearchParams({ select: 'ad_id,keywords' })),
+        { headers: supabaseHeaders(env) }
+      );
+      if (tagsRes.ok) {
+        const tagRows = await tagsRes.json().catch(() => []);
+        const tagMap = {};
+        for (const r of (Array.isArray(tagRows) ? tagRows : [])) {
+          if (r.ad_id) tagMap[r.ad_id] = r.keywords || [];
+        }
+        for (const ad of allAds) {
+          if (ad.id && tagMap[ad.id]) ad.keywords = tagMap[ad.id];
+        }
+      }
+    } catch {
+      // Tags are optional — ads work without them
+    }
+    return jsonResponse({ ads: allAds });
   }
 
   if (url.pathname === '/admin/api/ads' && request.method === 'POST') {
@@ -1112,6 +1698,90 @@ async function serveAdmin(request, env) {
       return jsonResponse({ id: adId, updated: true, ad: updated });
     } catch (err) {
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not update ad' }, 500);
+    }
+  }
+
+  // Auto-tag ads with interest keywords using the embedding classifier.
+  // POST /admin/api/ads/auto-tag { ads: [{id, title, description}], offset }
+  // Processes 15 ads per invocation (15 AI calls, well under the 50 subrequest limit).
+  // Client loops with offset until done=true.
+  if (url.pathname === '/admin/api/ads/auto-tag' && request.method === 'POST') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Ad auto-tag must be requested from the admin origin' }, 403);
+    }
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI not available' }, 503);
+    }
+    try {
+      const payload = await request.json().catch(() => ({}));
+      const ads = Array.isArray(payload.ads) ? payload.ads : [];
+      const offset = Math.max(0, parseInt(payload.offset, 10) || 0);
+      const CHUNK = 15;
+      const batch = ads.slice(offset, offset + CHUNK);
+
+      const keywordVectors = await getKeywordEmbeddings(env);
+      if (!keywordVectors || keywordVectors.size === 0) {
+        return jsonResponse({
+          error: 'Keyword vectors not warmed up',
+          warmupNeeded: true,
+          done: false,
+          progress: { done: offset, total: ads.length }
+        }, 503);
+      }
+
+      const results = [];
+      for (const ad of batch) {
+        const text = `${ad.title || ''} ${ad.description || ''}`.trim();
+        if (!text) {
+          results.push({ id: ad.id, keywords: [] });
+          continue;
+        }
+        try {
+          const vector = await embedText(env, text);
+          const matches = classifyStoryKeywords(vector, keywordVectors);
+          results.push({
+            id: ad.id,
+            keywords: matches.map(m => ({ id: m.id, label: m.label, confidence: m.confidence }))
+          });
+        } catch (err) {
+          results.push({ id: ad.id, keywords: [], error: err.message });
+        }
+      }
+
+      const newOffset = offset + batch.length;
+
+      // Auto-save this chunk's tags so a crash doesn't lose progress.
+      // Upsert by ad_id; empty keyword lists are saved too (marks as processed).
+      try {
+        const rows = results.map(r => ({
+          ad_id: r.id,
+          keywords: (r.keywords || []).map(k => k.id),
+          updated_at: new Date().toISOString()
+        }));
+        if (rows.length > 0) {
+          const upsertRes = await fetch(
+            supabaseUrl(env, 'ad_keyword_tags', new URLSearchParams({ on_conflict: 'ad_id' })),
+            {
+              method: 'POST',
+              headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+              body: JSON.stringify(rows)
+            }
+          );
+          if (!upsertRes.ok) {
+            console.error('ad_keyword_tags upsert failed:', upsertRes.status);
+          }
+        }
+      } catch (saveErr) {
+        console.error('ad_keyword_tags save error:', saveErr.message);
+      }
+
+      return jsonResponse({
+        results,
+        done: newOffset >= ads.length,
+        progress: { done: newOffset, total: ads.length }
+      });
+    } catch (err) {
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Auto-tag failed' }, 500);
     }
   }
 
@@ -1634,7 +2304,7 @@ async function runWorkersAiImageModel(prompt, seed, env) {
   try {
     rawResult = await env.AI.run(IMAGE_MODEL, {
       prompt,
-      num_steps: 4,
+      num_steps: 8,
       ...(Number.isFinite(seed) ? { seed } : {})
     });
   } catch (primaryErr) {
@@ -1742,12 +2412,21 @@ async function serveAiStoryImage(request, env) {
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      const cors = getCorsHeaders(request);
+      return new Response(null, { status: 204, headers: Object.keys(cors).length > 0 ? cors : corsHeaders });
     }
     const url = new URL(request.url);
     const pathname = url.pathname;
     if (pathname === '/admin' || pathname.startsWith('/admin/')) {
-      return serveAdmin(request, env);
+      const resp = await serveAdmin(request, env);
+      // Add CORS headers for frontend admin editing (GitHub session via credentials:include)
+      const cors = getCorsHeaders(request);
+      if (Object.keys(cors).length > 0) {
+        const headers = new Headers(resp.headers);
+        for (const [k, v] of Object.entries(cors)) headers.set(k, v);
+        return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers });
+      }
+      return resp;
     }
     if (request.method === 'GET' && pathname === '/ai-image') {
       return serveAiStoryImage(request, env);
@@ -1763,7 +2442,172 @@ export default {
           ctx.waitUntil(runHourlyAutoSync(env, 'stale_check', 'feed-stale-check'));
         }
       }
-      return serveNewsFeed(request, env);
+      return serveNewsFeed(request, env, ctx);
+    }
+    if (request.method === 'GET' && pathname === '/api/interest') {
+      try {
+        const ids = (url.searchParams.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 30);
+        if (ids.length === 0) {
+          return jsonResponse({ items: [], count: 0, error: 'missing ids' }, 400);
+        }
+        const feed = await getStoriesByInterests(env, ids);
+        return jsonResponse({ items: feed.items, count: feed.items.length });
+      } catch (err) {
+        return jsonResponse({ items: [], count: 0, error: err.message }, 500);
+      }
+    }
+    // Phase 2 preview: admin-only space feed sample + diagnostics.
+    // GitHub admin session required (same auth as /admin/api/*).
+    if (request.method === 'GET' && pathname === '/api/admin/preview') {
+      try {
+        const identity = await getAdminIdentity(request, env);
+        if (!identity) return jsonResponse({ error: 'GitHub authentication is required' }, 401);
+        const space = (url.searchParams.get('space') || '').trim();
+        if (!space) return jsonResponse({ error: 'Missing ?space= parameter' }, 400);
+        const preview = await getSpaceFeedPreview(env, space);
+        if (preview.error) return jsonResponse(preview, 400);
+        return jsonResponse(preview);
+      } catch (err) {
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Preview failed' }, 500);
+      }
+    }
+    if (request.method === 'GET' && pathname === '/api/playroom') {
+      try {
+        const playroomId = (url.searchParams.get('id') || '').trim() || null;
+        const username = (url.searchParams.get('username') || '').trim() || null;
+        const slug = (url.searchParams.get('slug') || '').trim() || null;
+        const spaceId = (url.searchParams.get('space') || '').trim() || null;
+        if (!playroomId && !(username && slug)) {
+          return jsonResponse({ playroom: null, spaces: [], items: [], error: 'missing id or username+slug' }, 400);
+        }
+        const feed = await getPlayroomFeed(env, playroomId, spaceId, username, slug);
+        return jsonResponse({ playroom: feed.playroom, spaces: feed.spaces, items: feed.items, count: feed.items.length });
+      } catch (err) {
+        return jsonResponse({ playroom: null, spaces: [], items: [], error: err.message }, 500);
+      }
+    }
+    if (request.method === 'POST' && pathname === '/api/engagement') {
+      return handleEngagementEvent(request, env);
+    }
+    if (request.method === 'POST' && pathname === '/api/analytics/board') {
+      return handleBoardEvent(request, env);
+    }
+    if (request.method === 'POST' && pathname === '/api/ad-engagement') {
+      return handleAdEvent(request, env);
+    }
+    // Public: all ad keyword tags at once. Frontend merges by ad_id client-side.
+    // Small payload (~200 rows), cacheable.
+    if (request.method === 'GET' && pathname === '/ads/tags') {
+      try {
+        const params = new URLSearchParams({ select: 'ad_id,keywords,updated_at' });
+        // Optional: ?keywords=dinosaurs,toys — only return ads matching any of these.
+        // Uses PostgREST array overlap. Omit for all tags.
+        const kwFilter = (url.searchParams.get('keywords') || '').trim();
+        if (kwFilter) {
+          const ids = kwFilter.split(',').map(s => s.trim()).filter(Boolean).slice(0, 20);
+          if (ids.length > 0) {
+            params.set('keywords', `ov.{${ids.join(',')}}`);
+          }
+        }
+        const res = await fetch(
+          supabaseUrl(env, 'ad_keyword_tags', params),
+          { headers: supabaseHeaders(env) }
+        );
+        if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
+        const rows = await res.json();
+        const tags = {};
+        for (const r of (Array.isArray(rows) ? rows : [])) {
+          if (r.ad_id) tags[r.ad_id] = r.keywords || [];
+        }
+        return jsonResponse({ tags, count: Object.keys(tags).length });
+      } catch (err) {
+        return jsonResponse({ tags: {}, count: 0, error: err.message });
+      }
+    }
+    // POST /ads/tags-for-stories — classify untagged stories on-demand, then
+    // return ad tags matching any of the stories' keywords.
+    // Body: { stories: [{title, description, keywords?}] }
+    // For stories without keywords, runs the embedding classifier (1 AI call each).
+    // Then queries ad tags with array overlap. Keeps total subrequests low by
+    // batching: N embeddings + 1 Supabase query.
+    // POST /ads/match — match ads to stories server-side.
+    // Body: { stories: [{title, description, keywords?}] }
+    // Classifies untagged stories via embeddings, queries ad_keyword_tags,
+    // ranks via matchAdsToStory, returns ranked ad IDs per story index.
+    // Frontend looks up ad content by ID from its JSON cache.
+    // Response: { matches: { [storyIndex]: [adId, ...] } }
+    if (request.method === 'POST' && pathname === '/ads/match') {
+      try {
+        if (!env.AI) throw new Error('Workers AI not available');
+        const body = await request.json().catch(() => ({}));
+        const stories = Array.isArray(body.stories) ? body.stories.slice(0, 20) : [];
+        if (!stories.length) return jsonResponse({ matches: {} });
+
+        const keywordVectors = await getKeywordEmbeddings(env);
+        const allKeywords = new Set();
+        const storyKeywords = [];
+        for (const s of stories) {
+          const existing = s.keywords || s.interest_keywords || s.interestKeywords || [];
+          if (Array.isArray(existing) && existing.length > 0) {
+            const kws = existing.filter(k => typeof k === 'string');
+            for (const k of kws) allKeywords.add(k);
+            storyKeywords.push(kws);
+          } else {
+            const text = ((s.title || '') + ' ' + (s.description || '')).trim();
+            const kws = [];
+            if (text) {
+              try {
+                const vector = await embedText(env, text);
+                const matches = classifyStoryKeywords(vector, keywordVectors);
+                for (const m of matches) {
+                  kws.push(m.id);
+                  allKeywords.add(m.id);
+                }
+              } catch {
+                // Skip stories that fail to classify
+              }
+            }
+            storyKeywords.push(kws);
+          }
+        }
+
+        const kwArray = [...allKeywords].slice(0, 20);
+        const params = new URLSearchParams({ select: 'ad_id,keywords' });
+        if (kwArray.length > 0) {
+          params.set('keywords', `ov.{${kwArray.join(',')}}`);
+        }
+        const res = await fetch(
+          supabaseUrl(env, 'ad_keyword_tags', params),
+          { headers: supabaseHeaders(env) }
+        );
+        if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
+        const rows = await res.json();
+
+        const ads = (Array.isArray(rows) ? rows : [])
+          .filter(r => r.ad_id)
+          .map(r => ({ id: r.ad_id, keywords: r.keywords || [] }));
+
+        const { EXCLUDED_KEYWORD_IDS } = await import('./interest-keywords.mjs');
+        const matches = {};
+        stories.forEach((s, idx) => {
+          const kws = storyKeywords[idx];
+          if (!kws || kws.length === 0 || ads.length === 0) return;
+          const ranked = matchAdsToStory(
+            { interest_keywords: kws },
+            ads,
+            { excludedKeywordIds: EXCLUDED_KEYWORD_IDS }
+          );
+          if (ranked.length > 0) {
+            // Use the frontend's original story index when provided
+            const key = s._index != null ? s._index : idx;
+            matches[key] = ranked.map(a => a.id);
+          }
+        });
+
+        return jsonResponse({ matches });
+      } catch (err) {
+        return jsonResponse({ matches: {}, error: err.message });
+      }
     }
     if (request.method === 'GET' && pathname === '/ads') {
       const category = (url.searchParams.get('category') || 'all').trim();
@@ -1787,17 +2631,38 @@ export default {
           console.error('Awin ads fetch failed:', err.message);
         }
       }
-      return jsonResponse({ ads: wantOnlyAwin ? awinAds : [...embedded, ...awinAds] });
+      const allAds = wantOnlyAwin ? awinAds : [...embedded, ...awinAds];
+      // Log ad searches too (fire-and-forget). Skipped for internal traffic.
+      if (effectiveQuery && ctx?.waitUntil && !isInternalRequest(request)) {
+        ctx.waitUntil(recordSearchQuery(env, {
+          query: effectiveQuery,
+          resultCount: allAds.length,
+          country_code: request.cf?.country || null,
+        }));
+      }
+      return jsonResponse({ ads: allAds });
     }
     return jsonResponse({ error: 'Route not found' }, 404);
   },
 
   async scheduled(event, env, ctx) {
     if (env?.AUTO_SYNC_ENABLED === 'false') {
-      console.info('Hourly provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
+      console.info('Provider auto-sync skipped via AUTO_SYNC_ENABLED=false');
       return;
     }
-    const task = runHourlyAutoSync(env, 'cron', `cron:${event?.cron || '0 * * * *'}`);
+    const cronPattern = event?.cron || '0 * * * *';
+    // Drain due retry jobs first (same provider retried after cooldown),
+    // then run the normal sync. Sequential to stay under the subrequest budget.
+    const task = (async () => {
+      // Prune logs older than 30 days (1 cheap indexed delete per run)
+      await pruneOldProviderLogs(env);
+      const drainResult = await drainProviderRetries(env, { limit: 6, triggerSource: 'cron:retry' });
+      const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
+      const syncResult = isStaggered
+        ? await runStaggeredSync(env, 'cron', `cron:${cronPattern}`)
+        : await runHourlyAutoSync(env, 'cron', `cron:${cronPattern}`);
+      return { drainResult, syncResult };
+    })();
     if (ctx && typeof ctx.waitUntil === 'function') {
       ctx.waitUntil(task);
     } else {
