@@ -653,6 +653,7 @@ body {
 .news-card-meta {
   font-size: 0.75rem;
   font-weight: 700;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--news-text-muted);
   display: flex;
   justify-content: space-between;
@@ -2867,6 +2868,7 @@ html[data-system-font="true"] .news-widget-title,
 html[data-system-font="true"] .news-category-bar,
 html[data-system-font="true"] .site-footer-brand,
 html[data-system-font="true"] .news-card-title,
+html[data-system-font="true"] .news-card-meta,
 html[data-system-font="true"] .news-card-desc,
 html[data-system-font="true"] .news-card-ai-summary,
 html[data-system-font="true"] .story-modal-desc,
