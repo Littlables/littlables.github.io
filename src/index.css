@@ -1172,6 +1172,255 @@ body.story-modal-open {
   backdrop-filter: blur(4px);
 }
 
+/* Story edit view: native dialog like the expanded balloon view, so it
+   always opens as its own window above the feed. */
+.story-edit-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(94vw, 46rem);
+  max-height: 90vh;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 18px;
+  color: var(--news-text, #f8fafc);
+  background: var(--news-card-bg, #1e293b);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.story-edit-dialog::backdrop {
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(4px);
+}
+
+.story-edit-body {
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.story-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.story-edit-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.story-edit-back {
+  padding: 0.4rem 0.75rem;
+  background: var(--news-hover-bg, #334155);
+  border: none;
+  border-radius: 0.5rem;
+  color: var(--news-text, #f8fafc);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.story-edit-x {
+  padding: 0 0.5rem;
+  background: none;
+  border: none;
+  color: var(--news-text-muted, #94a3b8);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.story-edit-image {
+  width: 100%;
+  max-height: 16rem;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
+.story-edit-field {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.story-edit-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--news-text-muted, #94a3b8);
+  margin-bottom: 0.25rem;
+}
+
+.story-edit-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: #0b0f19;
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 0.5rem;
+  color: var(--news-text, #f8fafc);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.story-edit-section {
+  margin-bottom: 1.5rem;
+}
+
+.story-edit-section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--news-text-muted, #94a3b8);
+  margin: 0 0 0.5rem;
+}
+
+.story-edit-note {
+  font-size: 0.75rem;
+  color: var(--news-text-muted, #94a3b8);
+}
+
+.story-edit-error {
+  color: #f87171;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.story-edit-saved {
+  color: #4ade80;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.story-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.story-edit-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: var(--news-hover-bg, #334155);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.story-edit-badge-green {
+  background: #16a34a;
+}
+
+.story-edit-badge-red {
+  background: #dc2626;
+}
+
+.story-edit-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  cursor: pointer;
+}
+
+.story-edit-btn:disabled {
+  opacity: 0.5;
+}
+
+.story-edit-btn-green {
+  background: #16a34a;
+}
+
+.story-edit-btn-yellow {
+  background: #ca8a04;
+}
+
+.story-edit-btn-red {
+  background: #dc2626;
+}
+
+.story-edit-btn-gray {
+  background: var(--news-hover-bg, #475569);
+}
+
+.story-edit-btn-purple {
+  background: #7c3aed;
+}
+
+.story-edit-keywords {
+  max-height: 16rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.story-edit-group {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--news-text-muted, #94a3b8);
+  margin: 0.75rem 0 0.25rem;
+}
+
+.story-edit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.story-edit-chip {
+  padding: 0.25rem 0.625rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--news-hover-bg, #334155);
+  color: var(--news-text, #f8fafc);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.story-edit-chip-selected {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.story-edit-chip-blue {
+  background: #2563eb;
+  color: #fff;
+}
+
+.story-edit-chip-excluded {
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.story-edit-meta {
+  font-size: 0.875rem;
+  color: var(--news-text-muted, #94a3b8);
+}
+
+.story-edit-meta p {
+  margin: 0.25rem 0;
+}
+
+.story-edit-meta span {
+  color: var(--news-text, #f8fafc);
+}
+
+.story-edit-raw {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #0b0f19;
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .story-modal-card {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NewsItem } from '../types';
 import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
 
@@ -35,9 +35,6 @@ async function adminFetch(path: string, options: RequestInit = {}) {
   return resp.json();
 }
 
-const inputCls =
-  'w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500';
-
 // datetime-local wants "YYYY-MM-DDTHH:mm" in local time; the API wants ISO.
 function toInputValue(iso: string): string {
   if (!iso) return '';
@@ -53,7 +50,12 @@ function fromInputValue(v: string): string {
   return Number.isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
+// NOTE: this project has no Tailwind — all styling here uses custom classes
+// defined in index.css (.story-edit-*). Utility class names generate nothing
+// in this codebase, which is why the previous fixed-div version rendered
+// in-flow at the end of the page instead of as an overlay.
 export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, onSaved }) => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [details, setDetails] = useState<StoryDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,10 +83,17 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
   const [origKeywords, setOrigKeywords] = useState<string[]>([]);
   const [origCategories, setOrigCategories] = useState<string[]>([]);
 
-  // NOTE: no body-overflow effect here on purpose — App's single
-  // useLockBodyScroll owns that (see App.tsx). A second save/restore owner
-  // raced it during the modal→view transition and left the page stuck
-  // unscrollable or unlocked behind the view.
+  // Native dialog, same pattern as the expanded balloon view (StoryModal):
+  // showModal puts it in the top layer, so it always opens as its own
+  // window above the feed regardless of page CSS.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    dialog.scrollTop = 0;
+  }, [story]);
 
   useEffect(() => {
     if (!story) return;
@@ -108,6 +117,14 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
         setLoading(false);
       });
   }, [story]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!story) return null;
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
+    if (e.target === dialogRef.current) {
+      onClose();
+    }
+  };
 
   const set = (field: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setDraft((d) => ({ ...d, [field]: e.target.value }));
@@ -217,24 +234,20 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
   };
 
   return (
-    // Full-screen view: dynamic viewport height so the mobile browser
-    // toolbar showing/hiding doesn't resize it mid-scroll (the flicker),
-    // and overscroll-contain so scrolling can't chain out to the page behind.
-    <div className="fixed inset-x-0 top-0 z-50 h-[100dvh] overflow-y-auto overscroll-contain bg-[#0f172a] text-white">
-      <div className="max-w-2xl mx-auto px-4 py-4 pb-12">
-        <div className="flex items-center justify-between mb-4">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium"
-          >
+    <dialog
+      ref={dialogRef}
+      className="story-edit-dialog"
+      aria-labelledby="story-edit-title"
+      onClick={handleBackdropClick}
+      onClose={onClose}
+    >
+      <div className="story-edit-body">
+        <div className="story-edit-head">
+          <button type="button" onClick={onClose} className="story-edit-back">
             ← Back
           </button>
-          <h2 className="text-xl font-bold">Edit Balloon</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white text-2xl leading-none px-2"
-            aria-label="Close"
-          >
+          <h2 id="story-edit-title" className="story-edit-title">Edit Balloon</h2>
+          <button type="button" onClick={onClose} className="story-edit-x" aria-label="Close">
             ×
           </button>
         </div>
@@ -243,60 +256,44 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
           <img
             src={draft.image}
             alt=""
-            className="w-full max-h-64 object-cover rounded-2xl mb-4"
+            className="story-edit-image"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
         )}
 
-        {loading && <p className="text-gray-400 mb-4">Loading story details…</p>}
-        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-        {savedMessage && <p className="text-green-400 text-sm mb-4">{savedMessage}</p>}
+        {loading && <p className="story-edit-note">Loading story details…</p>}
+        {error && <p className="story-edit-error">{error}</p>}
+        {savedMessage && <p className="story-edit-saved">{savedMessage}</p>}
 
         {details && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-gray-300 mb-2">Status</h3>
-            <div className="flex flex-wrap gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs ${details.approved ? 'bg-green-600' : 'bg-gray-700'} text-white`}>
+          <div className="story-edit-section">
+            <h3 className="story-edit-section-title">Status</h3>
+            <div className="story-edit-actions">
+              <span className={`story-edit-badge ${details.approved ? 'story-edit-badge-green' : ''}`}>
                 {details.approved ? '✓ Approved' : 'Not approved'}
               </span>
               {details.removed && (
-                <span className="px-3 py-1 rounded-full text-xs bg-red-600 text-white">Banned</span>
+                <span className="story-edit-badge story-edit-badge-red">Banned</span>
               )}
             </div>
-            <div className="flex flex-wrap gap-2 mt-3">
+            <div className="story-edit-actions">
               {!details.approved && (
-                <button
-                  onClick={() => handleAction('approve')}
-                  disabled={saving}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
-                >
+                <button type="button" onClick={() => handleAction('approve')} disabled={saving} className="story-edit-btn story-edit-btn-green">
                   Approve
                 </button>
               )}
               {details.approved && (
-                <button
-                  onClick={() => handleAction('disapprove')}
-                  disabled={saving}
-                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
-                >
+                <button type="button" onClick={() => handleAction('disapprove')} disabled={saving} className="story-edit-btn story-edit-btn-yellow">
                   Disapprove
                 </button>
               )}
-              <button
-                onClick={() => handleAction('ban')}
-                disabled={saving}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
-              >
+              <button type="button" onClick={() => handleAction('ban')} disabled={saving} className="story-edit-btn story-edit-btn-red">
                 Ban
               </button>
               {(details.approved || details.removed) && (
-                <button
-                  onClick={() => handleAction('undo')}
-                  disabled={saving}
-                  className="px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
-                >
+                <button type="button" onClick={() => handleAction('undo')} disabled={saving} className="story-edit-btn story-edit-btn-gray">
                   Undo
                 </button>
               )}
@@ -304,38 +301,38 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
           </div>
         )}
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Title</span>
-          <input type="text" value={draft.title} onChange={set('title')} maxLength={500} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">Title</span>
+          <input type="text" value={draft.title} onChange={set('title')} maxLength={500} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Article URL</span>
-          <input type="url" value={draft.link} onChange={set('link')} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">Article URL</span>
+          <input type="url" value={draft.link} onChange={set('link')} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Image URL</span>
-          <input type="url" value={draft.image} onChange={set('image')} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">Image URL</span>
+          <input type="url" value={draft.image} onChange={set('image')} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Description</span>
-          <textarea value={draft.description} onChange={set('description')} rows={4} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">Description</span>
+          <textarea value={draft.description} onChange={set('description')} rows={4} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">AI summary</span>
-          <textarea value={draft.aiSummary} onChange={set('aiSummary')} rows={3} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">AI summary</span>
+          <textarea value={draft.aiSummary} onChange={set('aiSummary')} rows={3} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Content (AI summary source)</span>
-          <textarea value={draft.content} onChange={set('content')} rows={5} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">Content (AI summary source)</span>
+          <textarea value={draft.content} onChange={set('content')} rows={5} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Publication date</span>
+        <label className="story-edit-field">
+          <span className="story-edit-label">Publication date</span>
           <input
             type="datetime-local"
             value={toInputValue(draft.pubDate)}
@@ -343,17 +340,17 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
               setDraft((d) => ({ ...d, pubDate: fromInputValue(e.target.value) }));
               setSavedMessage('');
             }}
-            className={inputCls}
+            className="story-edit-input"
           />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Source name</span>
-          <input type="text" value={draft.source} onChange={set('source')} className={inputCls} />
+        <label className="story-edit-field">
+          <span className="story-edit-label">Source name</span>
+          <input type="text" value={draft.source} onChange={set('source')} className="story-edit-input" />
         </label>
 
-        <label className="block mb-4">
-          <span className="block text-sm font-semibold text-gray-300 mb-1">Category</span>
+        <label className="story-edit-field">
+          <span className="story-edit-label">Category</span>
           <select
             value={draft.category}
             onChange={(e) => {
@@ -361,19 +358,19 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
               setDraft((d) => ({ ...d, category: e.target.value }));
               setSavedMessage('');
             }}
-            className={inputCls}
+            className="story-edit-input"
           >
             <option value="">Use query category{details ? ` (${details.category})` : ''}</option>
             {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat} className="capitalize">
+              <option key={cat} value={cat} className="story-edit-option">
                 {cat}
               </option>
             ))}
           </select>
         </label>
 
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold text-gray-300 mb-2">
+        <div className="story-edit-section">
+          <h3 className="story-edit-section-title">
             Interest Keywords ({selectedKeywords.length}/3)
           </h3>
           <input
@@ -381,13 +378,13 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
             placeholder="Filter keywords…"
             value={keywordFilter}
             onChange={(e) => setKeywordFilter(e.target.value)}
-            className={`${inputCls} mb-3`}
+            className="story-edit-input"
           />
-          <div className="max-h-64 overflow-y-auto space-y-3 pr-1">
+          <div className="story-edit-keywords">
             {Object.entries(grouped).map(([group, kws]) => (
               <div key={group}>
-                <p className="text-xs text-gray-500 font-medium mb-1">{group}</p>
-                <div className="flex flex-wrap gap-1.5">
+                <p className="story-edit-group">{group}</p>
+                <div className="story-edit-chips">
                   {kws.map((k) => {
                     const selected = selectedKeywords.includes(k.id);
                     return (
@@ -395,11 +392,7 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
                         key={k.id}
                         type="button"
                         onClick={() => toggleKeyword(k.id)}
-                        className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                          selected
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                        } ${k.excluded ? 'border border-red-500/50' : ''}`}
+                        className={`story-edit-chip ${selected ? 'story-edit-chip-selected' : ''} ${k.excluded ? 'story-edit-chip-excluded' : ''}`}
                       >
                         {k.icon} {k.label}
                       </button>
@@ -411,12 +404,12 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
           </div>
         </div>
 
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold text-gray-300 mb-2">Display Categories (override)</h3>
-          <p className="text-xs text-gray-500 mb-2">
+        <div className="story-edit-section">
+          <h3 className="story-edit-section-title">Display Categories (override)</h3>
+          <p className="story-edit-note">
             Select override categories, or clear all to use the query category.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="story-edit-chips">
             {CATEGORIES.map((cat) => {
               const selected = selectedCategories.includes(cat);
               return (
@@ -424,11 +417,7 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
                   key={cat}
                   type="button"
                   onClick={() => toggleCategory(cat)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${
-                    selected
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                  }`}
+                  className={`story-edit-chip ${selected ? 'story-edit-chip-blue' : ''}`}
                 >
                   {cat}
                 </button>
@@ -437,50 +426,52 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
           </div>
         </div>
 
-        <div className="mb-6 text-sm text-gray-400 space-y-1">
+        <div className="story-edit-section story-edit-meta">
           {details && (
             <p>
-              Story ID: <span className="text-gray-200">{details.id}</span>
+              Story ID: <span>{details.id}</span>
             </p>
           )}
           {story.provider && (
             <p>
-              Provider: <span className="text-gray-200">{story.provider}</span>
+              Provider: <span>{story.provider}</span>
             </p>
           )}
         </div>
 
-        <div className="mb-6">
+        <div className="story-edit-section">
           <button
             type="button"
             onClick={() => setShowRawJson((v) => !v)}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium"
+            className="story-edit-btn story-edit-btn-gray"
           >
             {showRawJson ? 'Hide raw JSON' : 'Show raw JSON'}
           </button>
           {showRawJson && (
-            <pre className="mt-3 p-3 bg-gray-900 border border-gray-700 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap">
+            <pre className="story-edit-raw">
               {JSON.stringify(rawJson, null, 2)}
             </pre>
           )}
         </div>
 
-        <div className="flex gap-2 pb-4">
+        <div className="story-edit-actions">
           <button
+            type="button"
             onClick={handleSaveAll}
             disabled={saving || !details}
-            className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+            className="story-edit-btn story-edit-btn-purple"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
           <button
+            type="button"
             onClick={onClose}
-            className="px-6 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium"
+            className="story-edit-btn story-edit-btn-gray"
           >
             Back
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 };
