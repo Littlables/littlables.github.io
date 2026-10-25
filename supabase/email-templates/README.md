@@ -40,7 +40,13 @@ mobile) and copy by hand.
 ## Branding
 
 Dark cozy card matching the site's dark theme (bg `#0b0f19`, card
-`#1e293b`, indigo `#6366f1` → purple `#a855f7` button, muted `#94a3b8`
-footer). Footer links: littlables.com, /about, hello@littlables.com
-(the disclaimer contact). No webfonts are loaded — email clients fall
-back to the font stack.
+`#1e293b`, rainbow gradient button (`#ef4444` → `#f59e0b` →
+`#10b981` → `#3b82f6` → `#8b5cf6`, sky `#38bdf8` fallback for clients
+without gradient support, white text), muted `#94a3b8` footer,
+pink `#fb7185` footer links (no underline; a `.footer-link:visited`
+rule pins the same pink so visited links don't shift color).
+Header is the site logo: favicon mark + Fredoka wordmark.
+Footer links: littlables.com, /about, hello@littlables.com
+(the disclaimer contact). Fredoka + Quicksand load from Google Fonts
+(same files as the site); clients that block webfonts (Gmail, Outlook)
+fall back to the site's own font stacks.
