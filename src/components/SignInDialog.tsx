@@ -79,7 +79,7 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
         </button>
 
         <h2 className="dialog-title">Sign in to Littlables</h2>
-        <p className="dialog-subtitle">Save favorites, pick your topics, and more.</p>
+        <p className="dialog-subtitle">Create custom playrooms with content based around your favorite special interests.</p>
 
         {error && <div className="dialog-error">{error}</div>}
 
