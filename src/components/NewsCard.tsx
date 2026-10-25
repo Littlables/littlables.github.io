@@ -137,6 +137,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   // Long-press to open admin edit (only when onAdminEdit is provided)
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
+  // Finger position at touch start. Small movements during a hold are normal,
+  // so only cancel the timer if the finger actually moves (>10px) — cancelling
+  // on any movement made long-press nearly impossible on real phones.
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
 
   const startLongPress = () => {
     if (!onAdminEdit) return;
@@ -154,9 +158,24 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     }
   };
 
-  const handleTouchStart = () => startLongPress();
-  const handleTouchEnd = () => cancelLongPress();
-  const handleTouchMove = () => cancelLongPress();
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPos.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    startLongPress();
+  };
+  const handleTouchEnd = () => {
+    touchStartPos.current = null;
+    cancelLongPress();
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const start = touchStartPos.current;
+    const touch = e.touches[0];
+    if (start && touch) {
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (dx * dx + dy * dy > 100) cancelLongPress();
+    }
+  };
   const handleMouseDown = (e: React.MouseEvent) => {
     // Right-click also opens admin edit on desktop
     if (e.button === 2 && onAdminEdit) {
@@ -316,6 +335,22 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               <span>{copied ? '✓' : '🔗'}</span>
               <span>{copied ? 'Copied' : 'Share'}</span>
             </button>
+
+            {onAdminEdit && (
+              <button
+                type="button"
+                className="reaction-pill admin-edit-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdminEdit(item);
+                }}
+                title="Edit story (admin)"
+                aria-label="Edit story"
+              >
+                <span>✏️</span>
+                <span>Edit</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

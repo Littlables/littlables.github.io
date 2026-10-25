@@ -1653,6 +1653,8 @@ export function getAdminPage() {
       previewType: 'story',
       previewDraft: null,
       previewStoryId: null,
+      previewOrigKeywords: [],
+      previewOrigCats: null,
       previewAdDraft: null,
       previewAdId: null,
       generatingSummary: false,
@@ -5125,6 +5127,178 @@ export function getAdminPage() {
       });
       preview.append(context);
 
+      // ── Full story fields: the entire JSON object, viewable here.
+      // Everything with a write path is editable: keywords and display
+      // categories save with this preview via their dedicated endpoints.
+      const fieldsSection = document.createElement('div');
+      fieldsSection.className = 'preview-context';
+      const fieldsTitle = document.createElement('strong');
+      fieldsTitle.textContent = 'All story fields';
+      fieldsSection.append(fieldsTitle);
+      const fieldsHint = document.createElement('p');
+      fieldsHint.className = 'admin-hint';
+      fieldsHint.textContent = 'Interest keywords and display categories save with this preview. ID, country and region are derived values, shown for reference.';
+      fieldsSection.append(fieldsHint);
+
+      const kwLabel = document.createElement('div');
+      kwLabel.style.cssText = 'font-weight:600;margin-top:0.5rem;';
+      kwLabel.textContent = 'Interest keywords';
+      fieldsSection.append(kwLabel);
+      const kwChips = document.createElement('div');
+      kwChips.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;margin:0.35rem 0;';
+      const renderKwChips = () => {
+        kwChips.replaceChildren();
+        const current = Array.isArray(draft.interest_keywords) ? draft.interest_keywords : [];
+        if (current.length === 0) {
+          const none = document.createElement('span');
+          none.className = 'admin-hint';
+          none.textContent = 'No keywords';
+          kwChips.append(none);
+        }
+        current.forEach((kwId) => {
+          const found = (window.LITTLABLES_KEYWORDS || []).find((k) => k.id === kwId);
+          const chip = document.createElement('span');
+          chip.className = 'meta-badge-status meta-approved';
+          chip.style.cssText = 'cursor:pointer;';
+          chip.textContent = (found ? ((found.icon ? found.icon + ' ' : '') + found.label) : kwId) + ' ×';
+          chip.title = 'Remove';
+          chip.addEventListener('click', () => {
+            draft.interest_keywords = draft.interest_keywords.filter((k) => k !== kwId);
+            renderKwChips();
+          });
+          kwChips.append(chip);
+        });
+      };
+      renderKwChips();
+      fieldsSection.append(kwChips);
+      const kwPickerBtn = document.createElement('button');
+      kwPickerBtn.type = 'button';
+      kwPickerBtn.className = 'secondary small-btn';
+      kwPickerBtn.textContent = 'Edit keywords…';
+      const kwPickerWrap = document.createElement('div');
+      kwPickerBtn.addEventListener('click', () => {
+        if (kwPickerWrap.children.length > 0) { kwPickerWrap.replaceChildren(); return; }
+        const picker = document.createElement('div');
+        picker.style.cssText = 'display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;max-height:22rem;overflow-y:auto;padding:0.5rem;border:1px solid var(--news-border, #334155);border-radius:0.5rem;';
+        const hint = document.createElement('span');
+        hint.className = 'admin-hint';
+        hint.textContent = 'Uncheck all to clear.';
+        picker.append(hint);
+        const boxes = [];
+        const groups = [];
+        (window.LITTLABLES_KEYWORDS || []).forEach((kw) => {
+          if (groups.indexOf(kw.group) === -1) groups.push(kw.group);
+        });
+        groups.forEach((group) => {
+          const groupTitle = document.createElement('strong');
+          groupTitle.style.cssText = 'font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;opacity:0.8;margin-top:0.25rem;';
+          groupTitle.textContent = group;
+          picker.append(groupTitle);
+          const groupRow = document.createElement('div');
+          groupRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;';
+          (window.LITTLABLES_KEYWORDS || []).filter((kw) => kw.group === group).forEach((kw) => {
+            const lab = document.createElement('label');
+            lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = kw.id;
+            cb.checked = (draft.interest_keywords || []).indexOf(kw.id) !== -1;
+            lab.append(cb);
+            lab.append(document.createTextNode((kw.icon ? kw.icon + ' ' : '') + kw.label));
+            groupRow.append(lab);
+            boxes.push(cb);
+          });
+          picker.append(groupRow);
+        });
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.25rem;';
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button';
+        applyBtn.className = 'small-btn';
+        applyBtn.textContent = 'Apply';
+        applyBtn.addEventListener('click', () => {
+          draft.interest_keywords = boxes.filter((cb) => cb.checked).map((cb) => cb.value);
+          renderKwChips();
+          kwPickerWrap.replaceChildren();
+        });
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'secondary small-btn';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', () => kwPickerWrap.replaceChildren());
+        btnRow.append(applyBtn, cancelBtn);
+        picker.append(btnRow);
+        kwPickerWrap.append(picker);
+      });
+      fieldsSection.append(kwPickerBtn, kwPickerWrap);
+
+      const catLabel = document.createElement('div');
+      catLabel.style.cssText = 'font-weight:600;margin-top:0.75rem;';
+      catLabel.textContent = 'Display categories (override)';
+      fieldsSection.append(catLabel);
+      const catRow = document.createElement('div');
+      catRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin:0.35rem 0;';
+      ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'].forEach((catId) => {
+        const catObj = categories.find((c) => c.id === catId) || { label: catId };
+        const lab = document.createElement('label');
+        lab.style.cssText = 'display:flex;align-items:center;gap:0.25rem;font-size:0.8rem;cursor:pointer;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = catId;
+        cb.checked = Array.isArray(draft.display_categories) && draft.display_categories.indexOf(catId) !== -1;
+        cb.addEventListener('change', () => {
+          const chosen = Array.from(catRow.querySelectorAll('input:checked')).map((el) => el.value);
+          draft.display_categories = chosen.length > 0 ? chosen : null;
+        });
+        lab.append(cb);
+        lab.append(document.createTextNode(catObj.icon ? catObj.icon + ' ' + catObj.label : catObj.label));
+        catRow.append(lab);
+      });
+      fieldsSection.append(catRow);
+
+      const fieldRow = (label, value, note) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'font-size:0.85rem;margin-top:0.35rem;overflow-wrap:anywhere;';
+        const strong = document.createElement('strong');
+        strong.textContent = label + ': ';
+        row.append(strong);
+        row.append(document.createTextNode(value === '' || value == null ? '—' : String(value)));
+        if (note) {
+          const hint = document.createElement('span');
+          hint.className = 'admin-hint';
+          hint.textContent = ' ' + note;
+          row.append(hint);
+        }
+        fieldsSection.append(row);
+      };
+      editableField(fieldsSection, 'provider', 'provider', { display: (value) => value || 'Not set' });
+      fieldRow('ID', draft.id, draft.id == null ? '(new story)' : '');
+      fieldRow('Country code', draft.country_code, 'derived from keywords');
+      fieldRow('Region', draft.region, 'derived from keywords');
+      fieldRow('Provider country', draft.provider_country, 'derived from provider data');
+
+      const rawBtn = document.createElement('button');
+      rawBtn.type = 'button';
+      rawBtn.className = 'secondary small-btn';
+      rawBtn.style.marginTop = '0.75rem';
+      rawBtn.textContent = 'Show raw JSON';
+      const rawWrap = document.createElement('div');
+      rawBtn.addEventListener('click', () => {
+        if (rawWrap.children.length > 0) {
+          rawWrap.replaceChildren();
+          rawBtn.textContent = 'Show raw JSON';
+          return;
+        }
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;font-size:0.75rem;background:rgba(0,0,0,0.25);padding:0.5rem;border-radius:0.5rem;max-height:20rem;overflow-y:auto;margin-top:0.4rem;';
+        pre.textContent = JSON.stringify(draft, null, 2);
+        rawWrap.append(pre);
+        rawBtn.textContent = 'Hide raw JSON';
+      });
+      fieldsSection.append(rawBtn, rawWrap);
+
+      preview.append(fieldsSection);
+
       if (state.previewStatusMessage) {
         const statusMsg = document.createElement('p');
         statusMsg.id = 'preview-status';
@@ -5365,16 +5539,31 @@ export function getAdminPage() {
       state.previewStoryId = story.id ?? null;
       state.previewStatusMessage = '';
       state.previewStatusType = 'muted';
+      // Carry every field the caller had into the draft, so the preview shows
+      // the entire story object — not just the 11 display fields it used to keep.
+      const keywords = story.interest_keywords || story.interestKeywords || [];
+      const cats = story.display_categories !== undefined && story.display_categories !== null
+        ? story.display_categories
+        : (story.displayCategories !== undefined && story.displayCategories !== null ? story.displayCategories : null);
+      state.previewOrigKeywords = Array.isArray(keywords) ? [...keywords] : [];
+      state.previewOrigCats = Array.isArray(cats) ? [...cats] : null;
       state.previewDraft = trimStoryDraftFields({
+        id: story.id ?? null,
         title: decodeHtmlEntities(story.title || ''),
         link: decodeHtmlEntities(story.link || ''),
         image: decodeHtmlEntities(story.image || ''),
         description: decodeHtmlEntities(story.description || ''),
         content: decodeHtmlEntities(story.content || ''),
         aiSummary: decodeHtmlEntities(story.aiSummary || ''),
-        pubDate: story.pubDate || new Date().toISOString(),
-        source: story.source || '',
-        category: story.category || 'all',
+        pubDate: story.pubDate || story.publishedAt || new Date().toISOString(),
+        source: story.source || story.provider || '',
+        provider: story.provider || story.source || '',
+        category: story.category || story.queryCategory || 'all',
+        interest_keywords: state.previewOrigKeywords,
+        display_categories: state.previewOrigCats,
+        country_code: story.country_code || story.countryCode || '',
+        region: story.region || '',
+        provider_country: story.provider_country || story.providerCountry || '',
         approved: story.approved === true,
         removed: story.removed === true
       });
@@ -5412,12 +5601,14 @@ export function getAdminPage() {
       const draft = trimStoryDraftFields(state.previewDraft);
       const existingId = state.previewStoryId;
       try {
+        let storyId = existingId;
         if (existingId === null) {
-          await request('/admin/api/stories', {
+          const created = await request('/admin/api/stories', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(draft)
           });
+          storyId = created.id;
         } else {
           await request('/admin/api/stories/' + encodeURIComponent(existingId), {
             method: 'PATCH',
@@ -5450,6 +5641,24 @@ export function getAdminPage() {
             publishedAt: draft.pubDate,
             queryCategory: draft.category,
             ...(approve ? { approved: true } : {})
+          });
+        }
+        // The main story PATCH only writes the 9 core columns, so keyword
+        // and display-category overrides go through their dedicated endpoints.
+        const keywordsChanged = JSON.stringify(draft.interest_keywords || []) !== JSON.stringify(state.previewOrigKeywords || []);
+        const catsChanged = JSON.stringify(draft.display_categories || null) !== JSON.stringify(state.previewOrigCats || null);
+        if (storyId != null && keywordsChanged) {
+          await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/interest-keywords', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interest_keywords: (draft.interest_keywords || []).length > 0 ? draft.interest_keywords : null })
+          });
+        }
+        if (storyId != null && catsChanged) {
+          await request('/admin/api/stories/' + encodeURIComponent(storyId) + '/display-categories', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ display_categories: draft.display_categories })
           });
         }
         previewDialog.close();
@@ -5835,6 +6044,8 @@ export function getAdminPage() {
                     provider: m.provider,
                     source: m.provider,
                     pubDate: m.publishedAt,
+                    interest_keywords: m.interestKeywords,
+                    display_categories: m.displayCategories,
                     approved: false,
                     removed: false
                   });

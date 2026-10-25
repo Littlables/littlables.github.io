@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NewsItem } from '../types';
 import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
 
@@ -35,6 +35,13 @@ async function adminFetch(path: string, options: RequestInit = {}) {
 }
 
 export const AdminEditDialog: React.FC<AdminEditDialogProps> = ({ story, onClose }) => {
+  // A long-press that opened this dialog ends with an emulated mouse click
+  // at the touch point; ignore backdrop clicks right after mount so that
+  // click cannot instantly close the dialog it just opened.
+  const openedAt = useRef(Date.now());
+  const handleBackdropClick = () => {
+    if (Date.now() - openedAt.current > 700) onClose();
+  };
   const [details, setDetails] = useState<StoryDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +143,7 @@ export const AdminEditDialog: React.FC<AdminEditDialogProps> = ({ story, onClose
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
+      onClick={handleBackdropClick}
     >
       <div
         className="bg-gray-900 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6"
