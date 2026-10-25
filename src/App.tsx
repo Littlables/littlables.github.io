@@ -721,6 +721,7 @@ export const App: React.FC = () => {
         onReact={handleReaction}
         onClose={handleCloseStory}
         onSelectCategory={handleSelectCategory}
+        onAdminEdit={isAdmin ? setAdminEditStory : undefined}
       />
 
       {adminEditStory && (

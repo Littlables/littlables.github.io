@@ -163,8 +163,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     touchStartPos.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
     startLongPress();
   };
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent) => {
     touchStartPos.current = null;
+    // If the long-press already fired and opened the edit dialog, swallow
+    // the emulated mouse click that follows the finger lift — otherwise it
+    // can land on the dialog backdrop and close it again. This is what made
+    // longer holds look like "long-press does nothing": the dialog opened,
+    // then the lift-click closed it.
+    if (longPressFired.current) {
+      e.preventDefault();
+    }
     cancelLongPress();
   };
   const handleTouchMove = (e: React.TouchEvent) => {

@@ -21,6 +21,7 @@ interface StoryModalProps {
   onReact: (storyId: string, type: ReactionType) => void;
   onClose: () => void;
   onSelectCategory?: (category: NewsCategory) => void;
+  onAdminEdit?: (item: NewsItem) => void;
 }
 
 export const StoryModal: React.FC<StoryModalProps> = ({
@@ -31,7 +32,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   reactions,
   onReact,
   onClose,
-  onSelectCategory
+  onSelectCategory,
+  onAdminEdit
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -256,6 +258,25 @@ export const StoryModal: React.FC<StoryModalProps> = ({
                 <span>{copied ? '✓' : '🔗'}</span>
                 <span>{copied ? 'Copied' : 'Share'}</span>
               </button>
+
+              {onAdminEdit && (
+                <button
+                  type="button"
+                  className="reaction-pill admin-edit-btn"
+                  onClick={() => {
+                    // Close this native dialog first: a native <dialog> sits
+                    // in the top layer above the edit dialog, so opening the
+                    // edit dialog underneath it would look like nothing happened.
+                    onClose();
+                    onAdminEdit(story);
+                  }}
+                  title="Edit story (admin)"
+                  aria-label="Edit story"
+                >
+                  <span>✏️</span>
+                  <span>Edit</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
