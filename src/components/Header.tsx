@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
             src={brandLogoUrl}
             width="28"
             height="28"
-            alt={`${brandName || 'Board'} logo`}
+            alt={`${brandName || 'Space'} logo`}
             onError={(e) => {
               (e.target as HTMLElement).style.display = 'none';
             }}

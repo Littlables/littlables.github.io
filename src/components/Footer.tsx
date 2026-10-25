@@ -30,7 +30,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAbout, onOpenDisclaimer })
             onOpenDisclaimer();
           }}
         >
-          Disclaimer
+          A quick note
         </a>
       </nav>
     </footer>

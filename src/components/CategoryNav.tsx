@@ -75,7 +75,7 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
 
   return (
     <div ref={containerRef} className="news-category-container">
-      <nav className="news-category-bar" id="news-category-bar" aria-label="News Categories">
+      <nav className="news-category-bar" id="news-category-bar" aria-label="Spaces">
         {CATEGORIES.map((cat) => {
           const isActive = !hasCustomTopic && currentCategory === cat.id;
           const label = t(cat.i18nKey as keyof TranslationStrings) || cat.id;

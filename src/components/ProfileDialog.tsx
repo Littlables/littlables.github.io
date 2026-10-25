@@ -483,7 +483,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     try {
       setBoards(await getUserBoards(user.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load boards');
+      setError(err instanceof Error ? err.message : 'Failed to load spaces');
     } finally {
       setBoardsLoading(false);
     }
@@ -559,7 +559,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     if (!editingBoard || !user) return;
     const name = editingBoard.name.trim();
     if (!name) {
-      setError('Give your board a name');
+      setError('Give your space a name');
       return;
     }
     setError('');
@@ -609,7 +609,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       setEditingBoard(null);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save board');
+      setError(err instanceof Error ? err.message : 'Failed to save space');
     } finally {
       setSaving(false);
     }
@@ -624,7 +624,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       if (editingBoard?.id === boardId) setEditingBoard(null);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete board');
+      setError(err instanceof Error ? err.message : 'Failed to delete space');
     }
   };
 

@@ -14,9 +14,9 @@ const FEATURES = [
     text: 'Family & childcare, animals & nature, creative arts, future tech, world currents, and uplifting news — picked for curious minds, not outrage.',
   },
   {
-    emoji: '🗂️',
-    title: 'Boards',
-    text: 'Group your favorite topics into boards with their own name, logo, theme, and shareable link — like @you/pets.',
+    emoji: '🛝',
+    title: 'Spaces & playrooms',
+    text: 'Group your favorite topics into spaces, then bundle them into a playroom — your own shareable homepage with its own name, logo, theme, and link, like @you/the-playroom.',
   },
   {
     emoji: '👤',
@@ -26,7 +26,7 @@ const FEATURES = [
   {
     emoji: '🎨',
     title: 'Make it yours',
-    text: 'Six cozy themes plus custom background colors. Your space, your vibe — on your profile, boards, and everywhere.',
+    text: 'Six cozy themes plus custom background colors. Your space, your vibe — on your profile, playrooms, and everywhere.',
   },
   {
     emoji: '🤖',
@@ -47,7 +47,7 @@ const FAQS = [
   },
   {
     q: 'Is it free?',
-    a: 'Yes! Browsing stories, creating a profile, and building boards are all free. We keep the lights on with thoughtful advertising from brands we trust.',
+    a: 'Yes! Browsing stories, creating a profile, and building spaces and playrooms are all free. We keep the lights on with thoughtful advertising from brands we trust.',
   },
   {
     q: 'Where do the stories come from?',
@@ -58,12 +58,12 @@ const FAQS = [
     a: 'It means a human (with a little AI help) reviewed the story and gave it a thumbs-up for quality and family-friendliness. Stories without the badge haven\'t been reviewed yet.',
   },
   {
-    q: 'What are boards?',
-    a: 'Boards are your own corners of the playground — group your favorite topics into themed collections, each with its own name, logo, colors, and shareable link like @you/pets. Perfect for sharing your special interests with friends or followers.',
+    q: 'What are spaces and playrooms?',
+    a: 'Spaces are your own corners of the playground — group your favorite topics into themed collections, each with its own name and logo. Bundle spaces into a playroom to get a shareable homepage, like @you/the-playroom, with your theme and colors. Perfect for sharing your special interests with friends or followers.',
   },
   {
     q: 'Do I need an account?',
-    a: 'Nope — you can explore the playground without one. An account lets you create your space: a profile, boards, themes, and personalization. Sign in with Google or email, no password needed.',
+    a: 'Nope — you can explore the playground without one. An account lets you create your space: a profile, spaces, playrooms, themes, and personalization. Sign in with Google or email, no password needed.',
   },
 ];
 

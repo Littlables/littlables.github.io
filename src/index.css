@@ -251,7 +251,7 @@ body {
   background: var(--news-bg, #0b0f19);
   margin: 0;
   color: var(--news-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   transition: background-color 0.25s ease, color 0.25s ease;
   min-height: 100vh;
 }
@@ -2864,6 +2864,7 @@ textarea.board-input {
    settings, App sets data-system-font="true" on <html> and every webfont
    rule above falls back to the system stack. Off by default (no attribute),
    so the webfonts show unless opted out. */
+html[data-system-font="true"] body,
 html[data-system-font="true"] .news-widget-title,
 html[data-system-font="true"] .news-category-bar,
 html[data-system-font="true"] .site-footer-brand,

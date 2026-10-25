@@ -1,6 +1,6 @@
 /**
- * User-facing descriptions for front-page categories.
- * Shown on empty category pages and in the homepage editor (Interests tab).
+ * User-facing descriptions for front-page spaces.
+ * Shown on empty space pages and in the homepage editor (Interests tab).
  * English only for now; add translations as needed.
  */
 export const CATEGORY_DESCRIPTIONS: Record<string, string> = {
