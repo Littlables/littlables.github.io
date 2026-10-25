@@ -323,3 +323,85 @@ export function deriveStoryRegion(keywords) {
   if (!iso) return { country_code: null, region: 'global' };
   return { country_code: iso, region: COUNTRY_TO_REGION[iso] || 'global' };
 }
+export const SPACE_DEFINITIONS = {
+  'childcare': {
+    description: 'news about raising children, parenting tips, family activities, child development, kids\' education and health',
+    interestIds: ['childcare-family-general', 'parenting', 'education', 'kids-crafts', 'books', 'babies', 'toddlers', 'bedtime-stories', 'fairy-tales', 'superheroes', 'playgrounds', 'birthday-parties', 'summer-camp', 'teens', 'collecting', 'toys', 'shows-fun-general', 'family-movies', 'tv-shows', 'comics', 'theme-parks', 'circus', 'online-creators', 'sports-play-general', 'sports', 'swimming', 'gymnastics', 'dance', 'martial-arts', 'olympics', 'biking', 'skateboarding', 'hiking', 'fishing', 'arts-music-general', 'music', 'painting', 'drawing', 'theater', 'magic', 'lego', 'photography', 'fashion', 'food-general', 'food', 'baking', 'desserts', 'fruits-veggies', 'pizza', 'breakfast', 'chocolate', 'picnics'],
+  },
+  'animals': {
+    description: 'news about animals, wildlife, pets, nature, conservation, and the natural world',
+    interestIds: ['animals-nature', 'ocean-life', 'pets', 'wildlife', 'birds', 'bugs', 'farm-animals', 'zoos', 'animal-rescues', 'forests', 'mountains', 'beaches', 'deserts', 'rainforests', 'endangered-species', 'rivers-lakes', 'planet-weather-general', 'weather', 'environment', 'gardening', 'flowers', 'seasons', 'snow', 'clouds', 'science-discovery-general', 'space', 'dinosaurs', 'science', 'robots-ai', 'inventions', 'volcanoes', 'natural-disasters', 'human-body', 'energy', 'experiments', 'moon', 'planets', 'archaeology'],
+  },
+  'arts': {
+    description: 'news about art, music, crafts, creativity, performances, and artistic expression',
+    interestIds: ['arts-music-general', 'music', 'painting', 'drawing', 'theater', 'magic', 'lego', 'photography', 'fashion', 'food-general', 'food', 'baking', 'desserts', 'fruits-veggies', 'pizza', 'breakfast', 'chocolate', 'picnics', 'sports-play-general', 'sports', 'swimming', 'gymnastics', 'dance', 'martial-arts', 'olympics', 'biking', 'skateboarding', 'hiking', 'fishing', 'shows-fun-general', 'family-movies', 'tv-shows', 'comics', 'theme-parks', 'circus', 'online-creators', 'celebrity-entertainment-general', 'entertainment', 'celebrities', 'hollywood'],
+  },
+  'tech': {
+    description: 'news about technology, artificial intelligence, gadgets, video games, and science discoveries',
+    interestIds: ['tech-games-general', 'video-games', 'coding', 'apps', 'internet-safety', 'virtual-reality', 'drones', 'electric-cars', 'board-games', 'science-discovery-general', 'space', 'dinosaurs', 'science', 'robots-ai', 'inventions', 'volcanoes', 'natural-disasters', 'human-body', 'energy', 'experiments', 'moon', 'planets', 'archaeology'],
+  },
+  'world': {
+    description: 'news from around the world, travel destinations, cultures, countries, and planet/weather events',
+    interestIds: ['travel-places-general', 'travel', 'camping', 'road-trips', 'landmarks', 'maps', 'languages', 'world-cultures', 'countries-general', 'country-us', 'country-uk', 'country-canada', 'country-australia', 'country-nz', 'country-ireland', 'country-france', 'country-germany', 'country-italy', 'country-spain', 'country-netherlands', 'country-sweden', 'country-china', 'country-japan', 'country-india', 'country-korea', 'country-mexico', 'country-brazil', 'country-south-africa', 'country-egypt', 'planet-weather-general', 'weather', 'environment', 'gardening', 'flowers', 'seasons', 'snow', 'clouds', 'community-life-general', 'community-heroes', 'health', 'money', 'history', 'volunteering', 'big-feelings', 'religion', 'records', 'food-general', 'food', 'baking', 'desserts', 'fruits-veggies', 'pizza', 'breakfast', 'chocolate', 'picnics'],
+  },
+  'uplifting': {
+    description: 'positive news, inspiring balloons, community kindness, celebrations, and heartwarming moments',
+    interestIds: ['community-life-general', 'community-heroes', 'health', 'money', 'history', 'volunteering', 'big-feelings', 'religion', 'records', 'holidays-general', 'holidays', 'christmas', 'halloween', 'easter', 'thanksgiving', 'new-year', 'animals-nature', 'ocean-life', 'pets', 'wildlife', 'birds', 'bugs', 'farm-animals', 'zoos', 'animal-rescues', 'forests', 'mountains', 'beaches', 'deserts', 'rainforests', 'endangered-species', 'rivers-lakes', 'childcare-family-general', 'parenting', 'education', 'kids-crafts', 'books', 'babies', 'toddlers', 'bedtime-stories', 'fairy-tales', 'superheroes', 'playgrounds', 'birthday-parties', 'summer-camp', 'teens', 'collecting', 'toys'],
+  },
+  'animals-nature': {
+    description: 'Animals & Nature space',
+    interestIds: ['animals-nature', 'ocean-life', 'pets', 'wildlife', 'birds', 'bugs', 'farm-animals', 'zoos', 'animal-rescues', 'forests', 'mountains', 'beaches', 'deserts', 'rainforests', 'endangered-species', 'rivers-lakes'],
+  },
+  'arts-music': {
+    description: 'Arts & Music space',
+    interestIds: ['arts-music-general', 'music', 'painting', 'drawing', 'theater', 'magic', 'lego', 'photography', 'fashion'],
+  },
+  'celebrity-entertainment': {
+    description: 'Celebrity & Entertainment space',
+    interestIds: ['celebrity-entertainment-general', 'entertainment', 'celebrities', 'hollywood'],
+  },
+  'kids-family': {
+    description: 'Childcare & Family space',
+    interestIds: ['childcare-family-general', 'parenting', 'education', 'kids-crafts', 'books', 'babies', 'toddlers', 'bedtime-stories', 'fairy-tales', 'superheroes', 'playgrounds', 'birthday-parties', 'summer-camp', 'teens', 'collecting', 'toys'],
+  },
+  'community-life': {
+    description: 'Community & Life space',
+    interestIds: ['community-life-general', 'community-heroes', 'health', 'money', 'history', 'volunteering', 'big-feelings', 'religion', 'records'],
+  },
+  'countries': {
+    description: 'Countries space',
+    interestIds: ['countries-general', 'country-us', 'country-uk', 'country-canada', 'country-australia', 'country-nz', 'country-ireland', 'country-france', 'country-germany', 'country-italy', 'country-spain', 'country-netherlands', 'country-sweden', 'country-china', 'country-japan', 'country-india', 'country-korea', 'country-mexico', 'country-brazil', 'country-south-africa', 'country-egypt'],
+  },
+  'food': {
+    description: 'Food space',
+    interestIds: ['food-general', 'food', 'baking', 'desserts', 'fruits-veggies', 'pizza', 'breakfast', 'chocolate', 'picnics'],
+  },
+  'holidays': {
+    description: 'Holidays space',
+    interestIds: ['holidays-general', 'holidays', 'christmas', 'halloween', 'easter', 'thanksgiving', 'new-year'],
+  },
+  'planet-weather': {
+    description: 'Planet & Weather space',
+    interestIds: ['planet-weather-general', 'weather', 'environment', 'gardening', 'flowers', 'seasons', 'snow', 'clouds'],
+  },
+  'science-discovery': {
+    description: 'Science & Discovery space',
+    interestIds: ['science-discovery-general', 'space', 'dinosaurs', 'science', 'robots-ai', 'inventions', 'volcanoes', 'natural-disasters', 'human-body', 'energy', 'experiments', 'moon', 'planets', 'archaeology'],
+  },
+  'shows-fun': {
+    description: 'Shows & Fun space',
+    interestIds: ['shows-fun-general', 'family-movies', 'tv-shows', 'comics', 'theme-parks', 'circus', 'online-creators'],
+  },
+  'sports-play': {
+    description: 'Sports & Play space',
+    interestIds: ['sports-play-general', 'sports', 'swimming', 'gymnastics', 'dance', 'martial-arts', 'olympics', 'biking', 'skateboarding', 'hiking', 'fishing'],
+  },
+  'tech-games': {
+    description: 'Tech & Games space',
+    interestIds: ['tech-games-general', 'video-games', 'coding', 'apps', 'internet-safety', 'virtual-reality', 'drones', 'electric-cars', 'board-games'],
+  },
+  'travel-places': {
+    description: 'Travel & Places space',
+    interestIds: ['travel-places-general', 'travel', 'camping', 'road-trips', 'landmarks', 'maps', 'languages', 'world-cultures'],
+  },
+};
