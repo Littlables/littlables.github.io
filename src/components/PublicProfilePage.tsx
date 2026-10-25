@@ -4,6 +4,7 @@ import { Profile } from '../contexts/AuthContext';
 import { Board, getUserBoards } from '../services/boardService';
 import { Playroom, getUserPlayrooms, getPlayroomSpaces } from '../services/playroomService';
 import { getCharacterAvatar } from '../constants/avatars';
+import { SITE_TITLE_BASE } from '../constants/config';
 
 interface PublicProfilePageProps {
   username: string;
@@ -109,6 +110,13 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
     window.addEventListener('littlables:playrooms-changed', onPlayroomsChanged);
     return () => window.removeEventListener('littlables:playrooms-changed', onPlayroomsChanged);
   }, [profile, loadPlayrooms]);
+
+  // Browser tab title: base + display name (or @username) once the profile loads
+  useEffect(() => {
+    document.title = profile
+      ? `${SITE_TITLE_BASE} | ${profile.display_name || `@${profile.username}`}`
+      : SITE_TITLE_BASE;
+  }, [profile]);
 
   // Apply the space owner's theme + background color, restore on unmount
   useEffect(() => {

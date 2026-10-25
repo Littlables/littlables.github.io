@@ -17,6 +17,7 @@ import {
 } from '../services/supabaseService';
 import { NewsCard } from './NewsCard';
 import { t } from '../constants/translations';
+import { SITE_TITLE_BASE } from '../constants/config';
 import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
 import type { NewsItem, NewsCategory, ReactionCounts, ReactionType, AdItem } from '../types';
 
@@ -61,6 +62,11 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [username, slug]);
+
+  // Browser tab title: base + playroom name once it loads
+  useEffect(() => {
+    document.title = playroom ? `${SITE_TITLE_BASE} | ${playroom.name}` : SITE_TITLE_BASE;
+  }, [playroom]);
 
   useEffect(() => {
     let cancelled = false;

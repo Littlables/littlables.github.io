@@ -3,6 +3,9 @@ import { NewsCategory, ThemeId, NewsItem } from '../types';
 export const SAVED_CATEGORY_KEY = 'selected_category';
 export const SAVED_THEME_KEY = 'selected_theme';
 
+/** Browser tab title base; page-specific names append as ` | <name>`. */
+export const SITE_TITLE_BASE = 'littlables | discovery playroom';
+
 export const CATEGORIES: { id: NewsCategory; icon: string; i18nKey: string }[] = [
   { id: 'all', icon: '⚡', i18nKey: 'catAll' },
   { id: 'childcare', icon: '👨‍👩‍👧', i18nKey: 'catChildcare' },

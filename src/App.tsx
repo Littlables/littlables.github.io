@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NewsCategory, NewsItem, AdItem, ReactionType, ReactionCounts } from './types';
-import { SAVED_CATEGORY_KEY, CATEGORIES } from './constants/config';
+import { SAVED_CATEGORY_KEY, CATEGORIES, SITE_TITLE_BASE } from './constants/config';
 import { useTheme } from './hooks/useTheme';
 import { useSystemFont } from './hooks/useSystemFont';
 import { useLockBodyScroll } from './hooks/useLockBodyScroll';
@@ -41,7 +41,7 @@ import {
   isValidCategory,
   formatCustomTopicLabel
 } from './services/urlService';
-import { t, getDetectedLocale } from './constants/translations';
+import { t, TranslationStrings, getDetectedLocale } from './constants/translations';
 import { getCategoryDescription } from './constants/categoryDescriptions';
 
 /** Extracts a `@username` profile route from the URL path, e.g. `/@katie`. */
@@ -189,20 +189,27 @@ export const App: React.FC = () => {
     toastTimer.current = window.setTimeout(() => setToast(null), 3500);
   }, []);
 
-  // Set document title and lang from current locale and active story/topic
+  // Set document title and lang from current locale and active route/story/topic.
+  // Profile/playroom/space pages own their title (their names load async
+  // inside the child page), so this effect leaves those routes alone.
   useEffect(() => {
     const locale = getDetectedLocale();
     document.documentElement.lang = locale.lang;
     document.documentElement.dir = locale.lang === 'ar' ? 'rtl' : 'ltr';
-    const baseTitle = t('pageTitle') || 'Littlables — A Little Scoop of the World';
+    if (profileRoute || boardRoute || spaceRoute || playroomSpaceRoute) return;
     if (selectedStory?.item?.title) {
-      document.title = `${selectedStory.item.title} — Littlables`;
-    } else if (isCustomTopic(category)) {
-      document.title = `${formatCustomTopicLabel(category)} — Littlables`;
+      document.title = `${SITE_TITLE_BASE} | ${selectedStory.item.title}`;
+    } else if (aboutRoute) {
+      document.title = `${SITE_TITLE_BASE} | about`;
+    } else if (category !== 'all') {
+      const label = isCustomTopic(category)
+        ? formatCustomTopicLabel(category)
+        : t(CATEGORIES.find(c => c.id === category)?.i18nKey as keyof TranslationStrings) || category;
+      document.title = `${SITE_TITLE_BASE} | ${label}`;
     } else {
-      document.title = baseTitle;
+      document.title = SITE_TITLE_BASE;
     }
-  }, [selectedStory, category]);
+  }, [selectedStory, category, profileRoute, boardRoute, spaceRoute, playroomSpaceRoute, aboutRoute]);
 
   // Ensure initial URL reflects the active topic if not already in the address bar
   useEffect(() => {

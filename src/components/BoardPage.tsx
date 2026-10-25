@@ -13,6 +13,7 @@ import {
 } from '../services/supabaseService';
 import { NewsCard } from './NewsCard';
 import { t } from '../constants/translations';
+import { SITE_TITLE_BASE } from '../constants/config';
 import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
 import type { NewsItem, NewsCategory, ReactionCounts, ReactionType, AdItem } from '../types';
 
@@ -59,6 +60,18 @@ export const BoardPage: React.FC<BoardPageProps> = ({
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [username, slug, playroomSlug]);
+
+  // Browser tab title: base + space name (prefixed with the playroom name
+  // when viewing a space inside a playroom) once they load
+  useEffect(() => {
+    if (board && playroom) {
+      document.title = `${SITE_TITLE_BASE} | ${playroom.name} | ${board.name}`;
+    } else if (board) {
+      document.title = `${SITE_TITLE_BASE} | ${board.name}`;
+    } else {
+      document.title = SITE_TITLE_BASE;
+    }
+  }, [board, playroom]);
 
   // Fetch the board + its owner (+ the playroom when in playroom context)
   useEffect(() => {
