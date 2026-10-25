@@ -782,9 +782,31 @@ a:hover {
 
 /* Visited ad titles keep the styled color: without this the browser's
    default visited color restyles them after the first click. Placed before
-   the hover rules so hover still wins on hover. */
+   the hover rules so hover still wins on hover. Literal colors per theme:
+   variables in :visited rules are unreliable across browsers, so each
+   theme pins its own --news-text value here instead of var(). */
 .ad-card-title:visited {
-  color: var(--news-text, #f8fafc);
+  color: #f8fafc;
+}
+
+[data-theme="dark-purple"] .ad-card-title:visited {
+  color: #fbf7ff;
+}
+
+[data-theme="light"] .ad-card-title:visited {
+  color: #0f172a;
+}
+
+[data-theme="rainbow"] .ad-card-title:visited {
+  color: #ffffff;
+}
+
+[data-theme="pastel-rainbow"] .ad-card-title:visited {
+  color: #2e1045;
+}
+
+[data-theme="pink"] .ad-card-title:visited {
+  color: #fff1f2;
 }
 
 .news-card-ad:hover .ad-card-title,
