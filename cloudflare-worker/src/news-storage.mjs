@@ -178,8 +178,12 @@ export async function getStoredNewsFeed(env, category) {
   // A balloon belongs to a space iff its interest_keywords overlap the
   // space's interest list, or an admin override (display_categories) names
   // the space. Falls back to the legacy category column when the interest
-  // query returns zero stories or errors. 'all' is unchanged (everything
-  // minus excluded interests). display_categories overrides still win.
+  // query returns zero stories or errors. 'all' uses per-category quotas
+  // (everything minus excluded interests, balanced across categories).
+  // display_categories overrides still win.
+  // Balanced 'all': per-category quotas instead of newest-100 overall,
+  // so slow categories are actually represented (see getBalancedAllFeed).
+  if (category === 'all') return getBalancedAllFeed(env);
   const spaceDef = category && category !== 'all' ? SPACE_DEFINITIONS[category] : null;
   if (spaceDef && (spaceDef.interestIds || []).length > 0) {
     try {
@@ -227,6 +231,71 @@ async function getSpaceInterestFeed(env, space, interestIds) {
     items.push({ ...normalizeStory(row), approved: row.approved });
   }
   return items;
+}
+
+// Balanced 'all' feed: one capped query per front-page category (plus a
+// small uncategorized bucket) instead of a single newest-first query.
+// The old shape (newest 100 overall) let high-intake categories crowd out
+// slow ones — live data showed 33 childcare vs 3 tech / 4 arts / 3 uplifting.
+// Quotas: 8 approved + 8 unapproved per category, 4 + 4 uncategorized
+// (a backlog to classify, not a category to showcase). Excluded interests
+// are filtered on every bucket, same as before. One reaction-totals query
+// on top; 15 fetches total, well under the subrequest limit.
+const ALL_FEED_CATEGORY_QUOTA = 8;
+const ALL_FEED_UNCATEGORIZED_QUOTA = 4;
+
+async function getBalancedAllFeed(env) {
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const exclusionNotAnd = excludedIds.length > 0
+    ? `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`
+    : null;
+  const select = 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at';
+  const makeQuery = (approved, limit, categoryFilter) => {
+    const params = new URLSearchParams({
+      select,
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: String(limit)
+    });
+    if (categoryFilter) {
+      // Same display-override rule as the legacy category feed: a story
+      // shows under a category when it has no override and its assigned
+      // category matches, or when its display_categories names the category.
+      params.set('or', `(and(category.eq.${categoryFilter},display_categories.is.null),display_categories.cs.{${categoryFilter}})`);
+    } else {
+      // Uncategorized bucket: no assigned category (NULL, or the literal
+      // 'all' wire stamp some ingestion paths write) and no display override.
+      params.set('or', '(category.is.null,category.eq.all)');
+      params.set('display_categories', 'is.null');
+    }
+    if (exclusionNotAnd) params.set('not.and', exclusionNotAnd);
+    return params;
+  };
+  const buckets = NEWS_CATEGORIES.filter(c => c !== 'all');
+  const requests = [];
+  for (const bucket of buckets) {
+    requests.push(
+      fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true, ALL_FEED_CATEGORY_QUOTA, bucket)), { headers: supabaseHeaders(env) }),
+      fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false, ALL_FEED_CATEGORY_QUOTA, bucket)), { headers: supabaseHeaders(env) })
+    );
+  }
+  requests.push(
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true, ALL_FEED_UNCATEGORIZED_QUOTA, null)), { headers: supabaseHeaders(env) }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false, ALL_FEED_UNCATEGORIZED_QUOTA, null)), { headers: supabaseHeaders(env) })
+  );
+  const responses = await Promise.all(requests);
+  const rowsArrays = await Promise.all(responses.map((response, i) => readRows(response, `Balanced all feed lookup ${i}`)));
+  const seenUrls = new Set();
+  const items = [];
+  for (const rows of rowsArrays) {
+    for (const row of rows) {
+      if (!row.article_url || seenUrls.has(row.article_url)) continue;
+      seenUrls.add(row.article_url);
+      items.push({ ...normalizeStory(row), approved: row.approved });
+    }
+  }
+  return { provider: 'supabase', items: await applyReactionRanking(env, items) };
 }
 
 // Legacy category-column feed (pre-Phase 3 behavior, kept as fallback).

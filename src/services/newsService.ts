@@ -166,49 +166,45 @@ const byPublicationDate = (first: NewsItem, second: NewsItem) => {
  * wire, which can be the freshest item even when it is off-brand.
  *
  * So for the default landing feed only:
- *  1. Lead with a rotation of Creative Arts, Childcare & Family, and
- *     Animals & Nature, so the opening screen is a colourful mix of all
- *     three rather than a block of one category.
- *  2. Follow with Uplifting News, which is also brand-safe.
- *  3. Show everything else (Future Tech, Global Currents / world, and the
- *     uncategorised 'all' wire) afterwards, in its existing order.
+ *  1. Rotate through all six front-page categories — Creative Arts,
+ *     Childcare & Family, Animals & Nature, Future Tech, Global Currents,
+ *     and Uplifting News — so every category gets turns at the top
+ *     instead of the slower ones sitting below the whole feed.
+ *  2. Show uncategorised stories (the 'all' wire) afterwards, in their
+ *     existing order.
  *
  * Within each category the incoming order is preserved (the worker's
  * reaction-ranked order). Category-specific feeds are unaffected.
  */
-const HOMEPAGE_LEAD_CATEGORIES: StandardNewsCategory[] = ['arts', 'childcare', 'animals'];
+const HOMEPAGE_ROTATION_CATEGORIES: StandardNewsCategory[] = ['arts', 'childcare', 'animals', 'tech', 'world', 'uplifting'];
 
 function effectiveStoryCategory(item: NewsItem): NewsCategory {
   return item.category && isValidCategory(item.category) ? item.category : 'all';
 }
 
 export function orderStoriesForHomepage(stories: NewsItem[]): NewsItem[] {
-  const leadBuckets = HOMEPAGE_LEAD_CATEGORIES.map(category =>
+  const rotationBuckets = HOMEPAGE_ROTATION_CATEGORIES.map(category =>
     stories.filter(item => effectiveStoryCategory(item) === category)
   );
 
-  // Round-robin the lead categories: arts, childcare, animals, arts, ...
-  const lead: NewsItem[] = [];
-  for (let index = 0; lead.length < stories.length; index++) {
+  // Round-robin all six categories: arts, childcare, animals, tech, world,
+  // uplifting, arts, ... so every category gets turns at the top.
+  const rotated: NewsItem[] = [];
+  for (let index = 0; rotated.length < stories.length; index++) {
     let addedAtThisIndex = false;
-    for (const bucket of leadBuckets) {
+    for (const bucket of rotationBuckets) {
       if (index < bucket.length) {
-        lead.push(bucket[index]);
+        rotated.push(bucket[index]);
         addedAtThisIndex = true;
       }
     }
     if (!addedAtThisIndex) break;
   }
 
-  const leadSet = new Set<NewsItem>(lead);
-  const uplifting = stories.filter(
-    item => !leadSet.has(item) && effectiveStoryCategory(item) === 'uplifting'
-  );
-  const rest = stories.filter(
-    item => !leadSet.has(item) && effectiveStoryCategory(item) !== 'uplifting'
-  );
+  const rotatedSet = new Set<NewsItem>(rotated);
+  const rest = stories.filter(item => !rotatedSet.has(item));
 
-  return [...lead, ...uplifting, ...rest];
+  return [...rotated, ...rest];
 }
 
 /**

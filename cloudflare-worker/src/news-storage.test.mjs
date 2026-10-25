@@ -149,12 +149,63 @@ test('getStoredNewsFeed excludes flagged keywords from the all category', async 
   };
   try {
     await getStoredNewsFeed(env, 'all');
-    assert.equal(requestUrls.length, 2);
+    // Balanced 'all': 6 category buckets x (approved + unapproved) + 2 uncategorized.
+    assert.equal(requestUrls.length, 14);
     assert.ok(requestUrls.every(requestUrl =>
       requestUrl.searchParams.get('not.and') === '(interest_keywords.not.is.null,interest_keywords.ov.{stocks,cryptocurrency,business-news,clickbait,death,politics,elections,government})'
     ));
     assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('and') === null));
-    assert.ok(requestUrls.every(requestUrl => requestUrl.searchParams.get('or') === null));
+    for (const category of ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']) {
+      const bucket = requestUrls.filter(requestUrl =>
+        (requestUrl.searchParams.get('or') || '').includes(`category.eq.${category}`));
+      assert.equal(bucket.length, 2);
+    }
+    const uncategorized = requestUrls.filter(requestUrl =>
+      requestUrl.searchParams.get('display_categories') === 'is.null' &&
+      (requestUrl.searchParams.get('or') || '').includes('category.is.null'));
+    assert.equal(uncategorized.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getStoredNewsFeed balances the all category with per-category quotas', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestUrls = [];
+  globalThis.fetch = async (input) => {
+    const requestUrl = new URL(String(input));
+    requestUrls.push(requestUrl);
+    if (requestUrl.pathname === '/rest/v1/article_reactions') return Response.json([]);
+    const approved = requestUrl.searchParams.get('approved') === 'eq.true';
+    const orFilter = requestUrl.searchParams.get('or') || '';
+    // Uncategorized bucket: or-filter names category.is.null (and the 'all' stamp).
+    const bucketMatch = orFilter.includes('category.is.null') ? null : orFilter.match(/category\.eq\.(\w+)/);
+    const bucket = bucketMatch ? bucketMatch[1] : 'uncategorized';
+    return Response.json([0, 1, 2].map(i => ({
+      provider: 'gnews',
+      category: bucket === 'uncategorized' ? (i === 0 ? null : 'all') : bucket,
+      title: `${bucket} ${approved ? 'approved' : 'pending'} ${i}`,
+      article_url: `https://publisher.example/${bucket}/${approved ? 'approved' : 'pending'}/${i}`,
+      approved,
+      published_at: '2026-10-17T10:00:00Z'
+    })));
+  };
+  try {
+    const feed = await getStoredNewsFeed(env, 'all');
+    const feedUrls = requestUrls.filter(requestUrl => requestUrl.pathname !== '/rest/v1/article_reactions');
+    assert.equal(feedUrls.length, 14);
+    // Quota params: 8 per side per category, 4 per side uncategorized.
+    for (const requestUrl of feedUrls) {
+      const isUncategorized = (requestUrl.searchParams.get('or') || '').includes('category.is.null');
+      assert.equal(requestUrl.searchParams.get('limit'), isUncategorized ? '4' : '8');
+    }
+    // Every bucket contributes: six categories plus uncategorized rows,
+    // which arrive as NULL or the literal 'all' stamp.
+    const categories = new Set(feed.items.map(item => item.category));
+    for (const category of ['animals', 'arts', 'childcare', 'tech', 'uplifting', 'world', 'all', null]) {
+      assert.ok(categories.has(category), `missing bucket ${category}`);
+    }
+    assert.equal(feed.items.length, 42);
   } finally {
     globalThis.fetch = originalFetch;
   }
