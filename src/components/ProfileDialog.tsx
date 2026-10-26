@@ -919,7 +919,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                 {saving ? 'Saving…' : 'Save Profile'}
               </button>
 
-              <button type="button" className="sign-in-button secondary-button" onClick={handleSignOut}>
+              <button type="button" className="sign-in-button secondary-button profile-signout-btn" onClick={handleSignOut}>
                 Sign out
               </button>
             </div>

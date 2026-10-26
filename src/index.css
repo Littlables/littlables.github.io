@@ -476,8 +476,9 @@ body {
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 0.25rem;
-  /* Keep scrolled-to pills from jamming against the clipped edge */
-  scroll-padding-inline: 1rem;
+  /* Flush with the feed cards: scrolled-to pills stop at the same edge
+     the balloons start/end at, instead of 1rem inside it. */
+  scroll-padding-inline: 0;
 }
 
 .news-category-container::-webkit-scrollbar {
@@ -491,9 +492,10 @@ body {
   margin: 0;
   width: max-content;
   font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  /* 1rem side inset gives the pill drop shadows room so the scroll
-     container doesn't clip them into a sharp edge */
-  padding: 0.6rem 1rem 0.7rem 1rem;
+  /* No side inset: the first/last pill lines up with the feed cards'
+     edges instead of sitting 1rem inside them. Edge pill shadows may
+     clip slightly at the scroll container's edge. */
+  padding: 0.6rem 0 0.7rem;
   overflow: visible;
 }
 
@@ -1186,7 +1188,10 @@ body.story-modal-open {
   position: fixed;
   inset: 0;
   width: min(94vw, 46rem);
-  max-height: 90vh;
+  /* Shorter on both sides so the balloon never clips at the viewport
+     edges on phones (dvh tracks the dynamic toolbar; vh is the fallback). */
+  max-height: 85vh;
+  max-height: 85dvh;
   margin: auto;
   padding: 0;
   /* Frameless transparent wrapper, now a non-scrolling flex column: the
@@ -1202,14 +1207,33 @@ body.story-modal-open {
   overflow: visible;
 }
 
-/* The balloon's own scroll container. Rounded corners here clip the
-   card's corners while scrolling, the way the dialog used to. */
-.story-modal-scroll {
+/* Positions the hovering ✕ button over the scroll container; the
+   scrolling element itself sits inside it so the button never scrolls. */
+.story-modal-scroll-wrap {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* The balloon's own scroll container. Rounded corners here clip the
+   card's corners while scrolling, the way the dialog used to. Thin
+   rounded scrollbar so it sits neatly inside the rounded card. */
+.story-modal-scroll {
+  height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
+.story-modal-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.story-modal-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
 }
 
 .story-modal-dialog::backdrop {
@@ -1541,6 +1565,7 @@ body.story-modal-open {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
+  z-index: 2;
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 9999px;
@@ -1829,6 +1854,19 @@ body.story-modal-open {
 
 .secondary-button:hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* Destructive action: solid red so Sign out reads as a warning, not a
+   neutral action. Specificity beats .secondary-button's transparent bg. */
+.sign-in-button.profile-signout-btn {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.sign-in-button.profile-signout-btn:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
 
 .sign-in-divider {

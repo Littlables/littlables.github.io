@@ -158,7 +158,16 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           </button>
         </div>
       )}
-      <div className="story-modal-scroll" ref={scrollRef}>
+      <div className="story-modal-scroll-wrap">
+        <button
+          type="button"
+          className="story-modal-close-btn"
+          aria-label="Close story window"
+          onClick={onClose}
+        >
+          ✕
+        </button>
+        <div className="story-modal-scroll" ref={scrollRef}>
         <article className="story-modal-card">
         <div className={`story-modal-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
           <img
@@ -187,14 +196,6 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           >
             {categoryBadge}
           </a>
-          <button
-            type="button"
-            className="story-modal-close-btn"
-            aria-label="Close story window"
-            onClick={onClose}
-          >
-            ✕
-          </button>
         </div>
 
         <div className="story-modal-content">
@@ -288,6 +289,7 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           </div>
         </div>
       </article>
+      </div>
       </div>
     </dialog>
   );
