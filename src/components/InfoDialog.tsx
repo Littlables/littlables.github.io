@@ -47,15 +47,6 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onS
       onClick={handleBackdropClick}
       onClose={onClose}
     >
-      <button
-        className="site-info-close"
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-      >
-        ×
-      </button>
-
       {id === 'about' ? (
         <AboutPage
           onExplore={onClose}
@@ -88,6 +79,14 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onS
           </p>
         </div>
       )}
+
+      <button
+        type="button"
+        className="sign-in-button secondary-button"
+        onClick={onClose}
+      >
+        Close
+      </button>
     </dialog>
   );
 };

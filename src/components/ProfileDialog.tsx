@@ -811,8 +811,6 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog profile-dialog-expanded" onClick={(e) => e.stopPropagation()}>
-        <button className="dialog-close" onClick={onClose} aria-label="Close">×</button>
-
         <div className="profile-tabs">
           {tabs.map((tabItem) => (
             <button
@@ -919,6 +917,10 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
               <button type="button" className="sign-in-button primary-button" onClick={handleSaveProfile} disabled={saving}>
                 {saving ? 'Saving…' : 'Save Profile'}
+              </button>
+
+              <button type="button" className="sign-in-button secondary-button" onClick={handleSignOut}>
+                Sign out
               </button>
             </div>
           </div>
@@ -1738,8 +1740,8 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
         )}
 
         <div className="profile-footer">
-          <button type="button" className="sign-in-button secondary-button" onClick={handleSignOut}>
-            Sign out
+          <button type="button" className="sign-in-button secondary-button" onClick={onClose}>
+            Close
           </button>
         </div>
       </div>
