@@ -62,7 +62,7 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onS
               <span><strong>Stories come from publishers across the web.</strong> We don't own them, and linking isn't an endorsement — publishers are responsible for their own content.</span>
             </li>
             <li>
-              <span className="disclaimer-point-icon" aria-hidden="true">✅</span>
+              <span className="disclaimer-point-icon" aria-hidden="true">🧸</span>
               <span><strong>The Little Scoop badge means we reviewed it.</strong> Stories without the badge haven't been reviewed yet.</span>
             </li>
             <li>
