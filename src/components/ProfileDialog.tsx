@@ -45,9 +45,9 @@ const MAX_SPACES = 5;
 const MAX_PLAYROOM_SPACES = 5;
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
-  { key: 'twitter', label: 'X / Twitter', placeholder: '@username' },
-  { key: 'instagram', label: 'Instagram', placeholder: '@username' },
-  { key: 'tiktok', label: 'TikTok', placeholder: '@username' },
+  { key: 'twitter', label: 'X / Twitter', placeholder: '@handle' },
+  { key: 'instagram', label: 'Instagram', placeholder: '@handle' },
+  { key: 'tiktok', label: 'TikTok', placeholder: '@handle' },
   { key: 'youtube', label: 'YouTube', placeholder: '@handle' },
   { key: 'website', label: 'Website', placeholder: 'yoursite.com' },
 ];
@@ -264,8 +264,8 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     setSaving(true);
     try {
       if (username && username !== profile?.username) {
-        if (usernameStatus === 'taken') throw new Error('That username is taken');
-        if (usernameStatus === 'invalid') throw new Error('Username must be 3-30 chars: letters, numbers, underscores');
+        if (usernameStatus === 'taken') throw new Error('That handle is taken');
+        if (usernameStatus === 'invalid') throw new Error('Handle must be 3-30 chars: letters, numbers, underscores');
       }
       const normalizedSocials = Object.fromEntries(
         Object.entries(socials).map(([k, v]) => [k, normalizeSocialLink(k, v || '')])
@@ -902,7 +902,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               />
 
               <label>Social links</label>
-              <div className="profile-hint profile-hint-compact">Just your username is fine — or paste the full link. Both work.</div>
+              <div className="profile-hint profile-hint-compact">Just your handle is fine — or paste the full link. Both work.</div>
               {SOCIAL_FIELDS.map(({ key, label, placeholder }) => (
                 <div key={key} className="social-field">
                   <span className="social-label">{label}</span>
