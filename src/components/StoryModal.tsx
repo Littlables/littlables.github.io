@@ -36,6 +36,7 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   onAdminEdit
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState(false);
@@ -56,7 +57,11 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       if (!dialog.open) {
         dialog.showModal();
       }
-      dialog.scrollTop = 0;
+      // The balloon content scrolls inside .story-modal-scroll (the Edit
+      // button sits outside it), so reset that container, not the dialog.
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = 0;
+      }
     } else {
       updateStoryOpenGraphTags(null);
       document.documentElement.classList.remove('story-modal-open');
@@ -153,7 +158,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           </button>
         </div>
       )}
-      <article className="story-modal-card">
+      <div className="story-modal-scroll" ref={scrollRef}>
+        <article className="story-modal-card">
         <div className={`story-modal-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
           <img
             ref={imgRef}
@@ -282,6 +288,7 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           </div>
         </div>
       </article>
+      </div>
     </dialog>
   );
 };
