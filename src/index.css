@@ -1189,11 +1189,14 @@ body.story-modal-open {
   max-height: 90vh;
   margin: auto;
   padding: 0;
-  border: 1px solid var(--news-card-border, #475569);
+  /* Frameless transparent wrapper: the balloon card below carries the
+     box, so the admin Edit bar floats over the backdrop above the card
+     with no visible container around it. */
+  border: none;
   border-radius: 18px;
   color: var(--news-text, #f8fafc);
-  background: var(--news-card-bg, #1e293b);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  background: transparent;
+  box-shadow: none;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1201,6 +1204,17 @@ body.story-modal-open {
 .story-modal-dialog::backdrop {
   background: rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(4px);
+}
+
+/* Admin Edit button floating above and outside the open balloon card
+   (moved out of the bottom reactions row, which overflows on narrow
+   screens and cut the button off). Only rendered when an admin session
+   is active. No background or border here on purpose: the button floats
+   on its own over the backdrop. */
+.story-modal-admin-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 1rem;
 }
 
 /* Story edit view: native dialog like the expanded balloon view, so it
@@ -1455,6 +1469,13 @@ body.story-modal-open {
 .story-modal-card {
   display: flex;
   flex-direction: column;
+  /* The card carries the box now that the dialog is a frameless
+     transparent wrapper (lets the admin Edit button float outside it). */
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 18px;
+  background: var(--news-card-bg, #1e293b);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
 }
 
 .story-modal-image-wrap {

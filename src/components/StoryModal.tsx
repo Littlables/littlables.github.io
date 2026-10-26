@@ -133,6 +133,26 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       onClick={handleBackdropClick}
       onClose={onClose}
     >
+      {onAdminEdit && (
+        <div className="story-modal-admin-bar">
+          <button
+            type="button"
+            className="reaction-pill admin-edit-btn"
+            onClick={() => {
+              // Close this native dialog first: a native <dialog> sits
+              // in the top layer above the edit dialog, so opening the
+              // edit dialog underneath it would look like nothing happened.
+              onClose();
+              onAdminEdit(story);
+            }}
+            title="Edit story (admin)"
+            aria-label="Edit story"
+          >
+            <span>✏️</span>
+            <span>Edit</span>
+          </button>
+        </div>
+      )}
       <article className="story-modal-card">
         <div className={`story-modal-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
           <img
@@ -258,25 +278,6 @@ export const StoryModal: React.FC<StoryModalProps> = ({
                 <span>{copied ? '✓' : '🔗'}</span>
                 <span>{copied ? 'Copied' : 'Share'}</span>
               </button>
-
-              {onAdminEdit && (
-                <button
-                  type="button"
-                  className="reaction-pill admin-edit-btn"
-                  onClick={() => {
-                    // Close this native dialog first: a native <dialog> sits
-                    // in the top layer above the edit dialog, so opening the
-                    // edit dialog underneath it would look like nothing happened.
-                    onClose();
-                    onAdminEdit(story);
-                  }}
-                  title="Edit story (admin)"
-                  aria-label="Edit story"
-                >
-                  <span>✏️</span>
-                  <span>Edit</span>
-                </button>
-              )}
             </div>
           </div>
         </div>
