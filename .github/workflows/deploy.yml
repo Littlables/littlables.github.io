@@ -17,15 +17,54 @@ on:
         type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: "worker-and-migrations"
   cancel-in-progress: false
 
 jobs:
+  convert-worksheets:
+    name: Convert SVG Worksheets to PDF & JPG
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Install ImageMagick
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+
+      - name: Convert SVGs to PDF and JPG
+        run: |
+          mkdir -p public/img/worksheets
+          shopt -s nullglob
+          for svg in img/svg/worksheets/*.svg; do
+            filename=$(basename "$svg" .svg)
+            echo "Processing $svg..."
+            # Generate PDF
+            convert "$svg" "public/img/worksheets/${filename}.pdf"
+            # Generate JPG with white background (prevents transparent vector fills from turning black)
+            convert -background white -flatten "$svg" "public/img/worksheets/${filename}.jpg"
+          done
+          shopt -u nullglob
+
+      - name: Commit and push converted assets if changed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/img/worksheets/
+          if git diff --staged --quiet; then
+            echo "No changes in generated worksheets to commit."
+          else
+            git commit -m "chore: auto-convert SVG worksheets to PDF/JPG [skip ci]"
+            git push
+          fi
+
   migrate-supabase:
     name: Run Supabase migrations (on changes)
+    needs: convert-worksheets
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
