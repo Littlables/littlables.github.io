@@ -2743,7 +2743,6 @@ export function ProfileDialog({
                       <details
                         key={group}
                         className="space-interest-group"
-                        open={selectedInGroup > 0}
                       >
                         <summary className="space-interest-group-summary">
                           <span>{group}</span>
