@@ -7,9 +7,14 @@ import {
 } from '../services/playroomService';
 import type { Space } from '../services/spaceService';
 import { getSpaceEmoji } from '../services/spaceEmojiService';
-import { fetchPlayroomFeed } from '../services/playroomFeedService';
+import {
+  fetchPlayroomFeed,
+  getCachedPlayroomFeed,
+  prefetchPlayroomSpaces,
+  filterStoriesForSpace,
+} from '../services/playroomFeedService';
 import { AdCard } from './AdCard';
-import { fetchAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
+import { fetchAdsForCategory, getCachedAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -111,6 +116,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   const [adminEditStory, setAdminEditStory] = useState<NewsItem | null>(null);
   const dwellStartRef = React.useRef<{ item: NewsItem; category: string; startedAt: number } | null>(null);
   const initialLoadDoneRef = React.useRef<string | null>(null);
+  const allPlayroomStoriesRef = React.useRef<NewsItem[]>([]);
 
   // Scroll to top when navigating to a different playroom/space
   useEffect(() => {
@@ -147,6 +153,18 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           return;
         }
 
+        const cachedFeed = getCachedPlayroomFeed(resolved.playroom.id, null);
+        const cachedAds = getCachedAdsForCategory('all');
+        if (cachedFeed && cachedFeed.items.length > 0) {
+          allPlayroomStoriesRef.current = cachedFeed.items;
+          setPlayroom(resolved.playroom);
+          setOwner(resolved.owner);
+          if (cachedFeed.spaces.length > 0) setSpaces(cachedFeed.spaces);
+          setStories(cachedFeed.items);
+          if (cachedAds) setAds(cachedAds);
+          setLoading(false);
+        }
+
         const [playroomSpaces, feed, fetchedAds] = await Promise.all([
           getPlayroomSpaces(resolved.playroom.id).catch(() => [] as Space[]),
           fetchPlayroomFeed(resolved.playroom.id, null).catch(() => ({ items: [] as NewsItem[] })),
@@ -154,16 +172,25 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         ]);
         if (cancelled) return;
 
-        const matchedAds = await matchAdsForStories(feed.items, fetchedAds);
-        if (cancelled) return;
-
+        allPlayroomStoriesRef.current = feed.items;
         setPlayroom(resolved.playroom);
         setOwner(resolved.owner);
         setSpaces(playroomSpaces);
         setStories(feed.items);
         setAds(fetchedAds);
-        setStoryAds(matchedAds);
+        setStoryAds({});
         initialLoadDoneRef.current = routeKey;
+        setLoading(false);
+
+        // Background prefetch all individual spaces in this playroom so clicking any space pill is instant
+        prefetchPlayroomSpaces(resolved.playroom.id, playroomSpaces);
+
+        // Match ads non-blocking in the background
+        matchAdsForStories(feed.items, fetchedAds)
+          .then((matchedAds) => {
+            if (!cancelled) setStoryAds(matchedAds);
+          })
+          .catch(() => {});
 
         // Fetch reactions non-blocking after the main view is ready
         if (feed.items.length > 0) {
@@ -238,25 +265,57 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     };
   }, [playroom, owner, viewerProfile?.use_viewer_theme_for_boards]);
 
-  // Refetch stories only when a space filter pill is toggled or after an edit refresh
+  // Refetch stories when a space filter pill is toggled or after an edit refresh.
+  // Renders cached or locally-filtered stories immediately without showing a loading spinner.
   useEffect(() => {
     const routeKey = `${username.toLowerCase()}/${slug.toLowerCase()}`;
     if (!playroom || initialLoadDoneRef.current !== routeKey) {
       return;
     }
-    if (activeSpaceId === null && refreshTick === 0) {
-      return;
-    }
+
     let cancelled = false;
-    setFeedLoading(true);
+    const cached = getCachedPlayroomFeed(playroom.id, activeSpaceId);
+    if (cached && refreshTick === 0) {
+      setStories(cached.items);
+      setFeedLoading(false);
+    } else if (activeSpaceId === null && allPlayroomStoriesRef.current.length > 0 && refreshTick === 0) {
+      setStories(allPlayroomStoriesRef.current);
+      setFeedLoading(false);
+    } else if (activeSpaceId && allPlayroomStoriesRef.current.length > 0) {
+      const targetSpace = spaces.find((s) => s.id === activeSpaceId);
+      if (targetSpace) {
+        const localFiltered = filterStoriesForSpace(allPlayroomStoriesRef.current, targetSpace);
+        if (localFiltered.length > 0) {
+          setStories(localFiltered);
+          setFeedLoading(false);
+        } else {
+          setFeedLoading(true);
+        }
+      } else {
+        setFeedLoading(true);
+      }
+    } else {
+      setFeedLoading(true);
+    }
+
     (async () => {
       try {
-        const feed = await fetchPlayroomFeed(playroom.id, activeSpaceId);
+        const feed = await fetchPlayroomFeed(playroom.id, activeSpaceId, undefined, undefined, {
+          forceRefresh: refreshTick > 0,
+        });
         if (cancelled) return;
-        const matched = await matchAdsForStories(feed.items, ads);
-        if (cancelled) return;
+        if (activeSpaceId === null) {
+          allPlayroomStoriesRef.current = feed.items;
+        }
         setStories(feed.items);
-        setStoryAds(matched);
+        setFeedLoading(false);
+
+        matchAdsForStories(feed.items, ads)
+          .then((matched) => {
+            if (!cancelled) setStoryAds(matched);
+          })
+          .catch(() => {});
+
         if (feed.items.length > 0) {
           fetchReactionsForStories(feed.items.map((s) => getStoryId(s.title, s.link)))
             .then((data) => {
@@ -267,7 +326,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           setReactions({});
         }
       } catch {
-        if (!cancelled) setStories([]);
+        if (!cancelled && !cached) setStories([]);
       } finally {
         if (!cancelled) setFeedLoading(false);
       }

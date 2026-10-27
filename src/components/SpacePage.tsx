@@ -2,9 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Profile, useAuth } from '../contexts/AuthContext';
 import { Space, getSpaceBySlug } from '../services/spaceService';
 import { Playroom, getPlayroomBySlug } from '../services/playroomService';
-import { fetchInterestFeed } from '../services/playroomFeedService';
+import { fetchInterestFeed, getCachedInterestFeed } from '../services/playroomFeedService';
 import { AdCard } from './AdCard';
-import { fetchAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
+import { fetchAdsForCategory, fetchMatchedAdIds, getCachedAdsForCategory } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -134,15 +134,14 @@ export const SpacePage: React.FC<SpacePageProps> = ({
   const loadContentForSpace = useCallback(async (targetSpace: Space, isCancelled: () => boolean) => {
     const interestIds = extractInterestIds(targetSpace);
     if (interestIds.length === 0) {
-      return { items: [] as NewsItem[], ads: [] as AdItem[], matched: {} as Record<number, AdItem> };
+      return { items: [] as NewsItem[], ads: [] as AdItem[] };
     }
     const [feed, fetchedAds] = await Promise.all([
       fetchInterestFeed(interestIds).catch(() => ({ items: [] as NewsItem[] })),
       fetchAdsForCategory('all').catch(() => [] as AdItem[]),
     ]);
-    if (isCancelled()) return { items: [], ads: [], matched: {} };
-    const matched = await matchAdsForStories(feed.items, fetchedAds);
-    return { items: feed.items, ads: fetchedAds, matched };
+    if (isCancelled()) return { items: [], ads: [] };
+    return { items: feed.items, ads: fetchedAds };
   }, []);
 
   // Coordinated initial load: resolve space + owner (+ playroom if in playroom context) + feed + ads
@@ -169,6 +168,19 @@ export const SpacePage: React.FC<SpacePageProps> = ({
           return;
         }
 
+        // Check cached interest feed & ads for instant render
+        const interestIds = extractInterestIds(resolvedSpace);
+        const cachedFeed = getCachedInterestFeed(interestIds);
+        const cachedAds = getCachedAdsForCategory('all');
+        if (cachedFeed && cachedFeed.items.length > 0) {
+          setSpace(resolvedSpace);
+          setOwner(spaceResult.owner);
+          setPlayroom(playroomResult ? playroomResult.playroom : null);
+          setStories(cachedFeed.items);
+          if (cachedAds && cachedAds.length > 0) setAds(cachedAds);
+          setLoading(false);
+        }
+
         const feedBundle = await loadContentForSpace(resolvedSpace, () => cancelled);
         if (cancelled) return;
 
@@ -177,12 +189,22 @@ export const SpacePage: React.FC<SpacePageProps> = ({
         setPlayroom(playroomResult ? playroomResult.playroom : null);
         setStories(feedBundle.items);
         setAds(feedBundle.ads);
-        setStoryAds(feedBundle.matched);
+        setStoryAds({});
+        setLoading(false);
+
+        // Match ads non-blocking in the background
+        if (feedBundle.items.length > 0 && feedBundle.ads.length > 0) {
+          matchAdsForStories(feedBundle.items, feedBundle.ads)
+            .then((matched) => {
+              if (!cancelled) setStoryAds(matched);
+            })
+            .catch(() => {});
+        }
 
         if (feedBundle.items.length > 0) {
           fetchReactionsForStories(feedBundle.items.map((s) => getStoryId(s.title, s.link)))
             .then((data) => {
-              if (!cancelled) setReactions(data);
+              if (!cancelled) setReactions((prev) => ({ ...prev, ...data }));
             })
             .catch(() => {});
         } else {
@@ -231,7 +253,12 @@ export const SpacePage: React.FC<SpacePageProps> = ({
         const feedBundle = await loadContentForSpace(nextSpace, () => false);
         setStories(feedBundle.items);
         setAds(feedBundle.ads);
-        setStoryAds(feedBundle.matched);
+        setStoryAds({});
+        if (feedBundle.items.length > 0 && feedBundle.ads.length > 0) {
+          matchAdsForStories(feedBundle.items, feedBundle.ads)
+            .then((matched) => setStoryAds(matched))
+            .catch(() => {});
+        }
       }
     };
     window.addEventListener('littlables:spaces-changed', onSpacesChanged);
@@ -451,7 +478,10 @@ export const SpacePage: React.FC<SpacePageProps> = ({
               const feedBundle = await loadContentForSpace(space, () => false);
               setStories(feedBundle.items);
               setAds(feedBundle.ads);
-              setStoryAds(feedBundle.matched);
+              setStoryAds({});
+              matchAdsForStories(feedBundle.items, feedBundle.ads)
+                .then((matched) => setStoryAds(matched))
+                .catch(() => {});
             }
           }}
         />

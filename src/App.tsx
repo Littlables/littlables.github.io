@@ -5,7 +5,7 @@ import { useTheme } from './hooks/useTheme';
 import { useSystemFont } from './hooks/useSystemFont';
 import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
-import { CategoryNav, scrollActiveCategoryIntoView, getPillTopicId } from './components/CategoryNav';
+import { CategoryNav, scrollActiveCategoryIntoView, getPillTopicId, resolvePillSearchQuery } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
 import { StoryEditView } from './components/StoryEditView';
 import { useAdminStatus } from './hooks/useAdminStatus';
@@ -24,8 +24,8 @@ import { WorksheetsPanel } from './components/WorksheetsPanel';
 import type { OpenProfileTarget } from './components/PlayroomPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
-import { fetchNewsFeed } from './services/newsService';
-import { fetchAdsForCategory, fetchMatchedAdIds } from './services/adsService';
+import { fetchNewsFeed, getCachedNewsFeed, prefetchCategoriesInBackground } from './services/newsService';
+import { fetchAdsForCategory, getCachedAdsForCategory, fetchMatchedAdIds } from './services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -154,12 +154,12 @@ export const App: React.FC = () => {
     return 'all';
   });
 
-  const [stories, setStories] = useState<NewsItem[]>([]);
-  const [ads, setAds] = useState<AdItem[]>([]);
+  const [stories, setStories] = useState<NewsItem[]>(() => getCachedNewsFeed(category) || []);
+  const [ads, setAds] = useState<AdItem[]>(() => getCachedAdsForCategory(category) || []);
   // Per-story keyword-matched ads: story index -> matched AdItem (computed after load)
   const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !getCachedNewsFeed(category));
   const [error, setError] = useState<string | null>(null);
   const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
   const [playroomOrSpaceRoute, setPlayroomOrSpaceRoute] = useState<{ username: string; slug: string } | null>(() => parsePlayroomOrSpaceFromUrl());
@@ -290,79 +290,118 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [category]);
 
-  const loadFeed = useCallback(async (cat: NewsCategory) => {
-    setIsLoading(true);
+  const activeCategoryRef = React.useRef<NewsCategory>(category);
+  activeCategoryRef.current = category;
+
+  const loadFeed = useCallback(async (cat: NewsCategory, options?: { forceRefresh?: boolean }) => {
     setError(null);
 
-    let fetchedStories: NewsItem[] = [];
-    try {
-      // Parallel fetch news and category/keyword-based ads
-      const [stories, categoryAds] = await Promise.all([
-        fetchNewsFeed(cat),
-        fetchAdsForCategory(cat)
-      ]);
+    const searchQuery = resolvePillSearchQuery(cat, profile?.pills);
+    const adCategory = isValidCategory(searchQuery) ? searchQuery : (isValidCategory(cat) ? cat : 'all');
 
-      // On the homepage, prioritize stories matching the user's interests
-      let displayStories = stories;
-      if (cat === 'all' && profile?.pills && profile.pills.length > 0) {
-        displayStories = prioritizeByInterests(stories, profile.pills);
+    // Instant cache hit: display cached stories & ads immediately without showing the loading skeleton
+    const cachedStories = !options?.forceRefresh ? getCachedNewsFeed(searchQuery) : null;
+    const cachedAds = !options?.forceRefresh ? getCachedAdsForCategory(adCategory) : null;
+
+    if (cachedStories && cachedStories.length > 0) {
+      const initialDisplay =
+        cat === 'all' && profile?.pills && profile.pills.length > 0
+          ? prioritizeByInterests(cachedStories, profile.pills)
+          : cachedStories;
+      setStories(initialDisplay);
+      if (cachedAds && cachedAds.length > 0) {
+        setAds(cachedAds);
       }
-
-      fetchedStories = displayStories;
-      setStories(displayStories);
-      setAds(categoryAds);
-
-      // Keyword-match ads to stories server-side (non-blocking).
-      // Only ad-slot stories (every 3rd) are sent — no need to classify the rest.
-      // Worker classifies untagged stories, ranks ads, returns ad IDs by story index.
-      // Frontend looks up ad content by ID from the JSON cache.
-      // Falls back to rotation when matching fails or returns nothing.
-      try {
-        const adSlotStories = displayStories
-          .map((story, index) => ({ story, index }))
-          .filter(({ index }) => (index + 1) % 3 === 0)
-          .map(({ story, index }) => ({ ...(story as any), _index: index }));
-        const matches = await fetchMatchedAdIds(adSlotStories as any);
-        // Build ad lookup by ID from the fetched pool
-        const adById = new Map<string, AdItem>();
-        for (const ad of categoryAds) {
-          if (ad.id) adById.set(ad.id, ad);
-        }
-        const matched: Record<number, AdItem> = {};
-        for (const { index } of adSlotStories.map(s => ({ index: (s as any)._index }))) {
-          const adIds = matches[index] || [];
-          if (adIds.length > 0) {
-            const slot = Math.floor(index / 3);
-            const adId = adIds[slot % adIds.length];
-            const ad = adById.get(adId);
-            if (ad) matched[index] = ad;
-          }
-        }
-        setStoryAds(matched);
-      } catch {
-        // Matching is optional — rotation fallback in render covers failures
-        setStoryAds({});
-      }
-    } catch (err: any) {
-      console.error('Error loading stories:', err);
-      setError(err?.message || 'Unable to load stories.');
-    } finally {
-      // Stories are showing — release the loading state immediately.
-      // Reactions load afterward and must not hold the button.
       setIsLoading(false);
+    } else {
+      setIsLoading(true);
     }
 
-    // Fetch reactions for stories (non-blocking for the refresh button)
     try {
-      if (fetchedStories.length > 0) {
-        const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
-        const reactionData = await fetchReactionsForStories(storyIds);
-        setReactions(reactionData);
+      // Parallel fetch news and category/keyword-based ads
+      const [fetched, categoryAds] = await Promise.all([
+        fetchNewsFeed(searchQuery, options),
+        fetchAdsForCategory(adCategory)
+      ]);
+
+      // Ignore stale responses if the user already switched to another space
+      if (activeCategoryRef.current !== cat) return;
+
+      // On the homepage, prioritize stories matching the user's interests
+      let displayStories = fetched;
+      if (cat === 'all' && profile?.pills && profile.pills.length > 0) {
+        displayStories = prioritizeByInterests(fetched, profile.pills);
+      }
+
+      setStories(displayStories);
+      setAds(categoryAds);
+      setIsLoading(false);
+
+      // Kick off background prefetch of other categories + user's custom spaces
+      const extraTopics = profile?.pills
+        ? profile.pills.map((p) => resolvePillSearchQuery(getPillTopicId(p), profile.pills))
+        : undefined;
+      prefetchCategoriesInBackground(extraTopics);
+
+      // Keyword-match ads to stories server-side in the background (non-blocking).
+      // Stories and rotational ads are already visible on screen.
+      const adSlotStories = displayStories
+        .map((story, index) => ({ story, index }))
+        .filter(({ index }) => (index + 1) % 3 === 0)
+        .map(({ story, index }) => ({ ...(story as any), _index: index }));
+
+      if (adSlotStories.length > 0 && categoryAds.length > 0) {
+        fetchMatchedAdIds(adSlotStories as any)
+          .then((matches) => {
+            if (activeCategoryRef.current !== cat) return;
+            const adById = new Map<string, AdItem>();
+            for (const ad of categoryAds) {
+              if (ad.id) adById.set(ad.id, ad);
+            }
+            const matched: Record<number, AdItem> = {};
+            for (const { index } of adSlotStories.map(s => ({ index: (s as any)._index }))) {
+              const adIds = matches[index] || [];
+              if (adIds.length > 0) {
+                const slot = Math.floor(index / 3);
+                const adId = adIds[slot % adIds.length];
+                const ad = adById.get(adId);
+                if (ad) matched[index] = ad;
+              }
+            }
+            setStoryAds(matched);
+          })
+          .catch(() => {
+            if (activeCategoryRef.current === cat) setStoryAds({});
+          });
+      } else {
+        setStoryAds({});
+      }
+
+      // Fetch reactions for stories non-blocking
+      if (displayStories.length > 0) {
+        const storyIds = displayStories.map((s: NewsItem) => getStoryId(s.title, s.link));
+        fetchReactionsForStories(storyIds)
+          .then((reactionData) => {
+            if (activeCategoryRef.current === cat) {
+              setReactions(reactionData);
+            }
+          })
+          .catch(() => {
+            if (activeCategoryRef.current === cat) setReactions({});
+          });
       } else {
         setReactions({});
       }
-    } catch {
-      setReactions({});
+    } catch (err: any) {
+      if (activeCategoryRef.current !== cat) return;
+      console.error('Error loading stories:', err);
+      if (!cachedStories || cachedStories.length === 0) {
+        setError(err?.message || 'Unable to load stories.');
+      }
+    } finally {
+      if (activeCategoryRef.current === cat) {
+        setIsLoading(false);
+      }
     }
   }, [profile?.pills]);
 
@@ -439,6 +478,23 @@ export const App: React.FC = () => {
   }, []);
 
   const handleSelectCategory = (newCat: NewsCategory) => {
+    activeCategoryRef.current = newCat;
+    const searchQuery = resolvePillSearchQuery(newCat, profile?.pills);
+    const adCategory = isValidCategory(searchQuery) ? searchQuery : (isValidCategory(newCat) ? newCat : 'all');
+    const cached = getCachedNewsFeed(searchQuery);
+    if (cached && cached.length > 0) {
+      const display =
+        newCat === 'all' && profile?.pills && profile.pills.length > 0
+          ? prioritizeByInterests(cached, profile.pills)
+          : cached;
+      setStories(display);
+      setIsLoading(false);
+    }
+    const cachedAds = getCachedAdsForCategory(adCategory);
+    if (cachedAds && cachedAds.length > 0) {
+      setAds(cachedAds);
+    }
+    setStoryAds({});
     setCategoryState(newCat);
     setSelectedStory(null);
     setActiveStoryParam(null);
@@ -455,9 +511,6 @@ export const App: React.FC = () => {
     if (typeof window !== 'undefined') {
       const nextHref = getTopicHref(newCat);
       window.history.pushState({ interest: newCat, balloon: null }, '', nextHref);
-      window.requestAnimationFrame(() => {
-        scrollActiveCategoryIntoView();
-      });
     }
   };
 
@@ -501,9 +554,9 @@ export const App: React.FC = () => {
       });
     }
     if (category !== defaultHomeTopic) {
-      setCategoryState(defaultHomeTopic);
+      handleSelectCategory(defaultHomeTopic);
     } else {
-      loadFeed(defaultHomeTopic);
+      loadFeed(defaultHomeTopic, { forceRefresh: true });
     }
   };
 

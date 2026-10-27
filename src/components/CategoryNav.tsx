@@ -2,7 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { NewsCategory } from '../types';
 import { CATEGORIES } from '../constants/config';
 import { t, TranslationStrings } from '../constants/translations';
-import { getTopicHref, isCustomTopic, formatCustomTopicLabel } from '../services/urlService';
+import {
+  getTopicHref,
+  isCustomTopic,
+  isValidCategory,
+  formatCustomTopicLabel
+} from '../services/urlService';
 import { trackCategoryClick } from '../services/trackingService';
 import { useAuth, type PillConfig } from '../contexts/AuthContext';
 import { getUserSpaces, type Space } from '../services/spaceService';
@@ -19,23 +24,52 @@ export function getPillTopicId(pill: PillConfig): NewsCategory {
     return pill.id;
   }
   if (pill.type === 'space' || pill.type === 'board') {
-    const firstKeyword = (pill.keywords || '')
-      .split(',')
-      .map((k) => k.trim())
-      .find(Boolean);
-    return (firstKeyword || pill.label || pill.id).trim().toLowerCase();
+    const label = (pill.label || '').trim().toLowerCase();
+    if (label && !isValidCategory(label)) {
+      return label;
+    }
+    return pill.id.trim().toLowerCase();
   }
-  return (pill.keywords || pill.label || pill.id).trim().toLowerCase();
+  const labelOrKw = (pill.label || pill.keywords || '').trim().toLowerCase();
+  if (labelOrKw && !isValidCategory(labelOrKw)) {
+    return labelOrKw;
+  }
+  return pill.id.trim().toLowerCase();
 }
 
-export function scrollActiveCategoryIntoView(containerEl?: HTMLElement | null) {
+/**
+ * Resolves the underlying feed search query for a selected category/pill topic ID.
+ * For user space pills or custom pills with explicit keywords, returns their keywords
+ * while keeping the pill's own unique topicId for URL and active-pill state.
+ */
+export function resolvePillSearchQuery(
+  category: NewsCategory,
+  userPills?: PillConfig[] | null
+): NewsCategory {
+  if (!userPills || userPills.length === 0) return category;
+  const normalized = category.trim().toLowerCase();
+  const matched = userPills.find(
+    (pill) => getPillTopicId(pill).trim().toLowerCase() === normalized
+  );
+  if (!matched || matched.type === 'category') return category;
+  const kw = (matched.keywords || '').trim();
+  if (kw) return kw.toLowerCase();
+  return (matched.label || matched.id || category).trim().toLowerCase();
+}
+
+export function scrollActiveCategoryIntoView(
+  containerEl?: HTMLElement | null,
+  targetPillEl?: HTMLElement | null
+) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   const container =
     containerEl ||
     (document.querySelector('.news-category-container') as HTMLElement | null);
   if (!container) return;
 
-  const activePill = container.querySelector('.cat-pill.active') as HTMLElement | null;
+  const activePill =
+    targetPillEl ||
+    (container.querySelector('.cat-pill.active') as HTMLElement | null);
   if (!activePill) return;
 
   if (container.scrollWidth > container.clientWidth) {
@@ -95,10 +129,22 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
     };
   }, [user?.id, hasSpacePill]);
 
+  // Compute a unique topicId for each pill so two pills in the bar can never collide
+  const pillTopics = React.useMemo(() => {
+    const seen = new Set<string>();
+    return effectivePills.map((pill) => {
+      let topicId = getPillTopicId(pill).trim().toLowerCase();
+      if (seen.has(topicId)) {
+        topicId = pill.id.trim().toLowerCase();
+      }
+      seen.add(topicId);
+      return topicId;
+    });
+  }, [effectivePills]);
+
   const normalizedCurrent = currentCategory.trim().toLowerCase();
-  const isCurrentInPills = effectivePills.some(
-    (pill) => getPillTopicId(pill).trim().toLowerCase() === normalizedCurrent
-  );
+  const activePillIndex = pillTopics.findIndex((tId) => tId === normalizedCurrent);
+  const isCurrentInPills = activePillIndex !== -1;
   const showUnlistedCustomPill = isCustomTopic(currentCategory) && !isCurrentInPills;
 
   useEffect(() => {
@@ -128,10 +174,10 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
   return (
     <div ref={containerRef} className="news-category-container">
       <nav className="news-category-bar" id="news-category-bar" aria-label="Spaces">
-        {effectivePills.map((pill) => {
+        {effectivePills.map((pill, idx) => {
           const cat = pill.type === 'category' ? CATEGORIES.find((c) => c.id === pill.id) : undefined;
-          const topicId = getPillTopicId(pill);
-          const isActive = topicId.trim().toLowerCase() === normalizedCurrent;
+          const topicId = pillTopics[idx];
+          const isActive = idx === activePillIndex;
           const label = cat
             ? t(cat.i18nKey as keyof TranslationStrings) || cat.id
             : pill.label || formatCustomTopicLabel(topicId);
@@ -150,10 +196,11 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
                   return;
                 }
                 e.preventDefault();
+                const clickedEl = e.currentTarget;
                 trackCategoryClick(topicId);
                 onSelectCategory(topicId);
                 window.requestAnimationFrame(() => {
-                  scrollActiveCategoryIntoView(containerRef.current);
+                  scrollActiveCategoryIntoView(containerRef.current, clickedEl);
                 });
               }}
             >
@@ -174,10 +221,11 @@ export const CategoryNav: React.FC<CategoryNavProps> = ({
                 return;
               }
               e.preventDefault();
+              const clickedEl = e.currentTarget;
               trackCategoryClick(currentCategory);
               onSelectCategory(currentCategory);
               window.requestAnimationFrame(() => {
-                scrollActiveCategoryIntoView(containerRef.current);
+                scrollActiveCategoryIntoView(containerRef.current, clickedEl);
               });
             }}
           >
