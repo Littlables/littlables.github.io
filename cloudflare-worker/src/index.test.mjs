@@ -47,7 +47,7 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(response.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
   const page = await response.text();
   assert.match(page, /Verifying GitHub session/);
-  assert.match(page, /Stories awaiting approval/);
+  assert.match(page, /Pending Approval/);
   assert.match(page, /Approve/);
   assert.match(page, /Disapprove/);
   assert.match(page, /Ignore/);
@@ -56,6 +56,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /Banned stories/);
   assert.match(page, /id="custom-link"/);
   assert.match(page, /id="approval-provider"/);
+  assert.match(page, /id="stage-halloween-btn"/);
+  assert.match(page, /stage-halloween-batch/);
   assert.match(page, /All providers/);
   assert.match(page, /story\.provider === state\.activeProvider/);
   assert.match(page, /'\?provider=' \+ encodeURIComponent\(state\.activeProvider\)/);
@@ -283,7 +285,7 @@ test('public feed API reads approved and unapproved stories while excluding bann
   };
   try {
     const response = await worker.fetch(
-      new Request('https://worker.example/feed?category=childcare'),
+      new Request('https://worker.example/space?interest=childcare'),
       {
         ...authEnv,
         SUPABASE_URL: 'https://supabase.example',
@@ -293,10 +295,12 @@ test('public feed API reads approved and unapproved stories while excluding bann
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(requests.length, 2);
-    assert.ok(requests.every(requested => requested.pathname === '/rest/v1/news_stories'));
-    assert.ok(requests.every(requested => requested.searchParams.get('removed') === 'eq.false'));
-    assert.deepEqual(new Set(requests.map(requested => requested.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
+    const storyRequests = requests.filter(requested => requested.pathname === '/rest/v1/news_stories');
+    const reactionRequests = requests.filter(requested => requested.pathname === '/rest/v1/article_reactions');
+    assert.equal(storyRequests.length, 2);
+    assert.equal(reactionRequests.length, 1);
+    assert.ok(storyRequests.every(requested => requested.searchParams.get('removed') === 'eq.false'));
+    assert.deepEqual(new Set(storyRequests.map(requested => requested.searchParams.get('approved'))), new Set(['eq.true', 'eq.false']));
     assert.equal(result.items[0].link, 'https://publisher.example/family');
     assert.equal(result.items[0].approved, true);
     assert.equal(result.items[1].approved, false);
@@ -534,6 +538,109 @@ test('custom story endpoint inserts an approved homepage story', async () => {
     assert.equal(saved.image_url, 'https://images.example/story.jpg');
     assert.equal(saved.ai_summary, 'The saved AI brief.');
     assert.ok(Number.isFinite(Date.parse(saved.published_at)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Halloween batch staging inserts unapproved stories with images and tags interests', async () => {
+  const originalFetch = globalThis.fetch;
+  const savedRows = [];
+  const patchedRows = [];
+  globalThis.fetch = async (input, options) => {
+    const method = options?.method || 'GET';
+    if (method === 'PATCH') {
+      patchedRows.push(JSON.parse(options.body));
+      return Response.json([]);
+    }
+    if (method === 'GET') {
+      // Untagged-rows lookup: every row just staged, keywords still NULL.
+      return Response.json(savedRows.map((row, i) => ({ id: i + 1, article_url: row.article_url })));
+    }
+    savedRows.push(...JSON.parse(options.body));
+    return Response.json([]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/stage-halloween-batch', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+        }
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.staged, 20);
+    assert.equal(body.duplicatesSkipped, 0);
+    assert.equal(body.interestsSet, 20);
+    assert.equal(body.interestsFailed, 0);
+    assert.equal(savedRows.length, 20);
+    assert.deepEqual(Object.keys(body.byCategory).sort(), ['animals', 'arts', 'childcare', 'tech', 'uplifting', 'world']);
+    for (const row of savedRows) {
+      assert.equal(row.provider, 'halloween-batch');
+      // Unapproved by default: the insert must NOT set approved=true, so the
+      // batch waits in Pending Approval instead of publishing as curated.
+      assert.equal(row.approved, undefined);
+      assert.ok(row.title && row.article_url && row.source_name && row.category);
+      assert.match(row.image_url, /^https:\/\//);
+    }
+    assert.equal(patchedRows.length, 20);
+    for (const patch of patchedRows) {
+      assert.ok(Array.isArray(patch.interest_keywords));
+      assert.ok(patch.interest_keywords.length >= 1 && patch.interest_keywords.length <= 3);
+      assert.ok(patch.interest_keywords.includes('halloween'));
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Halloween batch staging tops up rows with fewer than three interests', async () => {
+  const originalFetch = globalThis.fetch;
+  const patchedRows = [];
+  globalThis.fetch = async (input, options) => {
+    const method = options?.method || 'GET';
+    if (method === 'PATCH') {
+      patchedRows.push(JSON.parse(options.body));
+      return Response.json([]);
+    }
+    if (method === 'GET') {
+      // One pre-existing row with only 2 tags, one already fully tagged.
+      return Response.json([
+        { id: 1, article_url: 'https://www.thebestideasforkids.com/paper-plate-pumpkin/', interest_keywords: ['kids-crafts', 'halloween'] },
+        { id: 2, article_url: 'https://portcharlotte.macaronikid.com/articles/6a918d2cd85a1b102f61c5d7/2026-halloween-events-worth-the-drive-from-port-charlotte', interest_keywords: ['theme-parks', 'zoos', 'halloween'] }
+      ]);
+    }
+    return Response.json([]);
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/stories/stage-halloween-batch', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: (await adminCookie()).split(';')[0],
+        }
+      }),
+      {
+        ...authEnv,
+        SUPABASE_URL: 'https://supabase.example',
+        SUPABASE_SECRET_KEY: 'service-secret'
+      }
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.interestsSet, 1);
+    assert.equal(body.interestsFailed, 0);
+    assert.equal(patchedRows.length, 1);
+    assert.deepEqual(patchedRows[0].interest_keywords, ['kids-crafts', 'holidays', 'halloween']);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1069,7 +1176,7 @@ test('public feed and ads endpoints search stories and ads when custom topic key
 
   try {
     const feedRes = await worker.fetch(
-      new Request('https://worker.example/feed?category=puppy'),
+      new Request('https://worker.example/space?interest=puppy'),
       {
         ...authEnv,
         SUPABASE_URL: 'https://supabase.example',
@@ -1098,11 +1205,13 @@ test('public feed and ads endpoints search stories and ads when custom topic key
   }
 });
 
-test('rate-limited provider stops immediately, applies cooldown, fails over remaining categories to fallback provider, and logs detailed diagnostics', async () => {
+test('rate-limited provider stops immediately, applies cooldown, and queues remaining categories for retry (no cross-provider failover)', async () => {
   const originalFetch = globalThis.fetch;
   const gnewsCalls = [];
   const newsdataCalls = [];
   const savedBatches = [];
+  const queueUpserts = [];
+  const persistedLogs = [];
   const date = new Date().toISOString();
 
   globalThis.fetch = async (input, options = {}) => {
@@ -1136,21 +1245,22 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
       );
     }
     if (url.hostname === 'newsdata.io') {
-      const q = url.searchParams.get('q') || 'all';
-      newsdataCalls.push(q);
-      return Response.json({
-        results: [{
-          title: `Fallback Story for ${q}`,
-          link: `https://publisher.example/fallback-${newsdataCalls.length}`,
-          image_url: 'https://images.example/fb.jpg',
-          description: 'Fallback description',
-          content: 'Fallback content',
-          pubDate: date,
-          source_name: 'Fallback Source'
-        }]
-      });
+      newsdataCalls.push(url.searchParams.get('q') || 'all');
+      return Response.json({ results: [] });
     }
     if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+    if (url.pathname.endsWith('/provider_retry_queue') && options.method === 'POST') {
+      queueUpserts.push(JSON.parse(options.body));
+      return new Response(null, { status: 201 });
+    }
+    if (url.pathname.endsWith('/news_provider_logs') && options.method === 'POST') {
+      persistedLogs.push(...JSON.parse(options.body));
+      return new Response(null, { status: 201 });
+    }
+    if (url.pathname.endsWith('/news_provider_logs')) {
+      const sorted = [...persistedLogs].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      return Response.json(sorted);
+    }
     if (url.pathname.endsWith('/news_stories')) {
       savedBatches.push(...JSON.parse(options.body));
       return new Response(null, { status: 204 });
@@ -1161,9 +1271,9 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
 
   try {
     const cookie = (await adminCookie()).split(';')[0];
-    const envWithFallback = {
+    const envWithKeys = {
       ...authEnv,
-      GNEWS_API_KEY: 'gnews-secret',
+GNEWS_API_KEY: 'gnews-secret',
       NEWSDATA_API_KEY: 'newsdata-secret',
       SUPABASE_URL: 'https://supabase.example',
       SUPABASE_SECRET_KEY: 'service-secret',
@@ -1175,7 +1285,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
         method: 'POST',
         headers: { Origin: 'https://worker.example', Cookie: cookie }
       }),
-      envWithFallback
+      envWithKeys
     );
 
     assert.equal(response.status, 200);
@@ -1183,10 +1293,15 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
     assert.equal(result.provider, 'gnews');
     assert.equal(result.rateLimited, true);
     assert.ok(result.cooldownUntil);
-    assert.equal(result.failoverProvider, 'newsdata');
+    assert.equal(result.failoverProvider, undefined, 'No cross-provider failover should occur');
     assert.equal(gnewsCalls.length, 2, 'GNews must stop immediately after hitting 429 on category #2');
-    assert.equal(newsdataCalls.length, 6, 'Remaining 6 categories must fail over to NewsData.io');
-    assert.equal(savedBatches.length, 7, '1 primary story + 6 failover stories saved');
+    assert.equal(newsdataCalls.length, 0, 'No other provider should be queried (failover removed)');
+    assert.ok(queueUpserts.length >= 1, 'Remaining categories must be queued for retry');
+    for (const q of queueUpserts) {
+      assert.equal(q.provider, 'gnews');
+      assert.equal(q.status, 'pending');
+      assert.ok(q.not_before, 'Retry must have a not_before time from the rate-limit headers');
+    }
 
     // Subsequent non-forced call should respect cooldown without hitting GNews again
     const cooldownRes = await worker.fetch(
@@ -1194,7 +1309,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
         method: 'POST',
         headers: { Origin: 'https://worker.example', Cookie: cookie }
       }),
-      envWithFallback
+      envWithKeys
     );
     const cooldownData = await cooldownRes.json();
     assert.equal(cooldownData.status, 'rate_limited');
@@ -1205,7 +1320,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
       new Request('https://worker.example/admin/api/logs?status=rate_limited', {
         headers: { Cookie: cookie }
       }),
-      envWithFallback
+      envWithKeys
     );
     assert.equal(logsRes.status, 200);
     const logsData = await logsRes.json();
@@ -1213,7 +1328,7 @@ test('rate-limited provider stops immediately, applies cooldown, fails over rema
     assert.equal(logsData.logs[0].provider, 'gnews');
     assert.equal(logsData.logs[0].httpStatus, 429);
     assert.equal(logsData.logs[0].retryAfterSeconds, 900);
-    assert.equal(logsData.logs[0].failoverProvider, 'newsdata');
+    assert.equal(logsData.logs[0].failoverProvider, null);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1290,3 +1405,48 @@ test('hourly scheduled cron trigger and admin auto-sync toggle control automatic
 
 
 
+
+test('image check reports missing and broken images with pagination', async () => {
+  const originalFetch = globalThis.fetch;
+  const rows = [
+    { id: 3, title: 'No pic', article_url: 'https://example.com/3', image_url: '', category: 'animals', approved: true, removed: false },
+    { id: 2, title: 'Good pic', article_url: 'https://example.com/2', image_url: 'https://img.example.com/good.jpg', category: 'animals', approved: true, removed: false },
+    { id: 1, title: 'Bad pic', article_url: 'https://example.com/1', image_url: 'https://img.example.com/bad.jpg', category: 'world', approved: false, removed: false },
+  ];
+  globalThis.fetch = async (input, options) => {
+    const url = String(input);
+    if (url.includes('/rest/v1/news_stories')) {
+      const u = new URL(url);
+      const idFilter = u.searchParams.get('id');
+      let out = rows;
+      if (idFilter && idFilter.startsWith('lt.')) {
+        const before = Number(idFilter.slice(3));
+        out = rows.filter((r) => r.id < before);
+      }
+      return Response.json(out.slice(0, 40));
+    }
+    if (url === 'https://img.example.com/good.jpg') return new Response(null, { status: 200 });
+    if (url === 'https://img.example.com/bad.jpg') return new Response(null, { status: 404 });
+    throw new Error('unexpected fetch: ' + url);
+  };
+  try {
+    const cookie = await adminCookie();
+    const env = { ...authEnv, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'test-key' };
+    const headers = { Cookie: cookie.split(';')[0] };
+    // batch=1: only the first image-bearing story is HEAD-checked per call.
+    const res1 = await worker.fetch(new Request('https://worker.example/admin/api/stories/check-images?batch=1', { headers }), env);
+    const data1 = await res1.json();
+    assert.equal(res1.status, 200);
+    assert.deepEqual(data1.noImage.map((s) => s.id), [3]);
+    assert.deepEqual(data1.broken.map((s) => s.id), []);
+    assert.equal(data1.done, false);
+    assert.equal(data1.nextBefore, 2);
+    const res2 = await worker.fetch(new Request(`https://worker.example/admin/api/stories/check-images?batch=1&before=${data1.nextBefore}`, { headers }), env);
+    const data2 = await res2.json();
+    assert.deepEqual(data2.broken.map((s) => s.id), [1]);
+    assert.equal(data2.broken[0].status, 404);
+    assert.equal(data2.done, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

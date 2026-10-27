@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Varela+Round&display=swap" rel="stylesheet">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Varela+Round&display=swap');
+.footer-link:visited { color:#fb7185 !important; text-decoration:none !important; }
+</style>
+<title>Welcome to littlables — confirm your email</title>
+<!--
+  littlables Supabase email template — Confirm signup.
+  Subject (set in the Supabase dashboard alongside this body):
+    Welcome to littlables — confirm your email
+  Dashboard location: Authentication → Templates → Confirm signup.
+  Same treatment as the Magic Link template: the link stays front and
+  center, the 6-digit code ({{ .Token }}) is the fallback for the
+  dialog's "enter the 6-digit code" step, so brand-new sign-ups get the
+  same experience as returning sign-ins instead of a link-only email.
+  Variables used: {{ .ConfirmationURL }}, {{ .Token }}, {{ .Email }}.
+  Email clients strip JavaScript, so there is no working copy-to-
+  clipboard button inside an email — the code is set large, centered,
+  and letter-spaced for easy manual copying (long-press on mobile).
+  The sign-in link returns to the site the user started from: the app
+  passes emailRedirectTo (window.location.origin) with signInWithOtp.
+  All styles are inline and the layout is table-based for email
+  clients. Fredoka + Quicksand load from Google Fonts (same files as the
+  site); clients that block webfonts (Gmail, Outlook) fall back to the
+  site's own font stacks.
+-->
+</head>
+<body style="margin:0; padding:0; background-color:#0b0f19; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0b0f19;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%; max-width:600px; background-color:#1e293b; border:1px solid rgba(255,255,255,0.08); border-radius:20px;">
+<tr><td align="center" style="padding:32px 32px 8px 32px;">
+<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto;"><tr>
+<td style="padding:0;"><a href="https://littlables.com"><img src="https://littlables.com/favicon-48x48.png" width="32" height="32" alt="littlables logo" style="display:block; border:0;"></a></td>
+<td valign="middle" style="padding-left:10px;"><a href="https://littlables.com" style="font-family:'Fredoka',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:32px; font-weight:600; color:#f8fafc; text-decoration:none; letter-spacing:0.5px;">littlables</a></td>
+</tr></table>
+<p style="margin:8px 0 0 0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:14px; color:#94a3b8;">A special interest sharing and discovery playroom.</p>
+</td></tr>
+<tr><td align="center" style="padding:24px 32px 0 32px;">
+<h1 style="margin:0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:24px; line-height:1.3; color:#f8fafc;">Welcome to littlables!</h1>
+<p style="margin:16px 0 0 0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:16px; line-height:1.6; color:#e2e8f0;">Tap the button below to confirm your email and finish setting up your account for {{ .Email }}. No password needed, ever.</p>
+</td></tr>
+<tr><td align="center" style="padding:24px 32px 0 32px;">
+<a href="{{ .ConfirmationURL }}" style="display:inline-block; background:linear-gradient(90deg,#ef4444 0%,#f59e0b 25%,#10b981 50%,#3b82f6 75%,#8b5cf6 100%); background-color:#38bdf8; color:#ffffff; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:17px; font-weight:700; text-decoration:none; padding:14px 36px; border-radius:999px;">Confirm my email</a>
+</td></tr>
+<tr><td align="center" style="padding:28px 32px 0 32px;">
+<p style="margin:0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:14px; color:#94a3b8;">Prefer to type a code instead? Enter this one in the sign-in box:</p>
+<p style="margin:16px 0 0 0; font-family:'Courier New',Courier,monospace; font-size:34px; font-weight:700; letter-spacing:10px; color:#f8fafc; background-color:rgba(255,255,255,0.04); border:1px dashed rgba(255,255,255,0.25); border-radius:12px; padding:16px 8px 16px 18px;">{{ .Token }}</p>
+<p style="margin:12px 0 0 0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:13px; color:#94a3b8;">Long-press (or select) the code to copy it — email can't carry a working copy button, so this big friendly box is the next best thing.</p>
+</td></tr>
+<tr><td align="center" style="padding:28px 32px 32px 32px;">
+<p style="margin:0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:13px; line-height:1.6; color:#94a3b8;">Didn't sign up? You can safely ignore this — no account changes.<br><br><a href="https://littlables.com" class="footer-link" style="color:#fb7185; text-decoration:none;">Visit littlables</a> &nbsp;·&nbsp; <a href="https://littlables.com/about" class="footer-link" style="color:#fb7185; text-decoration:none;">About</a> &nbsp;·&nbsp; <a href="mailto:hello@littlables.com" class="footer-link" style="color:#fb7185; text-decoration:none;">Contact us</a></p>
+</td></tr>
+</table>
+<p style="margin:16px 0 0 0; font-family:'Quicksand',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif; font-size:12px; color:#64748b;">littlables — a special interest sharing and discovery playroom.</p>
+</td></tr>
+</table>
+</body>
+</html>

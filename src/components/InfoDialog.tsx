@@ -1,12 +1,15 @@
 import React, { useEffect, useRef } from 'react';
+import { AboutPage } from './AboutPage';
 
 interface InfoDialogProps {
   id: 'about' | 'disclaimer';
   isOpen: boolean;
   onClose: () => void;
+  onSignIn?: () => void;
+  signedIn?: boolean;
 }
 
-export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose }) => {
+export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onSignIn, signedIn }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -17,12 +20,18 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose }) =
       if (!dialog.open) {
         dialog.showModal();
       }
+      // When opened from the footer, jump straight to the FAQ / about sections.
+      if (id === 'about') {
+        requestAnimationFrame(() => {
+          dialog.querySelector('#about-faq')?.scrollIntoView({ block: 'start' });
+        });
+      }
     } else {
       if (dialog.open) {
         dialog.close();
       }
     }
-  }, [isOpen]);
+  }, [isOpen, id]);
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
     if (e.target === dialogRef.current) {
@@ -38,42 +47,48 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose }) =
       onClick={handleBackdropClick}
       onClose={onClose}
     >
-      <button
-        className="site-info-close"
-        type="button"
-        aria-label="Close"
-        onClick={onClose}
-      >
-        ×
-      </button>
-
-      {id === 'about' ? (
-        <>
-          <img
-            src="/android-chrome-192x192.png"
-            width="192"
-            height="192"
-            alt="Littlables pastel icon with colorful stacked blocks"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
+      <div className="site-info-scroll">
+        {id === 'about' ? (
+          <AboutPage
+            onExplore={onClose}
+            onSignIn={onSignIn}
+            signedIn={signedIn}
           />
-          <h2 id="about-title">About Littlables</h2>
-          <p>
-            Littlables is a small, independent project built to make keeping up with the world feel a little more welcoming. We bring together stories about family and childcare, animals and nature, creative arts, future technology, global currents, and uplifting news in one colorful, easy-to-explore place.
-          </p>
-          <p>
-            Our goal is to help curious people discover useful, interesting stories without losing sight of the good happening around us. Our roadmap is to keep improving the quality and variety of our sources, make our summaries and moderation clearer, and grow the site thoughtfully while keeping it friendly, accessible, and fun.
-          </p>
-        </>
-      ) : (
-        <>
-          <h2 id="disclaimer-title">A little note about our stories</h2>
-          <p>
-            Stories are collected from third-party publishers and may be reviewed by Littlables before receiving the Littlables' Little Scoop badge; stories without the badge may still appear in the feed and have not necessarily been reviewed. AI summaries are generated to help readers get a quick overview, can make mistakes or miss context, and are not a replacement for the original article. Please follow the source link to read the publisher's full story and verify important details. Littlables does not own or endorse linked articles, and publishers remain responsible for their content.
-          </p>
-        </>
-      )}
+        ) : (
+          <div className="disclaimer-body">
+            <h2 id="disclaimer-title">A quick note 📝</h2>
+            <ul className="disclaimer-points">
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">📰</span>
+                <span><strong>Stories come from publishers across the web.</strong> We don't own them, and linking isn't an endorsement — publishers are responsible for their own content.</span>
+              </li>
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">🧸</span>
+                <span><strong>The Little Scoop badge means we reviewed it.</strong> Stories without the badge haven't been reviewed yet.</span>
+              </li>
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">🤖</span>
+                <span><strong>Summaries are AI-generated</strong> to give you the gist fast. They can miss context or get things wrong — always check the original article for important details.</span>
+              </li>
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">🔗</span>
+                <span><strong>Follow the source link</strong> to read the full story and verify anything that matters.</span>
+              </li>
+            </ul>
+            <p className="disclaimer-foot">
+              Questions? Reach us at <strong>hello@littlables.com</strong> 💛
+            </p>
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="sign-in-button secondary-button"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
     </dialog>
   );
 };

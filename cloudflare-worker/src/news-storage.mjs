@@ -1,9 +1,15 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion } from './interest-keywords.mjs';
+import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
 
-const STORIES_TABLE = 'news_stories';
+// Stored keyword vectors are keyed by description version: when descriptions
+// are sharpened, old vectors stop matching and get recomputed.
+const KEYWORD_VECTOR_MODEL = `${EMBEDDING_MODEL}:kwv${KEYWORD_DESCRIPTIONS_VERSION}`;
+
+export const STORIES_TABLE = 'news_stories';
 const SYNC_TABLE = 'news_provider_sync';
 
-function supabaseHeaders(env, extra = {}) {
+export function supabaseHeaders(env, extra = {}) {
   return {
     apikey: env.SUPABASE_SECRET_KEY,
     Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
@@ -12,7 +18,7 @@ function supabaseHeaders(env, extra = {}) {
   };
 }
 
-function supabaseUrl(env, table, query = '') {
+export function supabaseUrl(env, table, query = '') {
   const base = `${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${table}`;
   return query ? `${base}?${query}` : base;
 }
@@ -23,6 +29,9 @@ async function readRows(response, context) {
   if (!Array.isArray(rows)) throw new Error(`${context} returned an invalid response`);
   return rows;
 }
+
+// Exported for modules that need raw Supabase row reads (e.g. keyword embeddings).
+export { readRows };
 
 function normalizeStory(row) {
   return {
@@ -36,21 +45,290 @@ function normalizeStory(row) {
     fetchedAt: row.fetched_at || '',
     source: row.source_name || '',
     provider: row.provider,
-    category: row.category
+    category: row.category,
+    // Admin-curated frontend category override. Null/empty = use `category`.
+    displayCategories: Array.isArray(row.display_categories) && row.display_categories.length > 0
+      ? row.display_categories.filter(c => typeof c === 'string')
+      : null,
+    // Interest keywords (cross-cutting tags, never shown as categories).
+    interestKeywords: Array.isArray(row.interest_keywords) && row.interest_keywords.length > 0
+      ? row.interest_keywords.filter(k => typeof k === 'string')
+      : null
+    // NOTE: region/country_code temporarily removed from feed select until
+    // the story_region.sql migration succeeds. Re-add after columns exist.
   };
 }
 
+/**
+ * Effective frontend categories for a story row: the override list when set,
+ * otherwise the query-assigned category.
+ */
+export function effectiveDisplayCategories(row) {
+  if (Array.isArray(row.display_categories) && row.display_categories.length > 0) {
+    return row.display_categories.filter(c => typeof c === 'string');
+  }
+  if (Array.isArray(row.displayCategories) && row.displayCategories.length > 0) {
+    return row.displayCategories.filter(c => typeof c === 'string');
+  }
+  const fallback = row.category || 'all';
+  return [fallback];
+}
+
+// Reaction ranking: content with more total reactions shows above other
+// content from the same publish day. Reaction rows are keyed by a
+// frontend-computed story ID (not a UUID or URL), so the worker recomputes
+// the same ID to join reactions onto feed stories.
+export const REACTIONS_TABLE = 'article_reactions';
+
+// Mirrors getStoryId() in src/services/supabaseService.ts exactly — the
+// frontend hashes (link + title), lowercased and trimmed. Keep in sync.
+export function computeStoryId(link, title) {
+  const str = ((link || '') + (title || '')).toLowerCase().trim();
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return 's_' + Math.abs(hash).toString(36).slice(0, 10);
+}
+
+// One PostgREST query for every story in the feed: total reactions
+// (love + mind + cozy) per story ID. Fail-open: any failure logs and
+// returns an empty map, so the feed keeps date order instead of breaking.
+// Diagnostic logging (2026-10-25): the production lookup failed with its
+// error text swallowed by the log pipeline, so every failure path logs the
+// HTTP status and response body explicitly as plain strings.
+async function fetchReactionTotals(env, items) {
+  const totals = new Map();
+  const ids = [...new Set(items
+    .map(item => computeStoryId(item.link || item.article_url, item.title))
+    .filter(Boolean))];
+  if (ids.length === 0) return totals;
+  try {
+    const params = new URLSearchParams({
+      select: 'story_id,reaction_type,count',
+      story_id: `in.(${ids.join(',')})`
+    });
+    const response = await fetch(supabaseUrl(env, REACTIONS_TABLE, params), {
+      headers: supabaseHeaders(env)
+    });
+    const bodyText = await response.text();
+    if (!response.ok) {
+      console.error(`Reaction totals lookup HTTP ${response.status} (ids=${ids.length}): ${bodyText.slice(0, 300)}`);
+      return totals;
+    }
+    let rows;
+    try {
+      rows = JSON.parse(bodyText);
+    } catch (parseErr) {
+      console.error(`Reaction totals lookup unparseable body (ids=${ids.length}, first 300 chars): ${bodyText.slice(0, 300)}`);
+      return totals;
+    }
+    if (!Array.isArray(rows)) {
+      console.error(`Reaction totals lookup non-array body (ids=${ids.length}, first 300 chars): ${bodyText.slice(0, 300)}`);
+      return totals;
+    }
+    for (const row of rows) {
+      const count = Number(row.count) || 0;
+      totals.set(row.story_id, (totals.get(row.story_id) || 0) + count);
+    }
+  } catch (err) {
+    console.error(`Reaction totals lookup threw (ids=${ids.length}): message=${err && err.message ? err.message : String(err)} stack=${err && err.stack ? err.stack : 'none'}`);
+  }
+  return totals;
+}
+
+// Pure sort: newest publish day first; within a day, most total reactions
+// first; ties by recency; zero-reaction stories keep date order among
+// themselves. Returns a new array; the input is untouched.
+export function sortItemsByDayReactions(items, totals) {
+  const dayOf = item => {
+    const raw = item.pubDate || item.published_at || '';
+    return raw ? String(raw).slice(0, 10) : '0000-00-00';
+  };
+  const timeOf = item => {
+    const ms = Date.parse(item.pubDate || item.published_at || item.fetchedAt || item.fetched_at || '');
+    return Number.isNaN(ms) ? 0 : ms;
+  };
+  const withIndex = items.map((item, index) => ({ item, index }));
+  withIndex.sort((a, b) => {
+    const dayA = dayOf(a.item);
+    const dayB = dayOf(b.item);
+    if (dayA !== dayB) return dayA < dayB ? 1 : -1;
+    const totalA = totals.get(computeStoryId(a.item.link || a.item.article_url, a.item.title)) || 0;
+    const totalB = totals.get(computeStoryId(b.item.link || b.item.article_url, b.item.title)) || 0;
+    if (totalA !== totalB) return totalB - totalA;
+    const timeDiff = timeOf(b.item) - timeOf(a.item);
+    if (timeDiff !== 0) return timeDiff;
+    return a.index - b.index;
+  });
+  return withIndex.map(entry => entry.item);
+}
+
+// Rank one feed's items by day + reactions. Sorts once on load — live
+// reactions do not reshuffle an already-loaded feed. Adds no fields.
+export async function applyReactionRanking(env, items) {
+  if (!items || items.length === 0) return items;
+  const totals = await fetchReactionTotals(env, items);
+  return sortItemsByDayReactions(items, totals);
+}
+
 export async function getStoredNewsFeed(env, category) {
+  // Phase 3 cutover: front-page spaces use interest-overlap matching first.
+  // A balloon belongs to a space iff its interest_keywords overlap the
+  // space's interest list, or an admin override (display_categories) names
+  // the space. Falls back to the legacy category column when the interest
+  // query returns zero stories or errors. 'all' uses per-category quotas
+  // (everything minus excluded interests, balanced across categories).
+  // display_categories overrides still win.
+  // Balanced 'all': per-category quotas instead of newest-100 overall,
+  // so slow categories are actually represented (see getBalancedAllFeed).
+  if (category === 'all') return getBalancedAllFeed(env);
+  const spaceDef = category && category !== 'all' ? SPACE_DEFINITIONS[category] : null;
+  if (spaceDef && (spaceDef.interestIds || []).length > 0) {
+    try {
+      const interestItems = await getSpaceInterestFeed(env, category, spaceDef.interestIds);
+      if (interestItems.length > 0) return { provider: 'supabase', items: await applyReactionRanking(env, interestItems) };
+    } catch (err) {
+      console.error('Space interest feed failed, falling back to category:', err);
+    }
+  }
+  return getLegacyCategoryFeed(env, category);
+}
+
+// Interest-overlap feed for one front-page space: stories whose
+// interest_keywords overlap the space's list, plus admin-overridden stories
+// (display_categories contains the space). Excluded interests filtered out.
+async function getSpaceInterestFeed(env, space, interestIds) {
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
   const makeQuery = approved => {
     const params = new URLSearchParams({
-      select: 'provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      or: `(interest_keywords.ov.{${interestIds.join(',')}},display_categories.cs.{${space}})`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    if (excludedIds.length > 0) {
+      params.set('not.and', `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
+    }
+    return params;
+  };
+  const [approvedResponse, unapprovedResponse] = await Promise.all([
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), { headers: supabaseHeaders(env) }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), { headers: supabaseHeaders(env) })
+  ]);
+  const [approvedRows, unapprovedRows] = await Promise.all([
+    readRows(approvedResponse, 'Approved space interest feed lookup'),
+    readRows(unapprovedResponse, 'Unapproved space interest feed lookup')
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (!row.article_url || seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  return items;
+}
+
+// Balanced 'all' feed: one capped query per front-page category (plus a
+// small uncategorized bucket) instead of a single newest-first query.
+// The old shape (newest 100 overall) let high-intake categories crowd out
+// slow ones — live data showed 33 childcare vs 3 tech / 4 arts / 3 uplifting.
+// Quotas: 8 approved + 8 unapproved per category, 4 + 4 uncategorized
+// (a backlog to classify, not a category to showcase). Excluded interests
+// are filtered on every bucket, same as before. One reaction-totals query
+// on top; 15 fetches total, well under the subrequest limit.
+const ALL_FEED_CATEGORY_QUOTA = 8;
+const ALL_FEED_UNCATEGORIZED_QUOTA = 4;
+
+async function getBalancedAllFeed(env) {
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const exclusionNotAnd = excludedIds.length > 0
+    ? `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`
+    : null;
+  const select = 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at';
+  const makeQuery = (approved, limit, categoryFilter) => {
+    const params = new URLSearchParams({
+      select,
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: String(limit)
+    });
+    if (categoryFilter) {
+      // Same display-override rule as the legacy category feed: a story
+      // shows under a category when it has no override and its assigned
+      // category matches, or when its display_categories names the category.
+      params.set('or', `(and(category.eq.${categoryFilter},display_categories.is.null),display_categories.cs.{${categoryFilter}})`);
+    } else {
+      // Uncategorized bucket: no assigned category (NULL, or the literal
+      // 'all' wire stamp some ingestion paths write) and no display override.
+      params.set('or', '(category.is.null,category.eq.all)');
+      params.set('display_categories', 'is.null');
+    }
+    if (exclusionNotAnd) params.set('not.and', exclusionNotAnd);
+    return params;
+  };
+  const buckets = NEWS_CATEGORIES.filter(c => c !== 'all');
+  const requests = [];
+  for (const bucket of buckets) {
+    requests.push(
+      fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true, ALL_FEED_CATEGORY_QUOTA, bucket)), { headers: supabaseHeaders(env) }),
+      fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false, ALL_FEED_CATEGORY_QUOTA, bucket)), { headers: supabaseHeaders(env) })
+    );
+  }
+  requests.push(
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true, ALL_FEED_UNCATEGORIZED_QUOTA, null)), { headers: supabaseHeaders(env) }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false, ALL_FEED_UNCATEGORIZED_QUOTA, null)), { headers: supabaseHeaders(env) })
+  );
+  const responses = await Promise.all(requests);
+  const rowsArrays = await Promise.all(responses.map((response, i) => readRows(response, `Balanced all feed lookup ${i}`)));
+  const seenUrls = new Set();
+  const items = [];
+  for (const rows of rowsArrays) {
+    for (const row of rows) {
+      if (!row.article_url || seenUrls.has(row.article_url)) continue;
+      seenUrls.add(row.article_url);
+      items.push({ ...normalizeStory(row), approved: row.approved });
+    }
+  }
+  return { provider: 'supabase', items: await applyReactionRanking(env, items) };
+}
+
+// Legacy category-column feed (pre-Phase 3 behavior, kept as fallback).
+async function getLegacyCategoryFeed(env, category) {
+  // Stories tagged with an excluded ("Flagged") keyword never appear in
+  // front-page category feeds (including "all"). They are still classifiable,
+  // visible in the admin panel, and available via keyword feeds for spaces.
+  // NULL interest_keywords must pass explicitly: NOT (NULL ov x) is NULL,
+  // which would wrongly filter out untagged stories.
+  // PostgREST does not allow `not.` inside an or=(...) logic tree, so we use
+  // De Morgan's law: NOT (x NOT NULL AND x OVERLAPS {...}) == (x IS NULL OR NOT x OVERLAPS {...})
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const exclusionNotAnd = excludedIds.length > 0
+    ? `not.and=(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`
+    : null;
+  const makeQuery = approved => {
+    const params = new URLSearchParams({
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
       approved: `eq.${approved}`,
       removed: 'eq.false',
       order: 'published_at.desc.nullslast,fetched_at.desc',
       limit: '50'
     });
     if (category && category !== 'all') {
-      params.set('category', `eq.${category}`);
+      // Include admin-overridden stories: a story shows under this category when
+      // it has no override (NULL display_categories) and its assigned category
+      // matches, or when its display_categories list contains this category.
+      // (The PATCH endpoint normalizes empty lists to NULL, so is.null is enough.)
+      params.set('or', `(and(category.eq.${category},display_categories.is.null),display_categories.cs.{${category}})`);
+    }
+    if (exclusionNotAnd) {
+      // PostgREST ANDs top-level params: (category match) AND NOT (tagged AND overlaps excluded)
+      params.set('not.and', `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
     }
     return params;
   };
@@ -65,6 +343,177 @@ export async function getStoredNewsFeed(env, category) {
   const [approvedRows, unapprovedRows] = await Promise.all([
     readRows(approvedResponse, 'Approved news feed lookup'),
     readRows(unapprovedResponse, 'Unapproved news feed lookup')
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  return { provider: 'supabase', items: await applyReactionRanking(env, items) };
+}
+
+const KEYWORD_EMBEDDINGS_TABLE = 'keyword_embeddings';
+// Max keyword descriptions to embed per invocation — the backfill runs as a
+// standalone step (never alongside story validation), so this stays safely
+// under subrequest budgets.
+const KEYWORD_EMBED_CHUNK = 25;
+// In-memory cache for the full keyword vector map (per worker isolate).
+let cachedKeywordVectors = null;
+
+/**
+ * Get embedding vectors for all interest keyword descriptions.
+ *
+ * Vectors are persisted to the `keyword_embeddings` Supabase table so the
+ * 100 descriptions are embedded once, not on every cold start. Missing
+ * vectors are backfilled ONE CHUNK per call — the caller (validate endpoint)
+ * runs this as a standalone step and returns early while warming up, so the
+ * backfill's AI calls never share an invocation budget with story validation.
+ *
+ * All-or-nothing: `vectors` is null until EVERY keyword has a vector, so
+ * stories are never tagged against a partial keyword set.
+ *
+ * @returns {Promise<{vectors: Map<string,number[]>|null, complete: boolean, done: number, total: number}>}
+ */
+/**
+ * Read-only warmup status: how many keyword vectors are stored, without
+ * triggering a backfill round. 1 Supabase lookup, 0 AI calls — safe to
+ * poll for progress display.
+ */
+export async function getKeywordVectorStatus(env) {
+  const total = INTEREST_KEYWORDS.length;
+  if (cachedKeywordVectors) {
+    return { complete: true, done: total, total };
+  }
+  let done = 0;
+  try {
+    const params = new URLSearchParams({ select: 'keyword_id,model' });
+    const res = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, params), {
+      headers: supabaseHeaders(env),
+    });
+    const rows = await readRows(res, 'Keyword vector status check');
+    const seen = new Set();
+    for (const row of rows) {
+      if (row.model === KEYWORD_VECTOR_MODEL && !seen.has(row.keyword_id)) {
+        seen.add(row.keyword_id);
+        done++;
+      }
+    }
+  } catch (err) {
+    console.warn('Keyword vector status check failed:', err?.message || err);
+  }
+  return { complete: done === total, done, total };
+}
+
+export async function getPersistedKeywordEmbeddings(env) {
+  const total = INTEREST_KEYWORDS.length;
+  if (cachedKeywordVectors) {
+    return { vectors: cachedKeywordVectors, complete: true, done: total, total };
+  }
+  if (!env?.AI) return { vectors: null, complete: false, done: 0, total };
+
+  // 1. Load whatever is already stored.
+  const map = new Map();
+  let lookupError = null;
+  try {
+    const params = new URLSearchParams({ select: 'keyword_id,embedding,model' });
+    const res = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, params), {
+      headers: supabaseHeaders(env),
+    });
+    const rows = await readRows(res, 'Keyword embeddings lookup');
+    for (const row of rows) {
+      if (
+        row.model === KEYWORD_VECTOR_MODEL &&
+        Array.isArray(row.embedding) &&
+        row.embedding.length > 0
+      ) {
+        map.set(row.keyword_id, row.embedding);
+      }
+    }
+  } catch (err) {
+    lookupError = err?.message || String(err);
+    console.warn('Keyword embeddings lookup failed:', lookupError);
+  }
+
+  // 2. Backfill ONE chunk of missing vectors per call.
+  const missing = INTEREST_KEYWORDS.filter((kw) => !map.has(kw.id));
+  const chunk = missing.slice(0, KEYWORD_EMBED_CHUNK);
+  let upsertError = null;
+  let upserted = 0;
+  if (chunk.length > 0) {
+    const vectors = await Promise.all(chunk.map((kw) => embedText(env, kw.description)));
+    const upserts = [];
+    chunk.forEach((kw, j) => {
+      if (vectors[j]) {
+        map.set(kw.id, vectors[j]);
+        upserts.push({ keyword_id: kw.id, embedding: vectors[j], model: KEYWORD_VECTOR_MODEL });
+      }
+    });
+    if (upserts.length > 0) {
+      try {
+        const upsertParams = new URLSearchParams({ on_conflict: 'keyword_id' });
+        const upsertRes = await fetch(supabaseUrl(env, KEYWORD_EMBEDDINGS_TABLE, upsertParams), {
+          method: 'POST',
+          headers: supabaseHeaders(env, { Prefer: 'resolution=merge-duplicates' }),
+          body: JSON.stringify(upserts),
+        });
+        if (!upsertRes.ok) {
+          const errText = await upsertRes.text().catch(() => 'unknown');
+          throw new Error(`HTTP ${upsertRes.status}: ${errText.slice(0, 200)}`);
+        }
+        upserted = upserts.length;
+      } catch (err) {
+        upsertError = err?.message || String(err);
+        console.warn('Keyword embeddings upsert failed:', upsertError);
+      }
+    }
+  }
+
+  const done = map.size;
+  if (done !== total) {
+    console.warn(
+      `Keyword embeddings incomplete (${done}/${total}); backfilled ${chunk.length} this run, skipping keyword tagging.`
+    );
+    return { vectors: null, complete: false, done, total, lookupError, upsertError, upserted };
+  }
+  cachedKeywordVectors = map;
+  return { vectors: map, complete: true, done, total };
+}
+
+/** Clear the in-memory keyword vector cache (useful for tests). */
+export function clearKeywordVectorCache() {
+  cachedKeywordVectors = null;
+}
+
+/**
+ * Feed of stories tagged with an interest keyword (for custom spaces).
+ * Interest keywords never appear as categories; this is the only public
+ * read path for them.
+ */
+export async function getStoriesByKeyword(env, keyword) {
+  const makeQuery = approved => {
+    const params = new URLSearchParams({
+      select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      'interest_keywords': `cs.{${keyword}}`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    return params;
+  };
+  const [approvedResponse, unapprovedResponse] = await Promise.all([
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), {
+      headers: supabaseHeaders(env)
+    }),
+    fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), {
+      headers: supabaseHeaders(env)
+    })
+  ]);
+  const [approvedRows, unapprovedRows] = await Promise.all([
+    readRows(approvedResponse, 'Approved keyword feed lookup'),
+    readRows(unapprovedResponse, 'Unapproved keyword feed lookup')
   ]);
   const seenUrls = new Set();
   const items = [];
@@ -135,6 +584,219 @@ export function clearProviderCooldownState(providerId) {
   providerCooldownMemory.delete(providerId);
 }
 
+/**
+ * Persist a provider cooldown to the DB so it survives worker restarts.
+ * Fire-and-forget: call without awaiting, or via ctx.waitUntil.
+ */
+export async function persistProviderCooldown(env, providerId, cooldownData = {}) {
+  try {
+    const url = supabaseUrl(env, 'news_provider_sync', new URLSearchParams({
+      on_conflict: 'provider'
+    }));
+    const body = {
+      provider: providerId,
+      cooldown_until: cooldownData.cooldownUntil || null,
+      rate_limit_reset_at: cooldownData.rateLimitResetAt || null,
+      status: 'rate_limited',
+      last_error: cooldownData.lastError || null,
+      updated_at: new Date().toISOString()
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...supabaseHeaders(env),
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      console.warn(`Failed to persist cooldown for ${providerId}: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(`Failed to persist cooldown for ${providerId}:`, err.message);
+  }
+}
+
+/**
+ * Load active cooldowns from DB into memory (call on worker startup or when
+ * in-memory is empty). Returns count loaded.
+ */
+export async function loadProviderCooldownsFromDb(env) {
+  try {
+    const params = new URLSearchParams({
+      select: 'provider,cooldown_until,rate_limit_reset_at,last_error',
+      cooldown_until: `gt.${new Date().toISOString()}`
+    });
+    const res = await fetch(supabaseUrl(env, 'news_provider_sync', params), {
+      headers: supabaseHeaders(env)
+    });
+    if (!res.ok) return 0;
+    const rows = await res.json();
+    let loaded = 0;
+    for (const row of rows) {
+      if (row.provider && row.cooldown_until) {
+        providerCooldownMemory.set(row.provider, {
+          provider: row.provider,
+          cooldownUntil: row.cooldown_until,
+          rateLimitResetAt: row.rate_limit_reset_at || null,
+          retryAfterSeconds: null,
+          rateLimitRemaining: null,
+          lastError: row.last_error || null,
+          failoverProvider: null,
+          failoverCategories: [],
+          recordedAt: new Date().toISOString()
+        });
+        loaded++;
+      }
+    }
+    return loaded;
+  } catch (err) {
+    console.warn('Failed to load cooldowns from DB:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Enqueue a provider/category fetch for retry after a rate limit (or failure).
+ * Upserts: one pending/running row per (provider, category); re-queues with the
+ * new not_before time. Done/failed rows are replaced so the combo can retry again.
+ */
+export async function enqueueProviderRetry(env, providerId, category, { notBefore, error, maxAttempts = 5 } = {}) {
+  try {
+    const url = supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ on_conflict: 'provider,category' }));
+    const body = {
+      provider: providerId,
+      category: category || 'all',
+      status: 'pending',
+      not_before: notBefore || new Date().toISOString(),
+      attempts: 0,
+      last_error: error || null,
+      max_attempts: maxAttempts,
+      updated_at: new Date().toISOString()
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      console.warn(`Failed to enqueue retry for ${providerId}/${category}: ${res.status}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`Failed to enqueue retry for ${providerId}/${category}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Fetch due retry jobs (status=pending, not_before <= now), oldest first,
+ * and mark them running so concurrent drains don't double-process.
+ * Bounded by limit to stay under the subrequest budget.
+ */
+export async function drainDueRetries(env, { limit = 10 } = {}) {
+  try {
+    const params = new URLSearchParams({
+      select: 'id,provider,category,attempts,max_attempts,last_error',
+      status: 'eq.pending',
+      not_before: `lte.${new Date().toISOString()}`,
+      order: 'created_at.asc',
+      limit: String(limit)
+    });
+    const res = await fetch(supabaseUrl(env, 'provider_retry_queue', params), { headers: supabaseHeaders(env) });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    const claimed = [];
+    for (const row of rows) {
+      const claimRes = await fetch(
+        supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${row.id}`, status: 'eq.pending' })),
+        {
+          method: 'PATCH',
+          headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'running', updated_at: new Date().toISOString() })
+        }
+      );
+      if (claimRes.ok) claimed.push(row);
+    }
+    return claimed;
+  } catch (err) {
+    console.warn('Failed to drain retry queue:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Mark a retry job done, or re-queue it with backoff when it fails again.
+ * Returns 'done' | 'requeued' | 'failed'.
+ */
+export async function completeRetryJob(env, jobId, { success, notBefore, error } = {}) {
+  try {
+    if (success) {
+      await fetch(supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${jobId}` })), {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'done', updated_at: new Date().toISOString() })
+      });
+      return 'done';
+    }
+    // Re-read attempts to decide between requeue and give-up
+    const getRes = await fetch(
+      supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ select: 'attempts,max_attempts', id: `eq.${jobId}` })),
+      { headers: supabaseHeaders(env) }
+    );
+    const rows = getRes.ok ? await getRes.json() : [];
+    const attempts = (rows[0]?.attempts ?? 0) + 1;
+    const maxAttempts = rows[0]?.max_attempts ?? 5;
+    if (attempts >= maxAttempts) {
+      await fetch(supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${jobId}` })), {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'failed', attempts, last_error: error || null, updated_at: new Date().toISOString() })
+      });
+      return 'failed';
+    }
+    // Exponential backoff when no explicit not_before (e.g. non-429 errors): 2^attempts minutes
+    const backoffMs = notBefore
+      ? null
+      : Math.min(2 ** attempts * 60 * 1000, 6 * 3600 * 1000);
+    await fetch(supabaseUrl(env, 'provider_retry_queue', new URLSearchParams({ id: `eq.${jobId}` })), {
+      method: 'PATCH',
+      headers: { ...supabaseHeaders(env), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'pending',
+        attempts,
+        not_before: notBefore || new Date(Date.now() + backoffMs).toISOString(),
+        last_error: error || null,
+        updated_at: new Date().toISOString()
+      })
+    });
+    return 'requeued';
+  } catch (err) {
+    console.warn(`Failed to complete retry job ${jobId}:`, err.message);
+    return 'failed';
+  }
+}
+
+/**
+ * Count pending/running retries (for admin display).
+ */
+export async function countQueuedRetries(env) {
+  try {
+    const params = new URLSearchParams({ select: 'id', status: 'in.(pending,running)' });
+    const res = await fetch(supabaseUrl(env, 'provider_retry_queue', params), {
+      headers: { ...supabaseHeaders(env), Prefer: 'count=exact' }
+    });
+    if (!res.ok) return 0;
+    const range = res.headers.get('Content-Range') || '';
+    const total = Number(range.match(/\/(\d+|\*)$/)?.[1]);
+    return Number.isFinite(total) ? total : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function getAutoSyncState() {
   const lastRunMs = autoSyncStateMemory.lastRunAt ? Date.parse(autoSyncStateMemory.lastRunAt) : NaN;
   const nextRunMs = Number.isFinite(lastRunMs)
@@ -189,9 +851,10 @@ export async function recordNewsProviderFetchLog(env, entry) {
     providerFetchLogsMemory.length = MAX_PROVIDER_FETCH_LOGS;
   }
 
-  if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY && env?.ENABLE_SUPABASE_PROVIDER_LOGS === 'true') {
-    try {
-      await fetch(supabaseUrl(env, 'news_provider_logs'), {
+  // Always persist to Supabase (30-day retention via pruneOldProviderLogs).
+  // Failures are logged, never thrown.
+  try {
+    await fetch(supabaseUrl(env, 'news_provider_logs'), {
         method: 'POST',
         headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
         body: JSON.stringify([{
@@ -216,7 +879,6 @@ export async function recordNewsProviderFetchLog(env, entry) {
     } catch (err) {
       console.warn('Could not persist provider fetch log to Supabase:', err);
     }
-  }
 
   return normalized;
 }
@@ -264,15 +926,89 @@ export function clearNewsProviderFetchLogs() {
   providerFetchLogsMemory.length = 0;
 }
 
+/**
+ * Delete provider fetch logs older than 30 days. Called from the cron.
+ */
+export async function pruneOldProviderLogs(env) {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const res = await fetch(
+      supabaseUrl(env, 'news_provider_logs', new URLSearchParams({ created_at: `lt.${cutoff}` })),
+      { method: 'DELETE', headers: supabaseHeaders(env, { Prefer: 'return=minimal' }) }
+    );
+    if (!res.ok) console.warn(`Log prune failed: ${res.status}`);
+  } catch (err) {
+    console.warn('Log prune failed:', err.message);
+  }
+}
+
+/**
+ * Read provider fetch logs from the DB table (last 30 days), newest first.
+ * Used by /admin/api/logs so the viewer shows full history, not just in-memory.
+ */
+export async function getNewsProviderFetchLogsFromDb(env, {
+  provider = 'all',
+  status = 'all',
+  category = 'all',
+  limit = 100
+} = {}) {
+  try {
+    const params = new URLSearchParams({
+      select: 'provider,category,trigger_source,status,http_status,duration_ms,attempt_count,items_fetched,stories_saved,retry_after_seconds,rate_limit_remaining,rate_limit_reset,request_url,error_message,failover_provider,created_at',
+      order: 'created_at.desc',
+      limit: String(Math.min(Math.max(limit, 1), 500))
+    });
+    if (provider && provider !== 'all') params.set('provider', `eq.${provider}`);
+    if (category && category !== 'all') params.set('category', `eq.${category}`);
+    if (status && status !== 'all') params.set('status', `eq.${status}`);
+    const res = await fetch(supabaseUrl(env, 'news_provider_logs', params), { headers: supabaseHeaders(env) });
+    if (!res.ok) return { logs: [], totalRequests: 0 };
+    const rows = await res.json();
+    const logs = rows.map((row, i) => ({
+      id: `db-${row.created_at}-${i}`,
+      provider: row.provider,
+      providerLabel: row.provider,
+      category: row.category,
+      triggerSource: row.trigger_source,
+      status: row.status,
+      httpStatus: row.http_status,
+      durationMs: row.duration_ms,
+      attemptCount: row.attempt_count,
+      itemsFetched: row.items_fetched,
+      storiesSaved: row.stories_saved,
+      duplicatesSkipped: 0,
+      retryAfterSeconds: row.retry_after_seconds,
+      rateLimitRemaining: row.rate_limit_remaining,
+      rateLimitReset: row.rate_limit_reset,
+      requestUrl: row.request_url,
+      errorMessage: row.error_message,
+      failoverProvider: row.failover_provider,
+      createdAt: row.created_at
+    }));
+    return {
+      logs,
+      totalRequests: logs.length,
+      summary: {
+        totalRequests: logs.length,
+        rateLimitedCount: logs.filter(l => l.status === 'rate_limited').length,
+        failedCount: logs.filter(l => l.status === 'failed').length
+      }
+    };
+  } catch (err) {
+    console.warn('DB log read failed:', err.message);
+    return { logs: [], totalRequests: 0 };
+  }
+}
+
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed,interest_keywords',
     decision_at: 'not.is.null',
     order: 'decision_at.desc'
   });
   const pendingQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action,interest_keywords',
     approved: 'eq.false',
     removed: 'eq.false',
     or: '(decision_action.is.null,decision_action.eq.undo)',
@@ -281,10 +1017,17 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
   });
   if (pendingProvider) pendingQuery.set('provider', `eq.${pendingProvider}`);
   const bannedQuery = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,removed_at,fetched_at,decision_action,decision_by,decision_at,previous_approved,previous_removed,interest_keywords',
     removed: 'eq.true',
     order: 'removed_at.desc.nullslast',
     limit: '100'
+  });
+  // Stories awaiting interest classification: not removed, no interest tags yet.
+  // These are invisible to Phase 3 interest feeds (except via zero-match fallback).
+  const unclassifiedQuery = new URLSearchParams({
+    select: 'id',
+    removed: 'eq.false',
+    interest_keywords: 'is.null'
   });
   const providerCountRequests = providers.map(provider => {
     const query = new URLSearchParams({
@@ -295,7 +1038,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
       headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
     });
   });
-  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse, ...providerCountResponses] = await Promise.all([
+  const [countResponse, recentResponse, pendingResponse, bannedResponse, syncResponse, unclassifiedResponse, ...providerCountResponses] = await Promise.all([
     fetch(supabaseUrl(env, STORIES_TABLE, storyCountQuery), {
       headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
     }),
@@ -311,12 +1054,19 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
     fetch(supabaseUrl(env, SYNC_TABLE, 'select=provider,status,started_at,last_attempt_at,last_success_at,stories_saved,last_error,updated_by'), {
       headers: supabaseHeaders(env)
     }),
+    fetch(supabaseUrl(env, STORIES_TABLE, unclassifiedQuery), {
+      headers: supabaseHeaders(env, { Range: '0-0', Prefer: 'count=exact' })
+    }),
     ...providerCountRequests
   ]);
   if (!countResponse.ok) throw new Error(`Story count lookup failed (HTTP ${countResponse.status})`);
   const contentRange = countResponse.headers.get('Content-Range') || '';
   const total = Number(contentRange.match(/\/(\d+|\*)$/)?.[1]);
   if (!Number.isFinite(total)) throw new Error('Story count lookup returned no exact count');
+  if (!unclassifiedResponse.ok) throw new Error(`Unclassified count lookup failed (HTTP ${unclassifiedResponse.status})`);
+  const unclassifiedRange = unclassifiedResponse.headers.get('Content-Range') || '';
+  const unclassifiedTotal = Number(unclassifiedRange.match(/\/(\d+|\*)$/)?.[1]);
+  if (!Number.isFinite(unclassifiedTotal)) throw new Error('Unclassified count lookup returned no exact count');
   const recentRows = await readRows(recentResponse, 'Recent story lookup');
   const pendingRows = await readRows(pendingResponse, 'Unapproved story lookup');
   const bannedRows = await readRows(bannedResponse, 'Banned story lookup');
@@ -346,6 +1096,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
   }));
   return {
     totalStories: total,
+    unclassifiedCount: unclassifiedTotal,
     recentStories: recentRows.map(row => ({
       ...normalizeStory(row),
       id: row.id,
@@ -388,6 +1139,11 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
         updated_by: null
       };
       const cooldown = getProviderCooldownState(provider.id);
+      // Most recent failed/rate-limited call for this provider, for the error breakdown UI
+      const lastFailedLog = providerFetchLogsMemory.find((log) =>
+        log.provider === provider.id &&
+        (log.status === 'rate_limited' || log.status === 'failed' || log.status === 'skipped_cooldown')
+      );
       return {
         ...provider,
         total_stories_saved: providerTotals.get(provider.id) || 0,
@@ -399,6 +1155,20 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
           rate_limit_remaining: cooldown.rateLimitRemaining,
           failover_provider: cooldown.failoverProvider,
           failover_categories: cooldown.failoverCategories
+        } : {}),
+        ...(lastFailedLog ? {
+          last_failed_call: {
+            requestUrl: lastFailedLog.requestUrl || '',
+            category: lastFailedLog.category || 'all',
+            httpStatus: lastFailedLog.httpStatus ?? null,
+            retryAfterSeconds: lastFailedLog.retryAfterSeconds ?? null,
+            rateLimitRemaining: lastFailedLog.rateLimitRemaining ?? null,
+            rateLimitReset: lastFailedLog.rateLimitReset || null,
+            errorMessage: lastFailedLog.errorMessage || null,
+            failoverProvider: lastFailedLog.failoverProvider || null,
+            status: lastFailedLog.status,
+            createdAt: lastFailedLog.createdAt
+          }
         } : {})
       };
     }),
@@ -464,6 +1234,71 @@ export async function updateNewsStory(env, storyId, story) {
     syncAiStagedPickDetails(Number(storyId), story);
   }
   return rows.length === 1;
+}
+
+// Categories a story may be overridden into for frontend display.
+// 'all' is excluded — it is the catch-all feed, not a display section.
+export const OVERRIDABLE_CATEGORIES = Object.freeze(
+  NEWS_CATEGORIES.filter(c => c !== 'all')
+);
+
+/**
+ * Set the frontend category override for a story.
+ * @param {string[]|null} categories - desired display categories; null/empty clears the override.
+ * @returns {{ ok: boolean, displayCategories: string[]|null, error?: string }}
+ */
+export async function setStoryDisplayCategories(env, storyId, categories) {
+  const clean = [...new Set(
+    (Array.isArray(categories) ? categories : [])
+      .map(c => String(c || '').trim().toLowerCase())
+      .filter(c => OVERRIDABLE_CATEGORIES.includes(c))
+  )];
+  // Reject unknown values rather than silently dropping them, so the admin UI
+  // can surface typos instead of applying a partial override.
+  const requested = (Array.isArray(categories) ? categories : [])
+    .map(c => String(c || '').trim().toLowerCase())
+    .filter(c => c.length > 0);
+  if (requested.some(c => !OVERRIDABLE_CATEGORIES.includes(c))) {
+    return { ok: false, displayCategories: null, error: 'Unknown category in override list' };
+  }
+  const value = clean.length > 0 ? clean : null;
+  const query = new URLSearchParams({ id: `eq.${storyId}`, select: 'id' });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({ display_categories: value })
+  });
+  const rows = await readRows(response, 'Story display-categories update');
+  if (rows.length !== 1) return { ok: false, displayCategories: null, error: 'Story was not found' };
+  return { ok: true, displayCategories: value };
+}
+
+/**
+ * Set the interest keywords for a story (admin tagging).
+ * @param {string[]|null} keywords - desired keyword ids; null/empty clears them.
+ * @returns {{ ok: boolean, interestKeywords: string[]|null, error?: string }}
+ */
+export async function setStoryInterestKeywords(env, storyId, keywords) {
+  const requested = (Array.isArray(keywords) ? keywords : [])
+    .map(k => String(k || '').trim().toLowerCase())
+    .filter(k => k.length > 0);
+  const clean = normalizeInterestKeywords(requested);
+  // Reject unknown values rather than silently dropping them, so the admin UI
+  // can surface typos instead of applying a partial tag list.
+  if (requested.some(k => !INTEREST_KEYWORD_IDS.has(k))) {
+    return { ok: false, interestKeywords: null, error: 'Unknown interest keyword' };
+  }
+  const query = new URLSearchParams({ id: `eq.${storyId}`, select: 'id' });
+  // Country/region disabled until story_region migration is confirmed.
+  // const { country_code, region } = deriveStoryRegion(clean || []);
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'PATCH',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({ interest_keywords: clean })
+  });
+  const rows = await readRows(response, 'Story interest-keywords update');
+  if (rows.length !== 1) return { ok: false, interestKeywords: null, error: 'Story was not found' };
+  return { ok: true, interestKeywords: clean };
 }
 
 export async function createApprovedCustomNewsStory(env, story, approvedBy) {
@@ -663,6 +1498,7 @@ export async function upsertNewsStories(env, provider, category, stories) {
     content: story.content || null,
     published_at: story.pubDate || null,
     source_name: story.source || null,
+    provider_country: story.providerCountry || null,
     fetched_at: new Date().toISOString()
   }));
   const query = new URLSearchParams({
@@ -817,7 +1653,7 @@ export async function searchNewsStories(env, queryText, limit = 100) {
   if (!orFilter) return [];
 
   const params = new URLSearchParams({
-    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,approved_at,removed_at,decision_action,decision_by,decision_at,previous_approved,previous_removed',
+    select: 'id,provider,category,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,approved_at,removed_at,decision_action,decision_by,decision_at,previous_approved,previous_removed,interest_keywords',
     or: orFilter,
     order: 'published_at.desc.nullslast,fetched_at.desc',
     limit: String(limit)
@@ -852,7 +1688,7 @@ export async function searchNewsStories(env, queryText, limit = 100) {
 
 export const AI_CURATION_SLOTS = Object.freeze(['morning', 'afternoon', 'evening']);
 export const AI_PICKS_PER_CATEGORY = 5;
-const AI_CURATION_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const AI_CURATION_MODEL = '@cf/meta/llama-3.2-3b-instruct';
 
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'that', 'with', 'this', 'from', 'have', 'are', 'was',
@@ -1147,7 +1983,7 @@ export function updateAiCurationConfig(updates = {}, updatedBy = 'admin') {
   return getAiCurationState();
 }
 
-function scoreCandidateStory(story, signals, tasteProfile) {
+function scoreCandidateStory(story, signals, tasteProfile, engagementSignals = {}) {
   let score = 62;
   const reasons = [];
   const textBlob = `${story.title || ''} ${story.description || ''} ${story.content || ''}`.toLowerCase();
@@ -1223,9 +2059,27 @@ function scoreCandidateStory(story, signals, tasteProfile) {
     }
   }
 
+  // 6. Reader engagement signals (from story_engagement table)
+  // Stories from sources/topics with high CTR get boosted
+  const storyHash = hashUrl(story.link || story.article_url || '');
+  const engagement = engagementSignals[storyHash];
+  if (engagement && engagement.views >= 10) {
+    // CTR-based boost: high CTR = readers love this
+    if (engagement.ctr >= 0.05) {
+      score += 8;
+      if (reasons.length < 2) reasons.push(`high reader engagement (${Math.round(engagement.ctr * 100)}% click rate)`);
+    } else if (engagement.ctr >= 0.02) {
+      score += 4;
+    }
+    // High absolute clicks also signal quality
+    if (engagement.clicks >= 50) {
+      score += 4;
+    }
+  }
+
   const clampedScore = Math.max(15, Math.min(99, Math.round(score)));
   const categoryLabelMap = {
-    all: 'Top Currents',
+    all: 'All',
     childcare: 'Childcare & Family',
     animals: 'Animals & Nature',
     arts: 'Creative Arts',
@@ -1233,7 +2087,7 @@ function scoreCandidateStory(story, signals, tasteProfile) {
     world: 'Global Currents',
     uplifting: 'Uplifting News'
   };
-  const catLabel = categoryLabelMap[story.category] || story.category || 'Top Currents';
+  const catLabel = categoryLabelMap[story.category] || story.category || 'All';
   const defaultReason = `High-signal ${catLabel} pick from ${sourceName || story.provider || 'curated feed'} fitting your editorial profile.`;
   const reasonText = reasons.length > 0
     ? `AI Pick (${clampedScore}% match): ${reasons.slice(0, 2).join(' · ')}.`
@@ -1245,10 +2099,35 @@ function scoreCandidateStory(story, signals, tasteProfile) {
   };
 }
 
-async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile) {
+// Extract usable text from a Workers AI model response. Mirrors the AI tags
+// extractor in index.js: Workers AI returns an OpenAI-compatible object for
+// llama-3.2-3b-instruct, with the text in choices[0].message.content,
+// while `response` is itself an object. Older shapes still handled, so a
+// plain string or { response: string } keeps working.
+export function extractAiText(res, depth = 0) {
+  if (typeof res === 'string') return res;
+  if (!res || typeof res !== 'object') return '';
+  if (typeof res.response === 'string') return res.response;
+  if (Array.isArray(res.response)) {
+    return res.response.filter((p) => typeof p === 'string').join('');
+  }
+  const choice = Array.isArray(res.choices) ? res.choices[0] : null;
+  if (choice) {
+    if (choice.message && typeof choice.message.content === 'string') return choice.message.content;
+    if (typeof choice.text === 'string') return choice.text;
+  }
+  if (typeof res.result === 'string') return res.result;
+  if (typeof res.text === 'string') return res.text;
+  if (res.response && typeof res.response === 'object' && depth < 2) {
+    return extractAiText(res.response, depth + 1);
+  }
+  return '';
+}
+
+async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}) {
   // First pre-score all candidates deterministically
   const scoredCandidates = candidates.map(story => {
-    const { score, reason } = scoreCandidateStory(story, signals, tasteProfile);
+    const { score, reason } = scoreCandidateStory(story, signals, tasteProfile, engagementSignals);
     return {
       story,
       heuristicScore: score,
@@ -1289,7 +2168,10 @@ async function selectCategoryPicksWithAi(env, category, candidates, signals, tas
         temperature: 0.25
       });
 
-      const rawText = typeof response?.response === 'string' ? response.response.trim() : '';
+      const rawText = extractAiText(response).trim();
+      if (!rawText) {
+        console.warn(`AI curation extraction yielded no text for category ${category}: responseType=${typeof response}`);
+      }
       const jsonMatch = rawText.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -1474,16 +2356,30 @@ export async function runAiStoryCuration(env, {
   const stagedByCategory = {};
   let totalStagedInRun = 0;
 
+  // Fetch reader engagement signals for CTR-based scoring
+  const engagementSignals = await getEngagementSignals(env);
+
   for (const category of NEWS_CATEGORIES) {
     const rawCandidates = (candidatesByCategory.get(category) || []).filter(
       c => !usedStoryIdsInRun.has(Number(c.id)) && !dismissedOrDecidedStoryIds.has(Number(c.id))
     );
+
+    // Filter out near-duplicates within this batch
+    const seenInBatch = [];
+    const dedupedCandidates = rawCandidates.filter(candidate => {
+      const dups = findNearDuplicates([candidate], seenInBatch, 0.7);
+      if (dups.length > 0) return false;
+      seenInBatch.push(candidate);
+      return true;
+    });
+
     const pickedForCategory = await selectCategoryPicksWithAi(
       env,
       category,
-      rawCandidates,
+      dedupedCandidates,
       learnedSignalsCache,
-      aiTasteProfileMemory
+      aiTasteProfileMemory,
+      engagementSignals
     );
 
     stagedByCategory[category] = pickedForCategory.length;
@@ -1645,3 +2541,563 @@ export async function bulkDecideNewsStories(env, storyIds = [], action = 'approv
 }
 
 
+
+// ── Story engagement tracking (recommendation feedback loop) ──
+
+function hashUrl(url) {
+  let hash = 0;
+  const str = String(url || '');
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return 'h' + Math.abs(hash).toString(36);
+}
+
+export async function recordEngagementEvent(env, { url: storyUrl, title, category, eventType, sessionId, keywords, referrer_domain, utm_source, utm_medium, utm_campaign, country_code, dwell_seconds }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  if (!storyUrl || !['view', 'click', 'dwell'].includes(eventType)) return { ok: false, reason: 'invalid' };
+
+  // Normalize keywords to known ids only (defensive: frontend could send anything).
+  const cleanKeywords = Array.isArray(keywords)
+    ? [...new Set(keywords.filter((k) => typeof k === 'string' && INTEREST_KEYWORD_IDS.has(k)).slice(0, 10))]
+    : null;
+
+  try {
+    const res = await fetch(supabaseUrl(env, 'story_engagement'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        story_url_hash: hashUrl(storyUrl),
+        story_url: String(storyUrl).slice(0, 2000),
+        story_title: String(title || '').slice(0, 500),
+        category: String(category || 'all').slice(0, 50),
+        event_type: eventType,
+        session_id: String(sessionId || '').slice(0, 64) || null,
+        keywords: cleanKeywords,
+        referrer_domain: String(referrer_domain || '').slice(0, 120) || null,
+        utm_source: String(utm_source || '').slice(0, 120) || null,
+        utm_medium: String(utm_medium || '').slice(0, 120) || null,
+        utm_campaign: String(utm_campaign || '').slice(0, 120) || null,
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+        dwell_seconds: eventType === 'dwell' ? Math.max(0, Math.min(600, Math.round(Number(dwell_seconds) || 0))) : null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// ── Search query logging ──
+// Anonymous: query text + result count + country. No user_id, no IP, no session.
+// Internal traffic (admin panel, dev site, localhost) is never logged.
+
+function normalizeSearchQuery(q) {
+  return String(q || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function looksLikePii(q) {
+  const s = String(q || '');
+  if (/[^\s@]+@[^\s@]+\.[^\s@]+/.test(s)) return true; // email
+  const digits = (s.match(/\d/g) || []).length;
+  const chars = s.replace(/\s/g, '').length;
+  if (chars > 0 && digits / chars > 0.5 && chars >= 7) return true; // phone-ish
+  return false;
+}
+
+/**
+ * True if the request comes from an internal surface (admin panel, dev site,
+ * localhost) — its searches/views would pollute audience analytics.
+ */
+export function isInternalRequest(request) {
+  try {
+    const referer = request.headers.get('referer') || '';
+    const origin = request.headers.get('origin') || '';
+    const sources = `${referer} ${origin}`.toLowerCase();
+    // Admin panel
+    if (sources.includes('/admin')) return true;
+    // Dev site and local testing
+    if (sources.includes('dev.littlables.com')) return true;
+    if (sources.includes('localhost') || sources.includes('127.0.0.1')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export async function recordSearchQuery(env, { query, resultCount, country_code }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  const raw = String(query || '').trim().slice(0, 200);
+  const normalized = normalizeSearchQuery(raw);
+  if (!normalized || normalized.length < 2) return { ok: false, reason: 'empty' };
+  if (looksLikePii(raw)) return { ok: false, reason: 'pii' };
+  try {
+    const res = await fetch(supabaseUrl(env, 'search_queries'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        query: raw,
+        normalized_query: normalized,
+        result_count: Math.max(0, Math.round(Number(resultCount) || 0)),
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// ── Space creation analytics ──
+// Anonymous: pills only, no user_id, no space name.
+
+export async function recordBoardEvent(env, { sessionId, keywordIds, categoryIds, country_code }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  const cleanKeywords = Array.isArray(keywordIds)
+    ? [...new Set(keywordIds.filter((k) => typeof k === 'string' && INTEREST_KEYWORD_IDS.has(k)).slice(0, 20))]
+    : null;
+  const cleanCategories = Array.isArray(categoryIds)
+    ? [...new Set(categoryIds.filter((c) => typeof c === 'string').slice(0, 20))]
+    : null;
+  if ((!cleanKeywords || cleanKeywords.length === 0) && (!cleanCategories || cleanCategories.length === 0)) {
+    return { ok: false, reason: 'no-pills' };
+  }
+  try {
+    const res = await fetch(supabaseUrl(env, 'board_analytics'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        session_id: String(sessionId || '').slice(0, 64) || null,
+        keyword_ids: cleanKeywords,
+        category_ids: cleanCategories,
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// Returns { urlHash: { views, clicks, ctr } } for recent engagement
+export async function getEngagementSignals(env, limit = 500) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return {};
+  try {
+    const res = await fetch(
+      supabaseUrl(env, 'story_engagement_stats', 'select=story_url_hash,views,clicks,ctr&order=views.desc&limit=' + limit),
+      { headers: supabaseHeaders(env) }
+    );
+    if (!res.ok) return {};
+    const rows = await res.json();
+    const signals = {};
+    for (const row of rows) {
+      signals[row.story_url_hash] = {
+        views: Number(row.views) || 0,
+        clicks: Number(row.clicks) || 0,
+        ctr: Number(row.ctr) || 0,
+      };
+    }
+    return signals;
+  } catch {
+    return {};
+  }
+}
+
+// ── Near-duplicate detection ──
+
+export function titleSimilarity(titleA, titleB) {
+  const termsA = new Set(extractMeaningfulTerms(titleA));
+  const termsB = new Set(extractMeaningfulTerms(titleB));
+  if (termsA.size === 0 || termsB.size === 0) return 0;
+  let intersection = 0;
+  for (const term of termsA) {
+    if (termsB.has(term)) intersection++;
+  }
+  const union = termsA.size + termsB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+export function findNearDuplicates(candidates, existingStories, threshold = 0.7) {
+  const duplicates = [];
+  for (const candidate of candidates) {
+    for (const existing of existingStories) {
+      if (candidate.link && existing.link && candidate.link === existing.link) {
+        duplicates.push({ candidate, existing, reason: 'same-url', similarity: 1 });
+        break;
+      }
+      const sim = titleSimilarity(candidate.title || '', existing.title || '');
+      if (sim >= threshold) {
+        duplicates.push({ candidate, existing, reason: 'similar-title', similarity: Math.round(sim * 100) / 100 });
+        break;
+      }
+    }
+  }
+  return duplicates;
+}
+
+export { hashUrl };
+
+// ── Analytics dashboard data ──
+// Reads the stats views for the admin panel. Admin-only (checked in index.js).
+
+const ANALYTICS_VIEWS = {
+  search: 'search_query_stats',
+  search_gaps: 'search_zero_result_queries',
+  keywords: 'keyword_engagement_stats',
+  boards: 'board_topic_stats',
+  acquisition: 'acquisition_stats',
+  dwell: 'story_dwell_stats',
+  ads: 'ad_engagement_stats',
+  ad_networks: 'ad_network_stats',
+};
+
+/**
+ * Fetch analytics stats for the admin dashboard.
+ * @param {object} env
+ * @param {object} opts - { type, country, region, limit }
+ */
+export async function getAnalyticsStats(env, { type, country, region, limit = 50 } = {}) {
+  const view = ANALYTICS_VIEWS[type];
+  if (!view) return { ok: false, reason: 'unknown-type' };
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+
+  const params = new URLSearchParams();
+  params.set('select', '*');
+  params.set('order', type === 'search_gaps' || type === 'search' ? 'searches.desc' : type === 'keywords' ? 'views.desc' : type === 'boards' ? 'boards_built.desc' : type === 'dwell' ? 'dwell_events.desc' : type === 'ads' || type === 'ad_networks' ? 'impressions.desc' : 'sessions.desc');
+  const cleanCountry = String(country || '').toUpperCase().slice(0, 2);
+  const cleanRegion = String(region || '').toLowerCase().slice(0, 30);
+  if (cleanCountry) params.set('country_code', `eq.${cleanCountry}`);
+  if (cleanRegion && cleanRegion !== 'all') params.set('region', `eq.${cleanRegion}`);
+  params.set('limit', String(Math.min(200, Math.max(1, Number(limit) || 50))));
+
+  // No country/region filter = all rows; frontend groups as needed.
+  try {
+    const res = await fetch(supabaseUrl(env, view, params.toString()), {
+      headers: supabaseHeaders(env),
+    });
+    if (!res.ok) return { ok: false, reason: `http-${res.status}` };
+    const rows = await res.json();
+    return { ok: true, type, rows };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// ── Ad engagement tracking ──
+// Anonymous impressions/clicks per ad. Powers revenue analytics.
+
+export async function recordAdEvent(env, { adId, adTitle, network, category, storyUrlHash, eventType, sessionId, country_code }) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
+  if (!adId || !['view', 'click'].includes(eventType)) return { ok: false, reason: 'invalid' };
+  try {
+    const res = await fetch(supabaseUrl(env, 'ad_engagement'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        ad_id: String(adId).slice(0, 200),
+        ad_title: String(adTitle || '').slice(0, 500),
+        network: String(network || '').slice(0, 50) || null,
+        category: String(category || '').slice(0, 50) || null,
+        story_url_hash: String(storyUrlHash || '').slice(0, 100) || null,
+        event_type: eventType,
+        session_id: String(sessionId || '').slice(0, 64) || null,
+        country_code: String(country_code || '').slice(0, 2).toUpperCase() || null,
+      }),
+    });
+    return { ok: res.ok };
+  } catch (err) {
+    return { ok: false, reason: String(err?.message || err) };
+  }
+}
+
+// ── Interest & Playroom feeds ──
+// Backend APIs for playroom/space content. Replaces frontend parallel /feed
+// requests with server-side merging.
+
+// Front-page categories that a space interest can map to.
+// A space pill with one of these IDs pulls the front-page category feed.
+const FRONT_PAGE_CATEGORIES = new Set(['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting', 'all']);
+
+/**
+ * Stories matching ANY of the given interest IDs.
+ * Category IDs (childcare, animals, etc.) pull front-page category feeds;
+ * keyword IDs use keyword overlap. Approved first, then unapproved,
+ * both date-sorted. Deduped by URL.
+ */
+export async function getStoriesByInterests(env, interestIds) {
+  const ids = [...new Set((interestIds || []).map(String).filter(Boolean))].slice(0, 30);
+  if (ids.length === 0) return { provider: 'supabase', items: [] };
+
+  const categoryIds = ids.filter(id => FRONT_PAGE_CATEGORIES.has(id));
+  const keywordIds = ids.filter(id => !FRONT_PAGE_CATEGORIES.has(id));
+
+  const feedPromises = categoryIds.map(cat => getStoredNewsFeed(env, cat));
+  if (keywordIds.length > 0) {
+    const makeQuery = approved => {
+      const params = new URLSearchParams({
+        select: 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at',
+        approved: `eq.${approved}`,
+        removed: 'eq.false',
+        'interest_keywords': `ov.{${keywordIds.join(',')}}`,
+        order: 'published_at.desc.nullslast,fetched_at.desc',
+        limit: '50'
+      });
+      return params;
+    };
+    const keywordFeedPromise = (async () => {
+      const [approvedResponse, unapprovedResponse] = await Promise.all([
+        fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(true)), { headers: supabaseHeaders(env) }),
+        fetch(supabaseUrl(env, STORIES_TABLE, makeQuery(false)), { headers: supabaseHeaders(env) })
+      ]);
+      const [approvedRows, unapprovedRows] = await Promise.all([
+        readRows(approvedResponse, 'Approved interest feed lookup'),
+        readRows(unapprovedResponse, 'Unapproved interest feed lookup')
+      ]);
+      const items = [];
+      for (const row of [...approvedRows, ...unapprovedRows]) {
+        if (!row.article_url) continue;
+        items.push({ ...normalizeStory(row), approved: row.approved });
+      }
+      return { provider: 'supabase', items };
+    })();
+    feedPromises.push(keywordFeedPromise);
+  }
+
+  const results = await Promise.allSettled(feedPromises);
+  const seenUrls = new Set();
+  const approved = [];
+  const unapproved = [];
+  for (const r of results) {
+    if (r.status !== 'fulfilled' || !r.value?.items) continue;
+    for (const item of r.value.items) {
+      const url = item.link || item.article_url;
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      if (item.approved === true) approved.push(item);
+      else unapproved.push(item);
+    }
+  }
+  const rankedApproved = await applyReactionRanking(env, approved);
+  const rankedUnapproved = await applyReactionRanking(env, unapproved);
+  return { provider: 'supabase', items: [...rankedApproved, ...rankedUnapproved] };
+}
+
+// Front-page composite spaces map 1:1 to legacy category column values,
+// so their preview can compare interest matches against the category fallback.
+const FRONT_PAGE_SPACE_CATEGORIES = new Set(['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting']);
+
+/**
+ * Phase 2 preview: run the interest-overlap query for one space and return
+ * a first-50 sample plus diagnostics. Touches no live feed.
+ * Returns { space, description, interestIds, items, matchCount,
+ *   flaggedFilteredCount, categoryFallbackCount }.
+ * categoryFallbackCount is null for standalone spaces (no legacy category).
+ * Subrequest budget: at most 6 Supabase fetches (interest match +
+ * unfiltered count + category fallback, each approved + unapproved).
+ */
+export async function getSpaceFeedPreview(env, spaceKey) {
+  const def = SPACE_DEFINITIONS[spaceKey];
+  if (!def) {
+    return { error: 'Unknown space', validSpaces: Object.keys(SPACE_DEFINITIONS).sort() };
+  }
+  const interestIds = [...new Set((def.interestIds || []).map(String).filter(Boolean))];
+  if (interestIds.length === 0) {
+    return { space: spaceKey, description: def.description, interestIds: [], items: [], matchCount: 0, flaggedFilteredCount: 0, categoryFallbackCount: null };
+  }
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const exclusionParam = excludedIds.length > 0
+    ? `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`
+    : null;
+  const baseSelect = 'provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,fetched_at';
+  const makeInterestQuery = (approved, applyExclusion) => {
+    const params = new URLSearchParams({
+      select: baseSelect,
+      approved: `eq.${approved}`,
+      removed: 'eq.false',
+      'interest_keywords': `ov.{${interestIds.join(',')}}`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: '50'
+    });
+    if (applyExclusion && exclusionParam) params.set('not.and', exclusionParam);
+    return params;
+  };
+  const fetchInterest = async (approved, applyExclusion) => {
+    const res = await fetch(supabaseUrl(env, STORIES_TABLE, makeInterestQuery(approved, applyExclusion)), { headers: supabaseHeaders(env) });
+    return readRows(res, 'Space preview interest lookup');
+  };
+  const [approvedRows, unapprovedRows, approvedUnfiltered, unapprovedUnfiltered] = await Promise.all([
+    fetchInterest(true, true),
+    fetchInterest(false, true),
+    fetchInterest(true, false),
+    fetchInterest(false, false)
+  ]);
+  const seenUrls = new Set();
+  const items = [];
+  for (const row of [...approvedRows, ...unapprovedRows]) {
+    if (!row.article_url || seenUrls.has(row.article_url)) continue;
+    seenUrls.add(row.article_url);
+    items.push({ ...normalizeStory(row), approved: row.approved });
+  }
+  const unfilteredUrls = new Set();
+  for (const row of [...approvedUnfiltered, ...unapprovedUnfiltered]) {
+    if (row.article_url) unfilteredUrls.add(row.article_url);
+  }
+  const flaggedFilteredCount = [...unfilteredUrls].filter(url => !seenUrls.has(url)).length;
+  let categoryFallbackCount = null;
+  if (FRONT_PAGE_SPACE_CATEGORIES.has(spaceKey)) {
+    const makeCategoryQuery = approved => {
+      const params = new URLSearchParams({
+        select: 'article_url',
+        approved: `eq.${approved}`,
+        removed: 'eq.false',
+        or: `(and(category.eq.${spaceKey},display_categories.is.null),display_categories.cs.{${spaceKey}})`,
+        limit: '50'
+      });
+      if (exclusionParam) params.set('not.and', exclusionParam);
+      return params;
+    };
+    const [catApproved, catUnapproved] = await Promise.all([
+      fetch(supabaseUrl(env, STORIES_TABLE, makeCategoryQuery(true)), { headers: supabaseHeaders(env) }).then(r => readRows(r, 'Space preview category fallback')),
+      fetch(supabaseUrl(env, STORIES_TABLE, makeCategoryQuery(false)), { headers: supabaseHeaders(env) }).then(r => readRows(r, 'Space preview category fallback'))
+    ]);
+    const catUrls = new Set();
+    for (const row of [...catApproved, ...catUnapproved]) {
+      if (row.article_url) catUrls.add(row.article_url);
+    }
+    categoryFallbackCount = [...catUrls].filter(url => !seenUrls.has(url)).length;
+  }
+  return {
+    space: spaceKey,
+    description: def.description,
+    interestIds,
+    items,
+    matchCount: items.length,
+    flaggedFilteredCount,
+    categoryFallbackCount
+  };
+}
+
+/**
+ * Full feed for a playroom. When spaceId is given, filters to that space's
+ * interests; otherwise merges across all spaces in the playroom.
+ * Returns approved-first, date-sorted, deduped items.
+ */
+export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) {
+  if (!playroomId && username && slug) {
+    const profileRes = await fetch(supabaseUrl(env, 'profiles', new URLSearchParams({
+      select: 'id', username: `eq.${String(username).toLowerCase()}`, limit: '1'
+    })), { headers: supabaseHeaders(env) });
+    const profileRows = await readRows(profileRes, 'Profile lookup');
+    const profile = profileRows[0];
+    if (!profile) return { playroom: null, spaces: [], items: [] };
+    const prRes = await fetch(supabaseUrl(env, 'playrooms', new URLSearchParams({
+      select: 'id', user_id: `eq.${profile.id}`,
+      slug: `eq.${String(slug).toLowerCase()}`, limit: '1'
+    })), { headers: supabaseHeaders(env) });
+    const prRows = await readRows(prRes, 'Playroom ID lookup');
+    playroomId = prRows[0]?.id || null;
+  }
+  if (!playroomId) return { playroom: null, spaces: [], items: [] };
+
+  const [playroomRes, spacesRes] = await Promise.all([
+    fetch(supabaseUrl(env, 'playrooms', new URLSearchParams({
+      select: 'id,user_id,name,slug,description,logo_url,theme,background_color',
+      id: `eq.${playroomId}`, limit: '1'
+    })), { headers: supabaseHeaders(env) }),
+    fetch(supabaseUrl(env, 'playroom_spaces', new URLSearchParams({
+      select: 'position,boards(*)',
+      playroom_id: `eq.${playroomId}`, order: 'position.asc'
+    })), { headers: supabaseHeaders(env) })
+  ]);
+  const [playroomRows, spaceRows] = await Promise.all([
+    readRows(playroomRes, 'Playroom lookup'),
+    readRows(spacesRes, 'Playroom spaces lookup')
+  ]);
+  const playroom = playroomRows[0] || null;
+  if (!playroom) return { playroom: null, spaces: [], items: [] };
+
+  const spaces = (spaceRows || [])
+    .map(r => r.boards).filter(Boolean)
+    .map(b => Array.isArray(b) ? b[0] : b).filter(Boolean);
+
+  const targetSpaces = spaceId ? spaces.filter(s => s.id === spaceId) : spaces;
+  const seenPills = new Map();
+  for (const space of targetSpaces) {
+    for (const p of space.pills || []) {
+      const key = `${p.type}:${p.id}`;
+      if (!seenPills.has(key)) seenPills.set(key, p);
+    }
+  }
+  const pills = [...seenPills.values()];
+  // If no pills are selected, fall back to the space/playroom description:
+  // embed the description and find the most similar interests.
+  let derivedKeywordIds = [];
+  if (pills.length === 0) {
+    const descText = [
+      playroom.description,
+      ...spaces.map(s => s.name)
+    ].filter(Boolean).join(' ');
+    if (descText && env.AI) {
+      try {
+        const descVector = await embedText(env, descText);
+        const { vectors } = await getPersistedKeywordEmbeddings(env);
+        if (vectors && descVector) {
+          const scored = [];
+          for (const [kwId, kwVector] of vectors) {
+            if (EXCLUDED_KEYWORD_IDS.has(kwId)) continue;
+            const sim = cosineSimilarity(descVector, kwVector);
+            if (sim >= 0.35) scored.push({ id: kwId, sim });
+          }
+          scored.sort((a, b) => b.sim - a.sim);
+          derivedKeywordIds = scored.slice(0, 5).map(s => s.id);
+        }
+      } catch (e) {
+        // Fall through to empty feed on embedding failure
+      }
+    }
+    if (derivedKeywordIds.length === 0) {
+      return { playroom, spaces, items: [] };
+    }
+  }
+
+  const categoryIds = [];
+  const keywordIds = [...derivedKeywordIds];
+  for (const p of pills) {
+    if (p.type === 'category' && FRONT_PAGE_CATEGORIES.has(p.id)) {
+      categoryIds.push(p.id);
+    } else if (p.type === 'keyword') {
+      keywordIds.push(p.id);
+    } else if (p.type === 'custom') {
+      const kws = (p.keywords || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (kws.length > 0) keywordIds.push(...kws);
+      else if (p.label) keywordIds.push(p.label.toLowerCase());
+    } else {
+      keywordIds.push(p.id);
+    }
+  }
+
+  const feedPromises = categoryIds.map(cat => getStoredNewsFeed(env, cat));
+  if (keywordIds.length > 0) {
+    feedPromises.push(getStoriesByInterests(env, keywordIds));
+  }
+  const results = await Promise.allSettled(feedPromises);
+
+  const seenUrls = new Set();
+  const approved = [];
+  const unapproved = [];
+  for (const r of results) {
+    if (r.status !== 'fulfilled' || !r.value?.items) continue;
+    for (const item of r.value.items) {
+      const url = item.link || item.article_url;
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      if (item.approved === true) approved.push(item);
+      else unapproved.push(item);
+    }
+  }
+  const rankedApproved = await applyReactionRanking(env, approved);
+  const rankedUnapproved = await applyReactionRanking(env, unapproved);
+
+  return { playroom, spaces, items: [...rankedApproved, ...rankedUnapproved] };
+}

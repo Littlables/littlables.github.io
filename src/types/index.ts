@@ -23,11 +23,16 @@ export interface NewsItem {
   fetchedAt?: string;
   approved?: boolean;
   category?: NewsCategory;
+  /** Admin-curated frontend category override. When set, the story displays under these categories instead of `category`. */
+  displayCategories?: string[] | null;
+  /** Interest keyword tags (cross-cutting, never shown as categories). */
+  interestKeywords?: string[] | null;
   provider?: string;
   source?: string;
 }
 
 export interface AdItem {
+  id?: string;
   title: string;
   desc: string;
   img: string;
@@ -35,6 +40,8 @@ export interface AdItem {
   sponsor: string;
   url?: string;
   category?: string;
+  network?: string;
+  keywords?: string[];
 }
 
 export interface ReactionCounts {

@@ -20,7 +20,8 @@ export async function fetchNewsData(config, category, market, options) {
     description: article?.description,
     content: article?.content,
     pubDate: article?.pubDate,
-    source: article?.source_name || article?.source_id
+    source: article?.source_name || article?.source_id,
+    providerCountry: Array.isArray(article?.country) ? article.country[0] : (article?.country || null)
   })).filter(Boolean);
   if (!items.length) throw new Error('NewsData.io returned no usable stories');
   return items;

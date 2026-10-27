@@ -122,3 +122,233 @@ export function trackHomeLogoRefresh() {
     }
   }
 }
+
+export function track3DPlayroomClick(url = 'https://playground.google/g/viMkwl') {
+  trackExitPage(url, 'playground.google | 3D Playroom');
+}
+
+// ── Engagement tracking for recommendation engine ──
+// Sends anonymous view/click events to the worker for CTR-based scoring.
+// Fire-and-forget: never blocks UI, never throws.
+
+const WORKER_URL = 'https://hello-ai.cryptokatiee.workers.dev';
+
+function getSessionId(): string {
+  try {
+    let sid = sessionStorage.getItem('littlables_sid');
+    if (!sid) {
+      sid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sessionStorage.setItem('littlables_sid', sid);
+    }
+    return sid;
+  } catch {
+    return '';
+  }
+}
+
+function sendEngagementEvent(
+  eventType: 'view' | 'click',
+  item: NewsItem,
+  category?: string
+) {
+  if (typeof window === 'undefined' || !item.link || item.link === '#') return;
+  try {
+    const payload = {
+      url: item.link,
+      title: item.title,
+      category: category || item.category || 'all',
+      eventType,
+      sessionId: getSessionId(),
+      // Story keywords at event time (for keyword CTR analytics)
+      keywords: Array.isArray(item.interestKeywords) ? item.interestKeywords.slice(0, 10) : [],
+      // Acquisition attribution (captured once per page load)
+      ...getAttribution(),
+    };
+    // Use sendBeacon when available (survives page unload), fallback to fetch
+    if (navigator.sendBeacon) {
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      navigator.sendBeacon(`${WORKER_URL}/api/engagement`, blob);
+    } else {
+      fetch(`${WORKER_URL}/api/engagement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Silently ignore — tracking must never break the site
+  }
+}
+
+// Capture once per page load: referrer domain (never full URL) + UTM params.
+let attributionCache: {
+  referrer_domain: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+} | null = null;
+
+function getAttribution() {
+  if (attributionCache) return attributionCache;
+  let referrer_domain = '';
+  let utm_source = '';
+  let utm_medium = '';
+  let utm_campaign = '';
+  try {
+    if (document.referrer) {
+      try {
+        referrer_domain = new URL(document.referrer).hostname.slice(0, 120);
+      } catch {
+        // ignore malformed referrer
+      }
+    }
+    const params = new URLSearchParams(window.location.search);
+    utm_source = (params.get('utm_source') || '').slice(0, 120);
+    utm_medium = (params.get('utm_medium') || '').slice(0, 120);
+    utm_campaign = (params.get('utm_campaign') || '').slice(0, 120);
+  } catch {
+    // ignore
+  }
+  attributionCache = { referrer_domain, utm_source, utm_medium, utm_campaign };
+  return attributionCache;
+}
+
+/**
+ * Record a story view (card became visible in viewport).
+ * Callers should debounce/dedupe — this sends every time it's called.
+ */
+export function trackStoryView(item: NewsItem, category?: string) {
+  sendEngagementEvent('view', item, category);
+}
+
+/**
+ * Record a story click (user opened the story).
+ * Call alongside the existing Umami tracking.
+ */
+export function trackStoryEngagementClick(item: NewsItem, category?: string) {
+  sendEngagementEvent('click', item, category);
+}
+
+/**
+ * Record dwell time on a story (seconds the preview was open).
+ * Only sends if >= 2s; worker caps at 600s.
+ */
+export function trackStoryDwell(item: NewsItem, dwellSeconds: number, category?: string) {
+  const secs = Math.round(dwellSeconds);
+  if (secs < 2 || typeof window === 'undefined' || !item.link || item.link === '#') return;
+  try {
+    const payload = {
+      url: item.link,
+      title: item.title,
+      category: category || item.category || 'all',
+      eventType: 'dwell' as const,
+      sessionId: getSessionId(),
+      dwell_seconds: Math.min(600, secs),
+      keywords: Array.isArray(item.interestKeywords) ? item.interestKeywords.slice(0, 10) : [],
+      ...getAttribution(),
+    };
+    const body = JSON.stringify(payload);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(`${WORKER_URL}/api/engagement`, new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch(`${WORKER_URL}/api/engagement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Silently ignore
+  }
+}
+
+// ── Space creation analytics ──
+// Logs which pills a new space uses. Anonymous: pills only, no user_id, no name.
+
+interface SpacePill {
+  id: string;
+  type: 'category' | 'custom' | 'keyword' | 'space' | 'board';
+}
+
+/**
+ * Record a space creation (pills only — never the space name or user).
+ * Call after a successful space insert.
+ */
+export function trackSpaceCreated(pills: SpacePill[]) {
+  if (typeof window === 'undefined' || !Array.isArray(pills) || pills.length === 0) return;
+  try {
+    const keywordIds = pills.filter((p) => p.type === 'keyword').map((p) => p.id);
+    const categoryIds = pills.filter((p) => p.type === 'category').map((p) => p.id);
+    if (keywordIds.length === 0 && categoryIds.length === 0) return;
+    const body = JSON.stringify({
+      sessionId: getSessionId(),
+      keywordIds: keywordIds.slice(0, 20),
+      categoryIds: categoryIds.slice(0, 20),
+    });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(`${WORKER_URL}/api/analytics/board`, new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch(`${WORKER_URL}/api/analytics/board`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Silently ignore
+  }
+}
+
+// ── Ad engagement tracking ──
+// Anonymous ad impressions/clicks for revenue analytics.
+
+function sendAdEvent(
+  eventType: 'view' | 'click',
+  ad: { id?: string; title?: string; sponsor?: string; url?: string; category?: string; network?: string },
+  extra?: { storyUrlHash?: string }
+) {
+  if (typeof window === 'undefined') return;
+  const adId = ad.id || ad.url || '';
+  if (!adId) return;
+  try {
+    const payload = {
+      adId: String(adId).slice(0, 200),
+      adTitle: String(ad.title || '').slice(0, 500),
+      network: String(ad.network || getAdNetwork(ad.url, ad.sponsor) || '').slice(0, 50),
+      category: String(ad.category || '').slice(0, 50),
+      storyUrlHash: extra?.storyUrlHash || null,
+      eventType,
+      sessionId: getSessionId(),
+    };
+    const body = JSON.stringify(payload);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(`${WORKER_URL}/api/ad-engagement`, new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch(`${WORKER_URL}/api/ad-engagement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Silently ignore
+  }
+}
+
+/**
+ * Record an ad impression (card became visible). Callers should dedupe.
+ */
+export function trackAdView(ad: { id?: string; title?: string; sponsor?: string; url?: string; category?: string; network?: string }) {
+  sendAdEvent('view', ad);
+}
+
+/**
+ * Record an ad click. Call alongside the existing Umami tracking.
+ */
+export function trackAdEngagementClick(ad: { id?: string; title?: string; sponsor?: string; url?: string; category?: string; network?: string }) {
+  sendAdEvent('click', ad);
+}

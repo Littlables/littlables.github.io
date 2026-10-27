@@ -83,11 +83,28 @@ function resolveFallbackAdCategory(rawCategory?: string, fallbackCategory?: News
   return 'all';
 }
 
+function hashString(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+// Ad data carries relative image paths (e.g. "img/ads/...", "ads/img/...").
+// Rendered raw into <img src>, those resolve against the current route path,
+// so on deep routes like /@user/... the browser requests /@user/img/... and the
+// SPA fallback serves index.html instead of the image. Root-absolute works everywhere.
+function toRootAbsolute(path: string): string {
+  if (/^(https?:)?\/\//.test(path) || path.startsWith('/') || path.startsWith('data:')) return path;
+  return `/${path.replace(/^\.\//, '')}`;
+}
+
 function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex: number): AdItem {
   const title = raw.name || raw.title || 'Curated Discovery';
   const desc = raw.description || raw.desc || 'A handpicked resource tailored to your interests.';
   const imgCat = resolveFallbackAdCategory(raw.category, category);
-  const img = raw.thumbnailUrl || raw.img || `img/${imgCat}_${(defaultIndex % 10) + 1}.jpg`;
+  const img = toRootAbsolute(raw.thumbnailUrl || raw.img || `img/${imgCat}_${(defaultIndex % 10) + 1}.jpg`);
   const sponsor = raw.sellerName || raw.sponsor || 'Featured Partner';
   const url = raw.url || '#';
   const price = raw.priceUsd != null && raw.priceUsd > 0
@@ -97,14 +114,21 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
       : 'Free');
   const cta = raw.cta || (price === 'Free' ? 'Explore Free →' : `Get for ${price} →`);
 
+  // Stable ID: network + hash of URL (or title+sponsor as fallback)
+  const network = raw.network || 'unknown';
+  const idSeed = url !== '#' ? url : `${title}|${sponsor}`;
+  const id = `ad_${network}_${hashString(idSeed)}`;
+
   return {
+    id,
     title,
     desc,
     img,
     cta,
     sponsor,
     url,
-    category: raw.category || imgCat
+    category: raw.category || imgCat,
+    network
   };
 }
 
@@ -386,4 +410,98 @@ export function getRandomAds(ads: AdItem[], count: number = 2): AdItem[] {
   // keeping VRChat ads pinned to the end.
   const mixed = deprioritizeVrChatAds(shuffleArray(ads));
   return mixed.slice(0, count);
+}
+
+/** Cached ad keyword tags: ad_id -> keyword ids. Fetched once per session. */
+let adTagsCache: Record<string, string[]> | null = null;
+let adTagsCacheKey = '';
+
+/**
+ * Fetch keyword tags for ads matching the given story keywords.
+ * Hits GET /ads/tags?keywords=... on the worker; results are cached
+ * per keyword-set for the session. Returns {} on failure.
+ */
+export async function fetchAdKeywordTags(keywords: string[]): Promise<Record<string, string[]>> {
+  const key = [...keywords].sort().join(',');
+  if (adTagsCache && adTagsCacheKey === key) return adTagsCache;
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads/tags';
+    if (keywords.length) url.searchParams.set('keywords', keywords.join(','));
+    const response = await fetch(url.href);
+    if (!response.ok) throw new Error('tags fetch failed');
+    const data = await response.json();
+    const tags: Record<string, string[]> = data?.tags || {};
+    adTagsCache = tags;
+    adTagsCacheKey = key;
+    return tags;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Match ads to stories server-side.
+ * POST /ads/match classifies untagged stories, queries the tags table,
+ * ranks via matchAdsToStory, and returns ranked ad IDs per story index.
+ * Frontend looks up ad content by ID from its JSON cache.
+ * Returns { [storyIndex]: adId[] }. Empty on failure (fallback to rotation).
+ */
+export async function fetchMatchedAdIds(
+  stories: { title?: string; description?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[] }[]
+): Promise<Record<number, string[]>> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads/match';
+    const payload = {
+      stories: stories.slice(0, 20).map(s => ({
+        title: s.title || '',
+        description: s.description || '',
+        keywords: s.keywords || s.interest_keywords || s.interestKeywords || [],
+      })),
+    };
+    const response = await fetch(url.href, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('match failed');
+    const data = await response.json();
+    return data?.matches || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Merge keyword tags onto ads by ID (mutates copies, not the originals).
+ */
+export function applyAdKeywordTags(ads: AdItem[], tags: Record<string, string[]>): AdItem[] {
+  return ads.map((ad) => {
+    if (!ad.id || !tags[ad.id]) return ad;
+    return { ...ad, keywords: tags[ad.id] };
+  });
+}
+
+/**
+ * Get keyword-matched ads for a story, best match first.
+ * Falls back to the input order (category-based) when no keywords match.
+ */
+export async function getMatchedAdsForStory(
+  story: { interest_keywords?: string[]; interestKeywords?: string[]; category?: string },
+  ads: AdItem[],
+  count: number = 2
+): Promise<AdItem[]> {
+  if (!ads || !ads.length) return [];
+  const storyKeywords = story?.interest_keywords || story?.interestKeywords || [];
+  // Only fetch tags for this story's keywords — smaller payload, scales better.
+  const tags = await fetchAdKeywordTags(storyKeywords);
+  const taggedAds = applyAdKeywordTags(ads, tags);
+  const { matchAdsToStory } = await import('./adKeywordMatcher');
+  const matched = matchAdsToStory(story, taggedAds);
+  if (matched.length > 0) {
+    return matched.slice(0, count);
+  }
+  // No keyword matches: fall back to shuffled category ads
+  return getRandomAds(ads, count);
 }

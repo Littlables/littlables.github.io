@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AdItem, NewsCategory } from '../types';
 import { t } from '../constants/translations';
-import { getAdNetwork, trackAdClick } from '../services/trackingService';
+import { getAdNetwork, trackAdClick, trackAdView, trackAdEngagementClick } from '../services/trackingService';
 import { isValidCategory } from '../services/urlService';
 
 interface AdCardProps {
@@ -10,18 +10,35 @@ interface AdCardProps {
 }
 
 export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
-  const adPushedRef = useRef(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const viewTrackedRef = useRef(false);
 
+  // Track impression when ad becomes visible (once per mount)
   useEffect(() => {
-    if (!adPushedRef.current && typeof window !== 'undefined') {
-      try {
-        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
-        adPushedRef.current = true;
-      } catch {}
+    const el = cardRef.current;
+    if (!el || viewTrackedRef.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      trackAdView(ad);
+      viewTrackedRef.current = true;
+      return;
     }
-  }, []);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !viewTrackedRef.current) {
+            viewTrackedRef.current = true;
+            trackAdView(ad);
+            observer.disconnect();
+          }
+        }
+      },
+      { threshold: 0.5 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ad.id]);
 
   useEffect(() => {
     if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
@@ -34,9 +51,13 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
   const network = getAdNetwork(ad.url, ad.sponsor);
   const umamiEvent = `Clicked-${network}-Card`;
 
+  // Single tracking point for the whole card: every click inside the card
+  // tracks exactly once here. Anchor clicks then use native navigation;
+  // all other regions open the link directly.
   const handleCardClick = (e: React.MouseEvent) => {
     if (ad.url && ad.url !== '#') {
       trackAdClick(ad);
+      trackAdEngagementClick(ad);
       const target = e.target as HTMLElement;
       // If user clicked directly on an <a> element, let native link behavior handle it
       if (target.closest('a')) return;
@@ -44,16 +65,11 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
     }
   };
 
-  const handleLinkClick = () => {
-    if (ad.url && ad.url !== '#') {
-      trackAdClick(ad);
-    }
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.key === 'Enter' || e.key === ' ') && ad.url && ad.url !== '#') {
       e.preventDefault();
       trackAdClick(ad);
+      trackAdEngagementClick(ad);
       window.open(ad.url, '_blank', 'noopener,noreferrer');
     }
   };
@@ -65,6 +81,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
 
   return (
     <article
+      ref={cardRef}
       className="news-card news-card-ad"
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
@@ -87,7 +104,7 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           onLoad={() => setImageLoaded(true)}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            const fallback = `img/${fallbackImgCategory}_1.jpg`;
+            const fallback = `/img/${fallbackImgCategory}_1.jpg`;
             if (target.src !== fallback && !target.src.endsWith(fallback)) {
               target.src = fallback;
             } else {
@@ -104,32 +121,18 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           <span className="ad-network-label">Featured Partner</span>
         </div>
 
-        <a
-          href={ad.url || '#'}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="news-card-title ad-card-title"
-          data-umami-event={umamiEvent}
-          data-umami-event-url={ad.url || ''}
-          data-umami-event-title={ad.title}
-          onClick={handleLinkClick}
-        >
+        <div className="news-card-title ad-card-title">
           {ad.title}
-        </a>
+        </div>
 
         <p className="news-card-desc ad-card-description">
           {ad.desc.length > 750 ? ad.desc.slice(0, 750) + "..." : ad.desc}
         </p>
 
-        {/* Official Google AdSense In-Feed Responsive Fluid Tag */}
-        <ins
-          className="adsbygoogle"
-          data-ad-format="fluid"
-          data-ad-layout-key="-fb+5w+4e-db+86"
-          data-ad-client="ca-pub-6117076538261387"
-          data-ad-slot="1234567890"
-        ></ins>
-
+        {/* The AdSense unit used to sit here between the description and the
+            footer. It rendered as an empty ~200px iframe that swallowed every
+            click in that gap (iframes never bubble to the card handler), so it
+            is removed: the whole card now opens the product link. */}
         <div className="news-card-footer">
           <a
             href={ad.url || '#'}
@@ -139,7 +142,6 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
             data-umami-event={umamiEvent}
             data-umami-event-url={ad.url || ''}
             data-umami-event-title={ad.title}
-            onClick={handleLinkClick}
           >
             {ad.cta}
           </a>

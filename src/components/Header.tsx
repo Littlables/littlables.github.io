@@ -1,27 +1,50 @@
 import React from 'react';
 import { t } from '../constants/translations';
+import { useAuth } from '../contexts/AuthContext';
+import { CHARACTER_AVATARS } from '../constants/avatars';
+import { trackHomeLogoRefresh, track3DPlayroomClick } from '../services/trackingService';
+
+const PLAYGROUND_3D_URL = 'https://playground.google/g/viMkwl';
 
 interface HeaderProps {
   onHomeClick: () => void;
-  onRefresh: () => void;
   onOpenSettings: () => void;
+  onOpenSignIn: () => void;
+  onOpenProfile: () => void;
   isLoading: boolean;
+  /** Board branding override: shown instead of the Littlables logo on board pages */
+  brandName?: string;
+  brandLogoUrl?: string | null;
+  /** True when the GitHub admin session is active (enables long-press story editing) */
+  isAdmin?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onHomeClick,
-  onRefresh,
   onOpenSettings,
-  isLoading
+  onOpenSignIn,
+  onOpenProfile,
+  isLoading,
+  brandName,
+  brandLogoUrl,
+  isAdmin
 }) => {
+  const { user, profile } = useAuth();
+
+  const character =
+    profile?.avatar_type === 'character'
+      ? CHARACTER_AVATARS.find((c) => c.id === profile.avatar_character) || null
+      : null;
+
   const handleBrandClick = () => {
     if (isLoading) return;
-    try {
-      if (typeof window !== 'undefined' && window.umami && typeof window.umami.track === 'function') {
-        window.umami.track('Home-Logo-Refresh');
-      }
-    } catch {}
+    trackHomeLogoRefresh();
     onHomeClick();
+  };
+
+  const handle3DClick = () => {
+    track3DPlayroomClick(PLAYGROUND_3D_URL);
+    window.open(PLAYGROUND_3D_URL, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -31,73 +54,135 @@ export const Header: React.FC<HeaderProps> = ({
         className="news-widget-title"
         id="widget-main-title"
         title="Refresh Stories"
-        aria-label={`${t('headerTitle') || 'Littlables'} — Refresh Stories`}
+        aria-label={`${brandName || t('headerTitle') || 'littlables'} — Refresh Stories`}
+        data-umami-event="Home-Logo-Refresh"
         onClick={handleBrandClick}
       >
-        <img
-          className="widget-brand-icon"
-          src="/favicon-48x48.png"
-          width="28"
-          height="28"
-          alt="Littlables logo"
-          onError={(e) => {
-            (e.target as HTMLElement).style.display = 'none';
-          }}
-        />
-        <span id="widget-title-text">{t('headerTitle') || 'Littlables'}</span>
+        {brandLogoUrl ? (
+          <img
+            className="widget-brand-icon board-brand-logo"
+            src={brandLogoUrl}
+            width="28"
+            height="28"
+            alt={`${brandName || 'Space'} logo`}
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <img
+            className="widget-brand-icon"
+            src="/favicon-48x48.png"
+            width="28"
+            height="28"
+            alt="Littlables logo"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
+        )}
+        <span id="widget-title-text">{brandName || t('headerTitle') || 'littlables'}</span>
       </button>
 
       <div className="news-header-controls">
         <button
-          id="refresh-news-btn"
+          id="playground-3d-btn"
           type="button"
-          className={`header-icon-button refresh-news-button ${isLoading ? 'is-loading' : ''}`}
-          title={t('refreshBtn') || 'Refresh Stories'}
-          aria-label={isLoading ? 'Refreshing stories' : (t('refreshBtn') || 'Refresh Stories')}
-          data-umami-event="Refresh-Feed"
-          onClick={onRefresh}
-          disabled={isLoading}
+          className="header-icon-button header-3d-button"
+          title="3D (Beta)"
+          aria-label="Open 3D playroom (Beta)"
+          data-umami-event="Open-3D-Playroom"
+          data-umami-event-url={PLAYGROUND_3D_URL}
+          onClick={handle3DClick}
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-            <polyline points="21 3 21 9 15 9" />
-          </svg>
+          <span>3D</span>
+          <span className="header-3d-beta-stamp" aria-hidden="true">BETA</span>
         </button>
 
-        <button
-          id="settings-btn"
-          type="button"
-          className="header-icon-button settings-cog-button"
-          title="Settings"
-          aria-label="Open Settings"
-          data-umami-event="Open-Settings"
-          onClick={onOpenSettings}
-        >
+        {!user && (
+          <button
+            id="settings-btn"
+            type="button"
+            className="header-icon-button settings-cog-button"
+            title="Settings"
+            aria-label="Open Settings"
+            data-umami-event="Open-Settings"
+            onClick={onOpenSettings}
+          >
           <svg
             width="18"
             height="18"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.2"
+            strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            <circle cx="7.5" cy="7.5" r="2.5" />
+            <circle cx="16.5" cy="7.5" r="2.5" />
+            <circle cx="12" cy="13" r="6" />
+            <circle cx="10" cy="12" r="0.9" fill="currentColor" stroke="none" />
+            <circle cx="14" cy="12" r="0.9" fill="currentColor" stroke="none" />
+            <ellipse cx="12" cy="15.2" rx="1.8" ry="1.2" />
           </svg>
-        </button>
+          </button>
+        )}
+
+        {isAdmin && (
+          <span
+            className="header-admin-badge"
+            title="Admin mode — long-press a story to edit"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+              padding: '0.25rem 0.6rem',
+              borderRadius: '9999px',
+              background: '#7c3aed',
+              color: '#fff',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}
+          >
+            🛠️ Admin
+          </span>
+        )}
+        {user ? (
+          <button
+            type="button"
+            className="header-auth-button header-avatar-button"
+            title="Your profile"
+            aria-label="Open your profile"
+            data-umami-event="Open-Profile"
+            onClick={onOpenProfile}
+          >
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt="" className="header-avatar" />
+            ) : character ? (
+              <span
+                className="header-avatar"
+                style={{ background: character.bg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}
+              >
+                <span className="avatar-emoji-glyph">{character.emoji}</span>
+              </span>
+            ) : (
+              <span className="header-avatar-fallback">
+                {(profile?.display_name || user.email || '?')[0].toUpperCase()}
+              </span>
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="header-auth-button header-signin-button"
+            data-umami-event="Open-Sign-In"
+            onClick={onOpenSignIn}
+          >
+            Sign in
+          </button>
+        )}
       </div>
     </header>
   );

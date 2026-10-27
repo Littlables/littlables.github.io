@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <script defer src="https://cloud.umami.is/script.js" data-website-id="a54bd17a-acb6-4d8f-a3aa-b3049dceb37a"></script>
-  <meta name="google-adsense-account" content="ca-pub-6117076538261387">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Littlables is a cozy, family-friendly news feed for curious minds, bringing together stories about family, animals, creativity, technology, world events, and good news.">
@@ -10,6 +9,9 @@
   <meta name="author" content="Littlables">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="theme-color" content="#FFC7D4">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Varela+Round&display=swap" rel="stylesheet">
   <link rel="canonical" href="https://littlables.github.io/">
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
@@ -43,11 +45,17 @@
           document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
         }
       } catch (e) {}
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var spaPath = params.get('__spa_path');
+        if (spaPath && spaPath.charAt(0) === '/') {
+          window.history.replaceState(null, '', spaPath);
+        }
+      } catch (e) {}
     })();
   </script>
 
-  <title id="page-title">Littlables — A Little Scoop of the World</title>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6117076538261387" crossorigin="anonymous"></script>
+  <title id="page-title">littlables | discovery playroom</title>
   <script type="module" src="/src/main.tsx"></script>
 </head>
 <body>

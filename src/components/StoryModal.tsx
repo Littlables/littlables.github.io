@@ -5,11 +5,12 @@ import { getStoryId, hasUserReacted } from '../services/supabaseService';
 import {
   getStoryShareUrl,
   getTopicHref,
-  getStoryProviderName,
+  getStoryGivenPubName,
+  getStoryTopLevelDomain,
   shareStoryWithImage,
   updateStoryOpenGraphTags
 } from '../services/urlService';
-import { trackStoryClick } from '../services/trackingService';
+import { trackStoryClick, trackStoryEngagementClick } from '../services/trackingService';
 import { t } from '../constants/translations';
 
 interface StoryModalProps {
@@ -21,6 +22,7 @@ interface StoryModalProps {
   onReact: (storyId: string, type: ReactionType) => void;
   onClose: () => void;
   onSelectCategory?: (category: NewsCategory) => void;
+  onAdminEdit?: (item: NewsItem) => void;
 }
 
 export const StoryModal: React.FC<StoryModalProps> = ({
@@ -31,9 +33,11 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   reactions,
   onReact,
   onClose,
-  onSelectCategory
+  onSelectCategory,
+  onAdminEdit
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState(false);
@@ -54,7 +58,11 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       if (!dialog.open) {
         dialog.showModal();
       }
-      dialog.scrollTop = 0;
+      // The balloon content scrolls inside .story-modal-scroll (the Edit
+      // button sits outside it), so reset that container, not the dialog.
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = 0;
+      }
     } else {
       updateStoryOpenGraphTags(null);
       document.documentElement.classList.remove('story-modal-open');
@@ -84,7 +92,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   const storyId = getStoryId(story.title, story.link);
   const imageUrl = resolveImageUrl(story, index, category);
   const effectiveCategory = story.category || category;
-  const providerName = getStoryProviderName(story);
+  const givenPubName = getStoryGivenPubName(story);
+  const topLevelDomain = getStoryTopLevelDomain(story);
 
   const isVotedLove = hasUserReacted(storyId, 'love');
   const isVotedMind = hasUserReacted(storyId, 'mind');
@@ -131,7 +140,37 @@ export const StoryModal: React.FC<StoryModalProps> = ({
       onClick={handleBackdropClick}
       onClose={onClose}
     >
-      <article className="story-modal-card">
+      {onAdminEdit && (
+        <div className="story-modal-admin-bar">
+          <button
+            type="button"
+            className="reaction-pill admin-edit-btn"
+            onClick={() => {
+              // Close this native dialog first: a native <dialog> sits
+              // in the top layer above the edit dialog, so opening the
+              // edit dialog underneath it would look like nothing happened.
+              onClose();
+              onAdminEdit(story);
+            }}
+            title="Edit story (admin)"
+            aria-label="Edit story"
+          >
+            <span>✏️</span>
+            <span>Edit</span>
+          </button>
+        </div>
+      )}
+      <div className="story-modal-scroll-wrap">
+        <button
+          type="button"
+          className="story-modal-close-btn"
+          aria-label="Close story window"
+          onClick={onClose}
+        >
+          ✕
+        </button>
+        <div className="story-modal-scroll" ref={scrollRef}>
+        <article className="story-modal-card">
         <div className={`story-modal-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
           <img
             ref={imgRef}
@@ -159,24 +198,15 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           >
             {categoryBadge}
           </a>
-          <button
-            type="button"
-            className="story-modal-close-btn"
-            aria-label="Close story window"
-            onClick={onClose}
-          >
-            ✕
-          </button>
         </div>
 
         <div className="story-modal-content">
-          <div className="news-card-meta story-modal-meta">
-            <span>🕒 {pubDate}</span>
-            {providerName && (
-              <span className="story-provider-badge">🌐 {providerName}</span>
-            )}
+          <div className="news-card-meta story-meta-grid story-modal-meta">
+            <span className="story-meta-cell story-provider-badge" title={givenPubName}>📰 {givenPubName}</span>
+            <span className="story-meta-cell story-date-badge" title={pubDate}>🕒 {pubDate}</span>
+            <span className="story-meta-cell story-domain-badge" title={topLevelDomain}>🌐 {topLevelDomain}</span>
             {story.approved === true && (
-              <span className="story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
+              <span className="story-meta-cell story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
             )}
           </div>
 
@@ -204,7 +234,10 @@ export const StoryModal: React.FC<StoryModalProps> = ({
               data-umami-event="Clicked-Story"
               data-umami-event-url={story.link || ''}
               data-umami-event-title={story.title}
-              onClick={() => trackStoryClick(story)}
+              onClick={() => {
+                trackStoryClick(story);
+                trackStoryEngagementClick(story, effectiveCategory);
+              }}
             >
               {t('readMore') || 'Read Full Story →'}
             </a>
@@ -252,6 +285,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
                 onClick={handleShareClick}
                 title="Share story link & image"
                 aria-label="Share story"
+                data-umami-event="Share-Story"
+                data-umami-event-story={story.title}
               >
                 <span>{copied ? '✓' : '🔗'}</span>
                 <span>{copied ? 'Copied' : 'Share'}</span>
@@ -260,6 +295,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
           </div>
         </div>
       </article>
+      </div>
+      </div>
     </dialog>
   );
 };

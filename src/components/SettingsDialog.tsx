@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ThemeId } from '../types';
 import { THEMES } from '../constants/config';
+import { useSystemFont } from '../hooks/useSystemFont';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onThemeChange
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const { systemFont, setSystemFont } = useSystemFont();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -127,6 +129,23 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
             );
           })}
         </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <span className="settings-section-label">Fonts</span>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.9rem' }}>
+          <input
+            type="checkbox"
+            checked={systemFont}
+            onChange={(e) => setSystemFont(e.target.checked)}
+          />
+          <span>Use system font</span>
+        </label>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--news-text-muted)' }}>
+          Off by default. When on, the site uses your device's system font instead of Fredoka, Quicksand, and Varela Round.
+        </p>
       </div>
     </dialog>
   );

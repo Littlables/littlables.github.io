@@ -66,6 +66,13 @@ export function resolveImageUrl(item: NewsItem, index: number, category: NewsCat
 }
 
 function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsItem {
+  // Admin-curated override: when displayCategories is set, the story shows under
+  // those categories instead of its query-assigned one. The first entry is the
+  // primary display category (card label, bucketing, interest matching).
+  const displayCategories = Array.isArray(item.displayCategories) && item.displayCategories.length > 0
+    ? item.displayCategories.filter((c: any) => typeof c === 'string' && isValidCategory(c))
+    : null;
+  const primaryCategory = displayCategories && displayCategories.length > 0 ? displayCategories[0] : null;
   return {
     ...item,
     title: decodeHtmlEntities(item.title),
@@ -76,7 +83,11 @@ function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsIte
     aiSummary: decodeHtmlEntities(item.aiSummary || item.ai_summary),
     source: decodeHtmlEntities(item.source || item.source_name),
     provider: item.provider,
-    category: item.category || defaultCategory
+    category: primaryCategory || item.category || defaultCategory,
+    displayCategories,
+    interestKeywords: Array.isArray(item.interestKeywords) && item.interestKeywords.length > 0
+      ? item.interestKeywords.filter((k: any) => typeof k === 'string')
+      : null,
   };
 }
 
@@ -91,10 +102,16 @@ function isValidStoryItem(item: NewsItem): boolean {
 
 async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> {
   const url = new URL(NEWS_CONFIG.workerUrl);
-  url.pathname = '/feed';
-  url.searchParams.set('category', category);
+  url.pathname = '/space';
+  url.searchParams.set('interest', category);
 
-  const response = await fetch(url.href, { cache: 'no-cache' });
+  let response = await fetch(url.href, { cache: 'no-cache' });
+  if (response.status === 404) {
+    const legacyUrl = new URL(NEWS_CONFIG.workerUrl);
+    legacyUrl.pathname = '/feed';
+    legacyUrl.searchParams.set('category', category);
+    response = await fetch(legacyUrl.href, { cache: 'no-cache' });
+  }
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error || `News feed request failed (HTTP ${response.status})`);
@@ -104,7 +121,19 @@ async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> 
 
   return data.items
     .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
-    .map((item: any) => normalizeFetchedItem(item, category))
+    .map((item: any) => {
+      const normalized = normalizeFetchedItem(item, category);
+      // When viewing a specific category feed, label the card with the viewed
+      // category if the story's override list includes it.
+      if (
+        isValidCategory(category) &&
+        Array.isArray(normalized.displayCategories) &&
+        normalized.displayCategories.includes(category)
+      ) {
+        normalized.category = category;
+      }
+      return normalized;
+    })
     .filter(isValidStoryItem);
 }
 
@@ -134,7 +163,7 @@ const byPublicationDate = (first: NewsItem, second: NewsItem) => {
 };
 
 /**
- * Homepage ('all' / Top Currents) ordering.
+ * Homepage ('all') ordering.
  *
  * A first-time visitor (and anyone reviewing the site, e.g. an advertiser
  * brand manager) judges Littlables from the first cards they see with zero
@@ -143,49 +172,45 @@ const byPublicationDate = (first: NewsItem, second: NewsItem) => {
  * wire, which can be the freshest item even when it is off-brand.
  *
  * So for the default landing feed only:
- *  1. Lead with a rotation of Creative Arts, Childcare & Family, and
- *     Animals & Nature, so the opening screen is a colourful mix of all
- *     three rather than a block of one category.
- *  2. Follow with Uplifting News, which is also brand-safe.
- *  3. Show everything else (Future Tech, Global Currents / world, and the
- *     uncategorised 'all' wire) afterwards, in its existing order.
+ *  1. Rotate through all six front-page categories — Creative Arts,
+ *     Childcare & Family, Animals & Nature, Future Tech, Global Currents,
+ *     and Uplifting News — so every category gets turns at the top
+ *     instead of the slower ones sitting below the whole feed.
+ *  2. Show uncategorised stories (the 'all' wire) afterwards, in their
+ *     existing order.
  *
- * Within each category the incoming order is preserved (approved stories
- * with images, newest first). Category-specific feeds are unaffected.
+ * Within each category the incoming order is preserved (the worker's
+ * reaction-ranked order). Category-specific feeds are unaffected.
  */
-const HOMEPAGE_LEAD_CATEGORIES: StandardNewsCategory[] = ['arts', 'childcare', 'animals'];
+const HOMEPAGE_ROTATION_CATEGORIES: StandardNewsCategory[] = ['arts', 'childcare', 'animals', 'tech', 'world', 'uplifting'];
 
 function effectiveStoryCategory(item: NewsItem): NewsCategory {
   return item.category && isValidCategory(item.category) ? item.category : 'all';
 }
 
 export function orderStoriesForHomepage(stories: NewsItem[]): NewsItem[] {
-  const leadBuckets = HOMEPAGE_LEAD_CATEGORIES.map(category =>
+  const rotationBuckets = HOMEPAGE_ROTATION_CATEGORIES.map(category =>
     stories.filter(item => effectiveStoryCategory(item) === category)
   );
 
-  // Round-robin the lead categories: arts, childcare, animals, arts, ...
-  const lead: NewsItem[] = [];
-  for (let index = 0; lead.length < stories.length; index++) {
+  // Round-robin all six categories: arts, childcare, animals, tech, world,
+  // uplifting, arts, ... so every category gets turns at the top.
+  const rotated: NewsItem[] = [];
+  for (let index = 0; rotated.length < stories.length; index++) {
     let addedAtThisIndex = false;
-    for (const bucket of leadBuckets) {
+    for (const bucket of rotationBuckets) {
       if (index < bucket.length) {
-        lead.push(bucket[index]);
+        rotated.push(bucket[index]);
         addedAtThisIndex = true;
       }
     }
     if (!addedAtThisIndex) break;
   }
 
-  const leadSet = new Set<NewsItem>(lead);
-  const uplifting = stories.filter(
-    item => !leadSet.has(item) && effectiveStoryCategory(item) === 'uplifting'
-  );
-  const rest = stories.filter(
-    item => !leadSet.has(item) && effectiveStoryCategory(item) !== 'uplifting'
-  );
+  const rotatedSet = new Set<NewsItem>(rotated);
+  const rest = stories.filter(item => !rotatedSet.has(item));
 
-  return [...lead, ...uplifting, ...rest];
+  return [...rotated, ...rest];
 }
 
 /**
@@ -288,15 +313,10 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
       const combinedApproved: NewsItem[] = [];
       const combinedUnapproved: NewsItem[] = [];
 
-      // 1. First add all approved stories (from all and other categories), prioritizing ones with custom images
+      // 1. First add all approved stories (from all and other categories),
+      // preserving the worker's reaction-ranked order. No re-sort here: a
+      // date or image sort would undo within-day reaction ranking.
       const allApprovedStories = [...baseItems.filter(i => i.approved === true), ...extraApproved];
-      allApprovedStories.sort((a, b) => {
-        // Prioritize stories that have custom images
-        const aHasImg = a.image && a.image.trim().length > 0 ? 1 : 0;
-        const bHasImg = b.image && b.image.trim().length > 0 ? 1 : 0;
-        if (aHasImg !== bHasImg) return bHasImg - aHasImg;
-        return byPublicationDate(a, b);
-      });
 
       for (const item of allApprovedStories) {
         if (!seenUrls.has(item.link)) {
@@ -325,18 +345,52 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
       throw new Error(`News feed returned no stories for category: ${category}`);
     }
 
+    // Preserve the worker's reaction-ranked order: filtering keeps order,
+    // so no re-sort here (a date sort would undo within-day ranking).
     const approvedItems = feedItems
-      .filter(item => item.approved === true)
-      .sort(byPublicationDate);
+      .filter(item => item.approved === true);
 
     const unapprovedItems = feedItems
-      .filter(item => item.approved !== true)
-      .sort(byPublicationDate);
+      .filter(item => item.approved !== true);
 
     const merged = [...approvedItems, ...unapprovedItems];
     return merged.length > 0 ? merged : (FALLBACK_STORIES[category] || FALLBACK_STORIES.all);
   } catch (err) {
     console.warn('Fetch news feed returned error, using fallback curated stories:', err);
     return FALLBACK_STORIES[category] || FALLBACK_STORIES.all;
+  }
+}
+
+/**
+ * Fetch stories tagged with an interest keyword (for custom boards).
+ * Interest keywords never appear as categories; the worker serves them
+ * via /space?keyword=.
+ */
+export async function fetchKeywordFeed(keywordId: string): Promise<NewsItem[]> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/space';
+    url.searchParams.set('keyword', keywordId);
+    let response = await fetch(url.href, { cache: 'no-cache' });
+    if (response.status === 404) {
+      const legacyUrl = new URL(NEWS_CONFIG.workerUrl);
+      legacyUrl.pathname = '/feed';
+      legacyUrl.searchParams.set('keyword', keywordId);
+      response = await fetch(legacyUrl.href, { cache: 'no-cache' });
+    }
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `Keyword feed request failed (HTTP ${response.status})`);
+    }
+    if (!Array.isArray(data.items)) return [];
+    const items = data.items
+      .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
+      .map((item: any) => normalizeFetchedItem(item, 'all'));
+    const approved = items.filter((i: NewsItem) => i.approved === true).sort(byPublicationDate);
+    const unapproved = items.filter((i: NewsItem) => i.approved !== true).sort(byPublicationDate);
+    return [...approved, ...unapproved];
+  } catch (err) {
+    console.warn('Fetch keyword feed returned error:', err);
+    return [];
   }
 }

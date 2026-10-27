@@ -30,7 +30,7 @@ export interface TranslationStrings {
 export const I18N_TRANSLATIONS: Record<string, TranslationStrings> = {
   en: {
     pageTitle: "Littlables — A Little Scoop of the World",
-    headerTitle: "Littlables",
+    headerTitle: "littlables",
     refreshBtn: "🔄 Refresh Feed",
     loading: "Fetching the freshest stories...",
     breaking: "Breaking",
@@ -47,7 +47,7 @@ export const I18N_TRANSLATIONS: Record<string, TranslationStrings> = {
     readMore: "Read Full Story →",
     error: "Unable to load live wire right now. Click refresh to try again!",
     recent: "Recent",
-    catAll: "Top Currents",
+    catAll: "All",
     catChildcare: "Childcare & Family",
     catAnimals: "Animals & Nature",
     catTech: "Future Tech & AI",

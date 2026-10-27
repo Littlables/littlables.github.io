@@ -408,7 +408,8 @@ export function normalizeArticle({
   description = '',
   content = '',
   pubDate = '',
-  source = ''
+  source = '',
+  providerCountry = null
 }) {
   if (typeof title !== 'string' || !title.trim()) return null;
   const normalizedLink = normalizeArticleUrl(link);
@@ -420,7 +421,8 @@ export function normalizeArticle({
     description: typeof description === 'string' ? decodeXml(description).trim().slice(0, 4_000) : '',
     content: typeof content === 'string' ? decodeXml(content).trim().slice(0, 4_000) : '',
     pubDate: typeof pubDate === 'string' ? pubDate.trim() : '',
-    source: typeof source === 'string' ? decodeXml(source).trim().slice(0, 500) : ''
+    source: typeof source === 'string' ? decodeXml(source).trim().slice(0, 500) : '',
+    providerCountry: typeof providerCountry === 'string' ? providerCountry.trim().slice(0, 2).toUpperCase() : null
   };
 }
 

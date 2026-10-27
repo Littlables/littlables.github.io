@@ -11,6 +11,8 @@
   --news-text: #f8fafc;
   --news-text-muted: #94a3b8;
   --news-accent: #6366f1;
+  --pill-bg: rgba(99, 102, 241, 0.12);
+  --pill-border: rgba(99, 102, 241, 0.35);
   --news-link-color: #818cf8;
   --news-link-hover: #c7d2fe;
   --news-title-hover: #a5b4fc;
@@ -49,6 +51,8 @@
   --news-text: #fbf7ff;
   --news-text-muted: #c084fc;
   --news-accent: #c084fc;
+  --pill-bg: rgba(192, 132, 252, 0.12);
+  --pill-border: rgba(192, 132, 252, 0.35);
   --news-link-color: #c084fc;
   --news-link-hover: #f0abfc;
   --news-title-hover: #e879f9;
@@ -87,6 +91,8 @@
   --news-text: #0f172a;
   --news-text-muted: #64748b;
   --news-accent: #4f46e5;
+  --pill-bg: rgba(79, 70, 229, 0.1);
+  --pill-border: rgba(79, 70, 229, 0.35);
   --news-link-color: #4338ca;
   --news-link-hover: #1e1b4b;
   --news-title-hover: #4f46e5;
@@ -125,6 +131,8 @@
   --news-text: #ffffff;
   --news-text-muted: #cbd5e1;
   --news-accent: #38bdf8;
+  --pill-bg: rgba(56, 189, 248, 0.12);
+  --pill-border: rgba(56, 189, 248, 0.35);
   --news-link-color: #38bdf8;
   --news-link-hover: #f43f5e;
   --news-title-hover: #38bdf8;
@@ -163,6 +171,8 @@
   --news-text: #2e1045;
   --news-text-muted: #7c3aed;
   --news-accent: #ec4899;
+  --pill-bg: rgba(236, 72, 153, 0.1);
+  --pill-border: rgba(236, 72, 153, 0.35);
   --news-link-color: #db2777;
   --news-link-hover: #7c3aed;
   --news-title-hover: #db2777;
@@ -201,6 +211,8 @@
   --news-text: #fff1f2;
   --news-text-muted: #f472b6;
   --news-accent: #fb7185;
+  --pill-bg: rgba(251, 113, 133, 0.12);
+  --pill-border: rgba(251, 113, 133, 0.35);
   --news-link-color: #fb7185;
   --news-link-hover: #fecdd3;
   --news-title-hover: #fda4af;
@@ -239,7 +251,7 @@ body {
   background: var(--news-bg, #0b0f19);
   margin: 0;
   color: var(--news-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   transition: background-color 0.25s ease, color 0.25s ease;
   min-height: 100vh;
 }
@@ -279,9 +291,9 @@ body {
   border: 0;
   padding: 0;
   margin: 0;
-  font-family: inherit;
+  font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: -0.4px;
   display: inline-flex;
   align-items: center;
@@ -297,8 +309,15 @@ body {
 }
 
 .news-widget-title:hover {
-  color: var(--news-title-hover, var(--news-link-color));
   text-decoration: none;
+}
+
+/* Only tint on hover where a real hover exists — on touch screens a tap
+   would otherwise leave the hover color stuck on the title text */
+@media (hover: hover) {
+  .news-widget-title:hover {
+    color: var(--news-title-hover, var(--news-link-color));
+  }
 }
 
 .news-widget-title:focus-visible {
@@ -369,11 +388,11 @@ body {
 }
 
 .refresh-news-button {
-  background: var(--news-card-bg);
-  color: var(--news-text-muted);
-  border: 1px solid var(--news-card-border);
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
   padding: 0.4rem 0.85rem;
-  border-radius: 9999px;
+  border-radius: 999px;
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 600;
@@ -402,7 +421,12 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-.refresh-news-button:hover:not(:disabled),
+.refresh-news-button:hover:not(:disabled) {
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
+  color: var(--news-text);
+  transform: translateY(-1px);
+}
+
 .header-icon-button:hover:not(:disabled) {
   background: var(--news-hover-bg, #334155);
   color: var(--news-text);
@@ -416,17 +440,38 @@ body {
   cursor: not-allowed;
 }
 
-.refresh-news-button.is-loading svg {
-  animation: headerRefreshSpin 0.8s linear infinite;
+/* 3D playground button: same round header button, bold label */
+.header-3d-button {
+  position: relative;
+  overflow: visible;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
-@keyframes headerRefreshSpin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.header-3d-button > span {
+  pointer-events: none;
+}
+
+.header-3d-beta-stamp {
+  position: absolute;
+  bottom: -3px;
+  right: -5px;
+  transform: rotate(-14deg);
+  padding: 1px 3.5px;
+  font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.45rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+  border: 1.25px solid rgba(255, 255, 255, 0.85);
+  border-radius: 3.5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
 }
 
 @media (max-width: 640px) {
@@ -447,6 +492,12 @@ body {
     width: 2.05rem;
     height: 2.05rem;
   }
+  .header-3d-beta-stamp {
+    font-size: 0.42rem;
+    padding: 1px 3px;
+    bottom: -2px;
+    right: -4px;
+  }
 }
 
 /* Category Pill Navigation — always a single horizontally-scrollable row */
@@ -459,8 +510,9 @@ body {
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 0.25rem;
-  /* Keep scrolled-to pills from jamming against the clipped edge */
-  scroll-padding-inline: 1rem;
+  /* Flush with the feed cards: scrolled-to pills stop at the same edge
+     the balloons start/end at, instead of 1rem inside it. */
+  scroll-padding-inline: 0;
 }
 
 .news-category-container::-webkit-scrollbar {
@@ -473,9 +525,11 @@ body {
   gap: 0.5rem;
   margin: 0;
   width: max-content;
-  /* 1rem side inset gives the pill drop shadows room so the scroll
-     container doesn't clip them into a sharp edge */
-  padding: 0.6rem 1rem 0.7rem 1rem;
+  font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* No side inset: the first/last pill lines up with the feed cards'
+     edges instead of sitting 1rem inside them. Edge pill shadows may
+     clip slightly at the scroll container's edge. */
+  padding: 0.6rem 0 0.7rem;
   overflow: visible;
 }
 
@@ -486,6 +540,7 @@ body {
   padding: 0.35rem 0.85rem;
   border-radius: 9999px;
   font-size: 0.8rem;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -615,6 +670,7 @@ body {
   background: var(--news-tag-bg);
   color: #fff;
   font-size: 0.7rem;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 700;
   text-transform: uppercase;
   padding: 0.25rem 0.6rem;
@@ -633,6 +689,7 @@ body {
 .news-card-meta {
   font-size: 0.75rem;
   font-weight: 700;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--news-text-muted);
   display: flex;
   justify-content: space-between;
@@ -641,17 +698,45 @@ body {
   gap: 0.35rem 0.5rem;
 }
 
+.news-card-meta.story-meta-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  gap: 0.3rem 0.65rem;
+  align-items: center;
+}
+
+.story-meta-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.news-card-meta.story-meta-grid > .story-meta-cell:nth-child(2n) {
+  justify-self: end;
+  text-align: right;
+}
+
 .story-scoop-badge,
-.story-provider-badge {
+.story-provider-badge,
+.story-domain-badge,
+.story-date-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   white-space: nowrap;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .news-card-title {
   font-size: 1.1rem;
   font-weight: 700;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.35;
   color: var(--news-text);
   text-decoration: none;
@@ -665,6 +750,7 @@ body {
 
 .news-card-desc {
   font-size: 0.85rem;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--news-text-muted);
   line-height: 1.5;
   flex: 1;
@@ -677,6 +763,7 @@ body {
   border-radius: 0 8px 8px 0;
   padding: 0.65rem 0.85rem;
   font-size: 0.8rem;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.45;
   color: var(--news-ai-text, #e0e7ff);
 }
@@ -749,15 +836,17 @@ a:hover {
   font-weight: bold;
 }
 
-.ad-card-title {
+.ad-card-title,
+.ad-card-title:link,
+.ad-card-title:visited,
+.ad-card-title:hover,
+.ad-card-title:focus,
+.ad-card-title:active,
+.news-card-ad:hover .ad-card-title,
+.news-card-ad:focus .ad-card-title,
+.news-card-ad:active .ad-card-title {
   color: var(--news-text, #f8fafc);
   font-size: 1.05rem;
-  transition: color 0.15s ease;
-}
-
-.news-card-ad:hover .ad-card-title,
-.ad-card-title:hover {
-  color: var(--news-title-hover, #f59e0b);
 }
 
 .ad-card-description {
@@ -768,19 +857,17 @@ a:hover {
   flex: 1;
 }
 
-.adsbygoogle {
-  display: block;
-}
-
 .ad-badge {
   background: #f59e0b !important;
   color: #0b1120 !important;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 800 !important;
   letter-spacing: 0.6px !important;
 }
 
 .ad-sponsor-label {
   font-size: 0.68rem;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   text-transform: uppercase;
   font-weight: 800;
   color: #f59e0b;
@@ -804,6 +891,11 @@ a:hover {
   transition: all 0.2s;
 }
 
+/* Same visited-color pin as the title, before the hover rule so hover wins. */
+.ad-cta-btn:visited {
+  color: #fbbf24;
+}
+
 .ad-cta-btn:hover {
   background: #f59e0b;
   color: #0b1120;
@@ -825,6 +917,7 @@ a:hover {
   padding: 0.22rem 0.46rem;
   border-radius: 9999px;
   font-size: 0.74rem;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
@@ -929,7 +1022,12 @@ a:hover {
   flex-shrink: 0;
 }
 
+.site-footer-brand {
+  font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
 .site-footer a,
+.site-footer button,
 .site-info-close {
   padding: 0;
   border: 0;
@@ -937,24 +1035,71 @@ a:hover {
   background: transparent;
   font: inherit;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .site-footer a:hover,
+.site-footer button:hover,
 .site-info-close:hover {
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 .site-info-dialog {
   position: fixed;
+  inset: 0;
+  margin: auto;
   width: min(90vw, 38rem);
+  height: fit-content;
   max-height: 85vh;
-  overflow: auto;
-  padding: 2rem;
+  max-height: 85dvh;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--news-card-border, #475569);
   border-radius: 16px;
   color: var(--news-text, #f8fafc);
   background: var(--news-card-bg, #1e293b);
   box-shadow: 0 20px 60px rgb(0 0 0 / 40%);
+  overscroll-behavior: contain;
+}
+
+.site-info-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Inner scroll container hugs the outer dialog border, leaving only a
+   9px top/bottom and 2px right gap to clear the 16px curved corners. */
+.site-info-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
+  margin: 9px 2px 9px 0;
+  padding: calc(2rem - 9px) calc(2rem - 2px) calc(2rem - 9px) 2rem;
+}
+
+.site-info-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.site-info-scroll::-webkit-scrollbar-track {
+  background: rgba(127, 127, 127, 0.12);
+  margin: 0;
+  border-radius: 9999px;
+}
+
+.site-info-scroll::-webkit-scrollbar-thumb {
+  background: rgba(127, 127, 127, 0.45);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.site-info-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(127, 127, 127, 0.65);
 }
 
 .site-info-dialog::backdrop {
@@ -988,6 +1133,9 @@ a:hover {
 .settings-dialog {
   width: min(92vw, 28rem);
   padding: 1.35rem 1.5rem 1.5rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
 }
 
 .settings-dialog-header {
@@ -1123,6 +1271,96 @@ body.story-modal-open {
   position: fixed;
   inset: 0;
   width: min(94vw, 46rem);
+  height: fit-content;
+  /* Shorter on both sides so the balloon never clips at the viewport
+     edges on phones (dvh tracks the dynamic toolbar; vh is the fallback). */
+  max-height: 85vh;
+  max-height: 85dvh;
+  margin: auto;
+  padding: 0;
+  /* Frameless transparent wrapper, now a non-scrolling flex column: the
+     admin Edit bar is a direct child (so it never scrolls away) and the
+     balloon content scrolls inside .story-modal-scroll below it. */
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: 18px;
+  color: var(--news-text, #f8fafc);
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+/* Positions the hovering ✕ button over the scroll container and carries
+   the rounded card frame/shadow so corners and border stay stationary
+   while .story-modal-scroll scrolls inside it. */
+.story-modal-scroll-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 18px;
+  background: var(--news-card-bg, #1e293b);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+/* The balloon's own scroll container. Flex child of .story-modal-scroll-wrap
+   so max-height on the dialog properly constrains and scrolls tall content. */
+.story-modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
+.story-modal-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.story-modal-scroll::-webkit-scrollbar-track {
+  margin-block: 12px;
+  background: transparent;
+}
+
+.story-modal-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.story-modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.65);
+}
+
+.story-modal-dialog::backdrop {
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(4px);
+}
+
+/* Admin Edit button floating above and outside the open balloon card
+   (moved out of the bottom reactions row, which overflows on narrow
+   screens and cut the button off). It sits outside .story-modal-scroll,
+   so it stays visible while the balloon content scrolls. Only rendered
+   when an admin session is active. No background or border here on
+   purpose: the button floats on its own over the backdrop. */
+.story-modal-admin-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 1rem;
+}
+
+/* Story edit view: native dialog like the expanded balloon view, so it
+   always opens as its own window above the feed. */
+.story-edit-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(94vw, 46rem);
   max-height: 90vh;
   margin: auto;
   padding: 0;
@@ -1133,16 +1371,263 @@ body.story-modal-open {
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
 }
 
-.story-modal-dialog::backdrop {
+.story-edit-dialog::-webkit-scrollbar {
+  width: 8px;
+}
+
+.story-edit-dialog::-webkit-scrollbar-track {
+  margin-block: 12px;
+  background: transparent;
+}
+
+.story-edit-dialog::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.story-edit-dialog::backdrop {
   background: rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(4px);
+}
+
+.story-edit-body {
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.story-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.story-edit-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.story-edit-back {
+  padding: 0.4rem 0.75rem;
+  background: var(--news-hover-bg, #334155);
+  border: none;
+  border-radius: 0.5rem;
+  color: var(--news-text, #f8fafc);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.story-edit-x {
+  padding: 0 0.5rem;
+  background: none;
+  border: none;
+  color: var(--news-text-muted, #94a3b8);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.story-edit-image {
+  width: 100%;
+  height: 14rem;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  background: var(--news-image-wrap-bg, #334155);
+  display: block;
+}
+
+.story-edit-field {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.story-edit-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--news-text-muted, #94a3b8);
+  margin-bottom: 0.25rem;
+}
+
+.story-edit-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: #0b0f19;
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 0.5rem;
+  color: var(--news-text, #f8fafc);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.story-edit-section {
+  margin-bottom: 1.5rem;
+}
+
+.story-edit-section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--news-text-muted, #94a3b8);
+  margin: 0 0 0.5rem;
+}
+
+.story-edit-note {
+  font-size: 0.75rem;
+  color: var(--news-text-muted, #94a3b8);
+}
+
+.story-edit-error {
+  color: #f87171;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.story-edit-saved {
+  color: #4ade80;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.story-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.story-edit-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: var(--news-hover-bg, #334155);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.story-edit-badge-green {
+  background: #16a34a;
+}
+
+.story-edit-badge-red {
+  background: #dc2626;
+}
+
+.story-edit-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  cursor: pointer;
+}
+
+.story-edit-btn:disabled {
+  opacity: 0.5;
+}
+
+.story-edit-btn-green {
+  background: #16a34a;
+}
+
+.story-edit-btn-yellow {
+  background: #ca8a04;
+}
+
+.story-edit-btn-red {
+  background: #dc2626;
+}
+
+.story-edit-btn-gray {
+  background: var(--news-hover-bg, #475569);
+}
+
+.story-edit-btn-purple {
+  background: #7c3aed;
+}
+
+.story-edit-keywords {
+  max-height: 16rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.story-edit-group {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--news-text-muted, #94a3b8);
+  margin: 0.75rem 0 0.25rem;
+}
+
+.story-edit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.story-edit-chip {
+  padding: 0.25rem 0.625rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--news-hover-bg, #334155);
+  color: var(--news-text, #f8fafc);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.story-edit-chip-selected {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.story-edit-chip-blue {
+  background: #2563eb;
+  color: #fff;
+}
+
+.story-edit-chip-excluded {
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.story-edit-meta {
+  font-size: 0.875rem;
+  color: var(--news-text-muted, #94a3b8);
+}
+
+.story-edit-meta p {
+  margin: 0.25rem 0;
+}
+
+.story-edit-meta span {
+  color: var(--news-text, #f8fafc);
+}
+
+.story-edit-raw {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #0b0f19;
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .story-modal-card {
   display: flex;
   flex-direction: column;
+  background: var(--news-card-bg, #1e293b);
 }
 
 .story-modal-image-wrap {
@@ -1196,6 +1681,7 @@ body.story-modal-open {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
+  z-index: 2;
   width: 2.25rem;
   height: 2.25rem;
   border-radius: 9999px;
@@ -1226,8 +1712,7 @@ body.story-modal-open {
 }
 
 .story-modal-meta {
-  flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 0.38rem 0.85rem;
 }
 
 .story-modal-source {
@@ -1250,6 +1735,7 @@ body.story-modal-open {
 .story-modal-desc {
   margin: 0;
   font-size: 0.98rem;
+  font-family: 'Quicksand', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.68;
   color: var(--news-text-muted);
   white-space: pre-line;
@@ -1289,3 +1775,2005 @@ body.story-modal-open {
     font-size: 0.76rem;
   }
 }
+
+/* Auth Dialogs (Sign In / Profile) */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.dialog {
+  background: var(--news-card-bg, #1e293b);
+  border: 1px solid var(--news-border, #334155);
+  border-radius: 1rem;
+  width: min(92vw, 24rem);
+  padding: 1.5rem;
+  position: relative;
+  color: var(--news-text, #f1f5f9);
+  overscroll-behavior: contain;
+}
+
+.dialog-close {
+  position: absolute;
+  top: 0.1rem;
+  right: 0.1rem;
+  z-index: 30;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 1.4rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--news-text, #f1f5f9);
+}
+
+.dialog-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.dialog-subtitle {
+  margin: 0 0 1.25rem;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.9rem;
+}
+
+.dialog-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.dialog-success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+/* App-level toast popover: floats above everything, doesn't affect layout */
+.toast-popover {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3000;
+  padding: 0.7rem 1.2rem;
+  border-radius: 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 92vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  animation: toast-pop-in 0.22s ease;
+}
+
+.toast-success {
+  background: rgba(22, 101, 52, 0.96);
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  color: #bbf7d0;
+}
+
+.toast-error {
+  background: rgba(127, 29, 29, 0.96);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  color: #fecaca;
+}
+
+@keyframes toast-pop-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Sticky save/error banner pinned to the top of the profile dialog */
+.dialog-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-right: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.dialog-banner.dialog-error,
+.dialog-banner.dialog-success {
+  margin-bottom: 1rem;
+}
+
+.sign-in-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sign-in-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.6rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--news-border, #334155);
+  transition: background 0.15s;
+}
+
+.google-button {
+  background: #fff;
+  color: #1f2937;
+  border-color: #e5e7eb;
+}
+
+.google-button:hover {
+  background: #f9fafb;
+}
+
+.email-button {
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+}
+
+.email-button:hover {
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
+}
+
+.primary-button {
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  border-radius: 999px;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
+}
+
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secondary-button {
+  background: transparent;
+  color: var(--news-text, #f1f5f9);
+  margin-top: 0.75rem;
+}
+
+.secondary-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Destructive action: solid red so Sign out reads as a warning, not a
+   neutral action. Specificity beats .secondary-button's transparent bg. */
+.sign-in-button.profile-signout-btn {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.sign-in-button.profile-signout-btn:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.sign-in-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.85rem;
+}
+
+.sign-in-divider::before,
+.sign-in-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--news-border, #334155);
+}
+
+.sign-in-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sign-in-form label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--news-text-secondary, #94a3b8);
+}
+
+.sign-in-form input {
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 1rem;
+}
+
+.sign-in-form input:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.link-button:hover {
+  color: var(--news-text, #f1f5f9);
+  text-decoration: underline;
+}
+
+.sign-in-hint {
+  font-size: 0.8rem;
+  color: var(--news-text-secondary, #94a3b8);
+  text-align: center;
+  margin: 0;
+}
+
+/* Header auth button */
+.header-auth-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-signin-button {
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.header-signin-button:hover {
+  background: var(--pill-border, rgba(79, 70, 229, 0.3));
+}
+
+.header-avatar-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: 2px solid var(--news-border, #334155);
+  background: #4f46e5;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+}
+
+.header-avatar-button:hover {
+  border-color: #4f46e5;
+}
+
+.header-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.header-avatar-fallback {
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* Profile dialog */
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 0;
+}
+
+.profile-avatar {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+
+.profile-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.profile-email {
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+/* Clickable avatar + email in the profile header → opens the public page */
+.profile-avatar-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 9999px;
+  line-height: 0;
+}
+
+.profile-email-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  display: block;
+}
+
+.profile-email-link:hover {
+  text-decoration: underline;
+}
+
+/* Expanded Profile Dialog */
+/* ---------- Profile dialog: fixed tab bar, scrolling content ----------
+   The tab bar stays put; each tab's content scrolls in its own container
+   below it. */
+.profile-dialog-expanded {
+  width: min(95vw, 35rem);
+  height: min(92vh, 56rem);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.profile-tabs {
+  flex-shrink: 0;
+  /* If tabs ever overflow (narrow phones), let the bar scroll sideways
+     instead of squeezing or clipping the tab buttons. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.profile-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.profile-tab-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
+  /* Pull the scrollbar to the dialog's right edge, under the × button */
+  margin-right: -1.4rem;
+  padding-right: 1.4rem;
+  padding-top: 0.9rem;
+}
+
+/* Keep the scrollbar inside the tab content's rounded corners */
+.profile-tab-content::-webkit-scrollbar {
+  width: 8px;
+}
+.profile-tab-content::-webkit-scrollbar-track {
+  background: rgba(127, 127, 127, 0.12);
+  margin: 0;
+  border-radius: 9999px;
+}
+.profile-tab-content::-webkit-scrollbar-thumb {
+  background: rgba(127, 127, 127, 0.45);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.profile-tab-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(127, 127, 127, 0.65);
+}
+
+.profile-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--news-border, #334155);
+  padding-bottom: 0.5rem;
+}
+
+.profile-tab {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.profile-tab:hover {
+  color: var(--news-text, #f1f5f9);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.profile-tab.active {
+  color: var(--news-text, #f1f5f9);
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+}
+
+.profile-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.profile-section-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--news-text-secondary, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.45rem 0 0.15rem;
+}
+
+.profile-hint {
+  font-size: 0.82rem;
+  color: var(--news-text-secondary, #94a3b8);
+  margin: 0 0 0.35rem;
+}
+
+.profile-hint-compact {
+  font-size: 0.75rem;
+  margin: 0.1rem 0 0.25rem;
+}
+
+.profile-username {
+  color: #4f46e5;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.profile-username-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.profile-username-link:hover {
+  text-decoration: underline;
+}
+
+.username-hint {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.username-hint.available { color: #86efac; }
+.username-hint.taken { color: #fca5a5; }
+
+.profile-textarea {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.profile-textarea:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
+.social-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 0.6rem;
+}
+
+@media (max-width: 480px) {
+  .social-fields-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.social-field {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.social-label {
+  min-width: 4.3rem;
+  font-size: 0.76rem;
+  color: var(--news-text-secondary, #94a3b8);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.social-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.85rem;
+}
+
+/* Character avatars */
+.character-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.45rem;
+}
+
+.character-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.45rem 0.25rem;
+  border-radius: 0.65rem;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.character-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.character-option.selected {
+  border-color: #4f46e5;
+  background: rgba(79, 70, 229, 0.15);
+}
+
+.character-emoji {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.65rem;
+}
+
+/* Inner glyph wrapper: tight line box + slight downward nudge, since
+   emoji glyphs (esp. animal faces) sit high in their em box */
+.avatar-emoji-glyph {
+  line-height: 1;
+  transform: translateY(0.07em);
+}
+
+.character-name {
+  font-size: 0.68rem;
+  color: var(--news-text-secondary, #94a3b8);
+}
+
+.avatar-alt-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.85rem;
+}
+
+.profile-avatar-sm {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  object-fit: cover;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+/* Pill manager */
+.pill-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+@media (max-width: 480px) {
+  .pill-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pill-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.55rem;
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--news-border, #334155);
+  min-width: 0;
+}
+
+.pill-icon { font-size: 1rem; flex-shrink: 0; }
+.pill-label {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-remove {
+  background: none;
+  border: none;
+  color: #fca5a5;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 0.2rem;
+  line-height: 1;
+}
+
+.pill-reorder {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.pill-reorder button {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 0.3rem;
+  color: var(--news-text, #f1f5f9);
+  width: 1.4rem;
+  height: 1.4rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.pill-reorder button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pill-toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pill-toggle {
+  padding: 0.32rem 0.68rem;
+  border-radius: 9999px;
+  border: 1px solid var(--news-border, #334155);
+  background: transparent;
+  color: var(--news-text-secondary, #94a3b8);
+  font-size: 0.8rem;
+  cursor: pointer;
+  line-height: 1.25;
+}
+
+.pill-toggle.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #fff;
+}
+
+/* Space logo inside interest toggle pills and the selected-interests list */
+.pill-toggle-logo {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.25rem;
+  object-fit: cover;
+  vertical-align: -0.18rem;
+  margin-right: 0.15rem;
+}
+
+.pill-space-logo {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.3rem;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
+/* Theme picker */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 2.35rem;
+  height: 2.35rem;
+  padding: 0 0.5rem;
+  border-radius: 0.6rem;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.theme-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.theme-option.selected {
+  border-color: #4f46e5;
+  background: rgba(79, 70, 229, 0.15);
+}
+
+.theme-icon { font-size: 1.1rem; line-height: 1; flex-shrink: 0; }
+.theme-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--news-text-secondary, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.theme-option.selected .theme-name { color: var(--news-text, #f1f5f9); }
+
+/* Color picker */
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.color-wheel {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9999px;
+  border: 2px solid var(--news-border, #334155);
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.color-wheel::-webkit-color-swatch-wrapper { padding: 2px; }
+.color-wheel::-webkit-color-swatch { border: none; border-radius: 9999px; }
+
+.hex-input {
+  width: 6.5rem !important;
+  padding: 0.45rem 0.65rem !important;
+  border-radius: 0.5rem;
+  border: 1px solid var(--news-border, #334155);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
+.color-preview {
+  margin-top: 0.6rem;
+  padding: 1.5rem;
+  border-radius: 0.7rem;
+  text-align: center;
+  color: #fff;
+  font-size: 0.85rem;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.profile-footer {
+  flex-shrink: 0;
+  margin: 1rem -1.5rem -1.5rem;
+  padding: 0.9rem 1.5rem;
+  border-top: 1px solid var(--news-border, #334155);
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.profile-footer .sign-in-button {
+  padding: 0.55rem 1rem;
+  margin-top: 0;
+  flex: 1;
+}
+
+/* ── Public profile / space page ── */
+.space-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+.space-card {
+  background: var(--card-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.09));
+  border-radius: 1.25rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+.space-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.space-avatar-img {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--accent, #4f46e5);
+}
+.space-avatar-character,
+.space-avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3px solid var(--accent, #4f46e5);
+}.space-avatar-initial {
+  background: linear-gradient(135deg, #4f46e5, #ec4899);
+  color: #fff;
+  font-weight: 700;
+}
+.space-display-name {
+  font-size: 1.6rem;
+  margin: 0.5rem 0 0;
+}
+.space-username {
+  opacity: 0.65;
+  margin: 0;
+  font-size: 0.95rem;
+}
+.space-bio {
+  max-width: 480px;
+  margin: 0.5rem 0 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.space-socials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+.space-social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.12));
+  font-size: 0.85rem;
+  text-decoration: none;
+  color: inherit;
+}
+.space-social-link:hover {
+  border-color: var(--accent, #4f46e5);
+}
+.space-pills-section {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--card-border, rgba(255, 255, 255, 0.09));
+}
+.space-section-title {
+  font-size: 1.05rem;
+  margin: 0 0 0.9rem;
+}
+.space-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.space-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  font-size: 0.9rem;
+}
+
+/* ---------- Spaces & Playrooms ---------- */
+.profile-field-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 0.55rem 0 0.25rem;
+  color: var(--news-text, #e2e8f0);
+}
+
+/* Compact inline form rows for Space, Playroom, Profile, and Theme editors */
+.compact-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.compact-field-row {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.compact-field-row-top {
+  align-items: start;
+}
+
+.compact-field-row-top > .compact-field-label {
+  padding-top: 0.45rem;
+}
+
+.compact-field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--news-text-secondary, #94a3b8);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.compact-field-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.compact-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+  margin-bottom: 0.15rem;
+}
+
+.compact-editor-header .profile-section-label {
+  margin: 0;
+}
+
+.compact-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.compact-section-header .profile-section-label,
+.compact-section-header .profile-field-label {
+  margin: 0;
+}
+
+.compact-inline-btn {
+  width: auto !important;
+  margin-top: 0 !important;
+  padding: 0.38rem 0.75rem !important;
+  font-size: 0.8rem !important;
+  flex-shrink: 0;
+}
+
+.compact-prefs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+}
+
+.compact-pref-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.compact-pref-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--news-text, #f1f5f9);
+  cursor: pointer;
+}
+
+.compact-pref-toggle input {
+  accent-color: #4f46e5;
+}
+
+.space-interests-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+}
+
+.space-interest-group {
+  border-top: 1px solid var(--card-border, rgba(255, 255, 255, 0.06));
+  padding-top: 0.35rem;
+}
+
+.space-interest-group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.space-interest-group-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--news-text-secondary, #94a3b8);
+  cursor: pointer;
+  padding: 0.15rem 0;
+  user-select: none;
+  list-style: none;
+}
+
+.space-interest-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.space-interest-group-badge {
+  font-size: 0.7rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.2);
+  color: #c7d2fe;
+}
+
+/* Space brand logo in the site header */
+.space-brand-logo {
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+/* Space / playroom page header */
+.space-page-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+  margin-bottom: -1.15rem;
+  flex-wrap: wrap;
+  padding: 0;
+}
+.space-page-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.space-page-logo-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  flex-shrink: 0;
+}
+.space-page-title {
+  font-size: 1.3rem;
+  margin: 0;
+  line-height: 1.1;
+}
+.space-page-owner {
+  font-size: 0.8rem;
+  color: var(--news-text-secondary, #94a3b8);
+  margin-top: 0;
+  line-height: 1.3;
+}
+.space-page-description {
+  margin: 0.3rem 0 0;
+  font-size: 0.9rem;
+  color: var(--news-text-secondary, #94a3b8);
+  max-width: 40rem;
+}
+.space-page-header .sign-in-button {
+  margin-left: auto;
+  margin-top: 0;
+  width: auto;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+}
+.space-pills-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+  margin-bottom: 0.5rem;
+}
+.space-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--news-text-secondary, #94a3b8);
+}
+
+/* Space pills below the playroom header (reuse category pill styles) */
+.playroom-space-pills {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.playroom-space-pills.news-category-container {
+  margin-top: 0;
+  margin-bottom: -1.15rem;
+  padding-bottom: 0;
+}
+.playroom-space-pills .news-category-bar {
+  padding: 0.2rem 1rem;
+}
+.playroom-space-pill-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+/* Space picker within the playroom section of the dialog */
+.playroom-add-space-picker {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--pill-border, rgba(79, 70, 229, 0.3));
+  border-radius: 12px;
+}
+
+/* Playrooms and spaces on the public profile page */
+.space-collections-section {
+  margin-top: 1.5rem;
+}
+.space-collections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.space-collection-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  text-align: left;
+  background: var(--card-bg, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.space-collection-card:hover {
+  border-color: var(--pill-border, rgba(79, 70, 229, 0.4));
+}
+.space-collection-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.space-collection-logo-fallback {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  font-weight: 700;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  flex-shrink: 0;
+}
+.space-collection-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+.space-collection-name {
+  font-weight: 600;
+}
+.space-collection-description {
+  font-size: 0.85rem;
+  color: var(--news-text-secondary, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.space-collection-meta {
+  font-size: 0.75rem;
+  color: var(--news-text-secondary, #94a3b8);
+}
+.space-collection-edit-btn {
+  flex-shrink: 0;
+  padding: 0.35rem 0.45rem;
+  border-radius: 8px;
+}
+.space-collection-arrow {
+  font-size: 1.2rem;
+  color: var(--news-text-secondary, #94a3b8);
+  flex-shrink: 0;
+}
+
+/* Playrooms & Spaces tab in the profile dialog */
+.space-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+.space-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.08));
+  border-radius: 9px;
+}
+.space-row-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.space-row-logo-fallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  flex-shrink: 0;
+}
+.space-row-info {
+  flex: 1;
+  min-width: 0;
+}
+.space-row-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.space-row-slug {
+  font-size: 0.72rem;
+  color: var(--news-text-secondary, #94a3b8);
+}
+.space-row-actions {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+.space-icon-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0.25rem;
+  border-radius: 6px;
+  color: inherit;
+  line-height: 1;
+}
+.space-icon-button:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.15);
+}
+.space-icon-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.space-slug-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+.space-slug-prefix {
+  font-size: 0.82rem;
+  color: var(--news-text-secondary, #94a3b8);
+  white-space: nowrap;
+}
+.space-slug-input {
+  flex: 1;
+  min-width: 0;
+}
+.space-description-input {
+  resize: vertical;
+  min-height: 2.5rem;
+  font-family: inherit;
+}
+
+.space-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.space-logo-preview {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.space-logo-row .link-button {
+  margin-left: 0.25rem;
+}
+
+.space-theme-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .theme-grid,
+  .space-theme-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.space-pill-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+.space-pill-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.space-pill-option input {
+  accent-color: #4f46e5;
+}
+
+.space-editor-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+}
+.space-editor-actions .sign-in-button {
+  margin-top: 0;
+  padding: 0.5rem 0.9rem;
+  width: auto;
+  flex: 1;
+}
+.space-delete-button {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.space-confirm-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.space-confirm-label {
+  font-size: 0.78rem;
+  color: var(--news-text-secondary, #94a3b8);
+  margin-right: 0.15rem;
+}
+.space-confirm-btn {
+  background: rgba(127, 127, 127, 0.14);
+  border: 1px solid var(--card-border, rgba(255, 255, 255, 0.14));
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.space-confirm-btn:hover {
+  background: rgba(127, 127, 127, 0.24);
+}
+.space-confirm-danger {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #f87171;
+}
+.space-confirm-danger:hover {
+  background: rgba(248, 113, 113, 0.28);
+}
+
+/* ---------- About landing page ---------- */
+.about-landing {
+  text-align: left;
+  max-width: 42rem;
+  margin: 0 auto;
+}
+
+.about-hero {
+  text-align: center;
+  padding: 1rem 0 2rem;
+}
+
+.about-hero-logo {
+  border-radius: 1.25rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+
+.about-hero-title {
+  font-size: 2.2rem;
+  margin: 0.75rem 0 0.1rem;
+  letter-spacing: -0.01em;
+}
+
+.about-hero-tagline {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--news-accent, #6366f1);
+  margin: 0 0 0.75rem;
+}
+
+.about-hero-sub {
+  color: var(--news-text-muted, #94a3b8);
+  font-size: 1rem;
+  line-height: 1.6;
+  max-width: 30rem;
+  margin: 0 auto 1.25rem;
+}
+
+.about-hero-ctas {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.about-cta {
+  width: auto;
+  padding: 0.7rem 1.6rem;
+  margin-top: 0;
+}
+
+.about-features {
+  padding: 1rem 0 2rem;
+}
+
+.about-features h2,
+.about-faq h2,
+.about-story h2 {
+  text-align: center;
+  font-size: 1.4rem;
+  margin: 0 0 1.25rem;
+}
+
+.about-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.9rem;
+}
+
+.about-feature-card {
+  background: var(--news-card-bg, #1e293b);
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  border-radius: 1rem;
+  padding: 1.1rem 1.15rem;
+}
+
+.about-feature-emoji {
+  font-size: 1.6rem;
+}
+
+.about-feature-card h3 {
+  font-size: 1rem;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.about-feature-card p {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--news-text-muted, #94a3b8);
+  margin: 0;
+}
+
+.about-faq {
+  padding: 1rem 0 2rem;
+}
+
+.about-faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.about-faq-item {
+  background: var(--news-card-bg, #1e293b);
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  border-radius: 0.9rem;
+  padding: 0.85rem 1.1rem;
+}
+
+.about-faq-item summary {
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.about-faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.about-faq-item summary::after {
+  content: '+';
+  font-size: 1.2rem;
+  color: var(--news-accent, #6366f1);
+  flex-shrink: 0;
+}
+
+.about-faq-item[open] summary::after {
+  content: '−';
+}
+
+.about-faq-item p {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--news-text-muted, #94a3b8);
+  margin: 0.6rem 0 0.15rem;
+}
+
+.about-story {
+  padding: 1rem 0 0.5rem;
+  text-align: center;
+}
+
+.about-story p {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--news-text-muted, #94a3b8);
+  max-width: 34rem;
+  margin: 0 auto 1rem;
+}
+
+.about-story-sign {
+  font-weight: 600;
+  color: var(--news-text, #f8fafc) !important;
+}
+
+/* ---------- Disclaimer ( refreshed ) ---------- */
+.disclaimer-body {
+  text-align: left;
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.disclaimer-body h2 {
+  text-align: center;
+  font-size: 1.35rem;
+  margin: 0 0 1rem;
+}
+
+.disclaimer-points {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.disclaimer-points li {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--news-text-muted, #94a3b8);
+}
+
+.disclaimer-points li strong {
+  color: var(--news-text, #f8fafc);
+  font-weight: 600;
+}
+
+.disclaimer-point-icon {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.disclaimer-foot {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  font-size: 0.85rem;
+  color: var(--news-text-muted, #94a3b8);
+  text-align: center;
+}
+
+/* ---------- Space & playroom editor inputs (themed) ---------- */
+.space-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  background: var(--news-card-bg, #1e293b);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+
+.space-input::placeholder {
+  color: var(--news-text-muted, #94a3b8);
+  opacity: 0.7;
+}
+
+.space-input:focus {
+  outline: none;
+  border-color: var(--pill-border, rgba(79, 70, 229, 0.35));
+  box-shadow: 0 0 0 2px var(--pill-bg, rgba(79, 70, 229, 0.12));
+}
+
+textarea.space-input {
+  resize: vertical;
+  min-height: 2.6rem;
+  line-height: 1.4;
+}
+
+/* ---------- Space pill picker ---------- */
+.space-pill-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.25rem 0 0.35rem;
+}
+
+.space-custom-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.space-custom-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: var(--pill-bg, rgba(79, 70, 229, 0.12));
+  border: 1px solid var(--pill-border, rgba(79, 70, 229, 0.3));
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.8rem;
+}
+
+.space-custom-pill .pill-remove {
+  background: none;
+  border: none;
+  color: var(--news-text-muted, #94a3b8);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+}
+
+.space-custom-pill .pill-remove:hover {
+  color: var(--news-text, #f1f5f9);
+}
+
+.space-custom-pill-row {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
+}
+
+.space-custom-pill-row .space-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.space-custom-pill-row .sign-in-button {
+  width: auto;
+  padding: 0.48rem 0.95rem;
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+/* All text inputs in the profile dialog share the same themed style */
+.profile-dialog-expanded input[type="text"],
+.profile-dialog-expanded textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.08));
+  background: var(--news-card-bg, #1e293b);
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.88rem;
+  font-family: inherit;
+}
+
+.profile-dialog-expanded input[type="text"]::placeholder,
+.profile-dialog-expanded textarea::placeholder {
+  color: var(--news-text-muted, #94a3b8);
+  opacity: 0.7;
+}
+
+.profile-dialog-expanded input[type="text"]:focus,
+.profile-dialog-expanded textarea:focus {
+  outline: none;
+  border-color: var(--pill-border, rgba(79, 70, 229, 0.35));
+  box-shadow: 0 0 0 2px var(--pill-bg, rgba(79, 70, 229, 0.12));
+}
+
+/* System font opt-out: when the reader checks "Use system font" in theme
+   settings, App sets data-system-font="true" on <html> and every webfont
+   rule above falls back to the system stack. Off by default (no attribute),
+   so the webfonts show unless opted out. */
+html[data-system-font="true"] body,
+html[data-system-font="true"] .news-widget-title,
+html[data-system-font="true"] .news-category-bar,
+html[data-system-font="true"] .site-footer-brand,
+html[data-system-font="true"] .news-card-title,
+html[data-system-font="true"] .news-card-meta,
+html[data-system-font="true"] .news-card-desc,
+html[data-system-font="true"] .news-card-ai-summary,
+html[data-system-font="true"] .story-modal-desc,
+html[data-system-font="true"] .cat-pill,
+html[data-system-font="true"] .news-card-badge,
+html[data-system-font="true"] .ad-badge,
+html[data-system-font="true"] .ad-sponsor-label,
+html[data-system-font="true"] .reaction-pill,
+html[data-system-font="true"] .story-scoop-badge,
+html[data-system-font="true"] .story-provider-badge {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+}
+
+/* Space pin emoji selector & override picker */
+.space-emoji-section {
+  margin-top: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.space-emoji-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+
+.space-emoji-pill-preview {
+  pointer-events: none;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.space-emoji-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.space-emoji-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.space-emoji-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.1));
+  background: var(--news-card-bg, rgba(30, 41, 59, 0.7));
+  color: var(--news-text, #f1f5f9);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.space-emoji-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--pill-border, rgba(99, 102, 241, 0.45));
+}
+
+.space-emoji-chip.active {
+  background: var(--pill-bg, rgba(79, 70, 229, 0.18));
+  border-color: var(--pill-border, rgba(99, 102, 241, 0.65));
+  font-weight: 600;
+}
+
+.space-emoji-chip-glyph {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.space-emoji-chip-label {
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.space-emoji-more-btn {
+  background: transparent;
+  border: 1px dashed var(--pill-border, rgba(99, 102, 241, 0.4));
+  color: var(--news-text-muted, #94a3b8);
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.space-emoji-more-btn:hover {
+  color: var(--news-text, #f1f5f9);
+  border-color: var(--pill-border, rgba(99, 102, 241, 0.7));
+}
+
+.space-emoji-picker-drawer {
+  margin-top: 0.6rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.1));
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.space-emoji-picker-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.space-emoji-custom-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.space-emoji-custom-row .space-emoji-custom-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.space-emoji-custom-row .sign-in-button {
+  width: auto;
+  margin-top: 0;
+  padding: 0.55rem 0.9rem;
+  flex-shrink: 0;
+}
+
+.space-emoji-groups-scroll {
+  max-height: 210px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.space-emoji-group {
+  margin-bottom: 0.6rem;
+}
+
+.space-emoji-group-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--news-text-muted, #94a3b8);
+  margin-bottom: 0.3rem;
+}
+
+.space-emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.space-emoji-grid-btn {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: var(--news-card-bg, rgba(30, 41, 59, 0.6));
+  font-size: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.12s ease;
+}
+
+.space-emoji-grid-btn:hover {
+  transform: scale(1.1);
+  border-color: var(--pill-border, rgba(99, 102, 241, 0.5));
+}
+
+.space-emoji-grid-btn.active {
+  background: var(--pill-bg, rgba(79, 70, 229, 0.22));
+  border-color: var(--pill-border, rgba(99, 102, 241, 0.8));
+}
+

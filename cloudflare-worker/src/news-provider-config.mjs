@@ -41,7 +41,7 @@ export const NEWS_PROVIDERS = Object.freeze({
     description: 'RSS search feed for news headlines.',
     adapter: 'bing',
     endpoint: 'https://www.bing.com/news/search',
-    updatePauseMs: 750,
+    updatePauseMs: 2000,
     categories: Object.fromEntries(NEWS_CATEGORIES.map(category => [category, CATEGORY_QUERIES[category]]))
   },
   newsdata: {

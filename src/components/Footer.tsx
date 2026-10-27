@@ -10,28 +10,22 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAbout, onOpenDisclaimer })
 
   return (
     <footer className="site-footer">
-      <span>© <span id="copyright-year">{currentYear}</span> Littlables</span>
-      <nav aria-label="About Littlables">
-        <a
-          href="#about-us"
+      <span>© <span id="copyright-year">{currentYear}</span> <span className="site-footer-brand">littlables</span></span>
+      <nav aria-label="About littlables">
+        <button
+          type="button"
           data-umami-event="Open-About"
-          onClick={(e) => {
-            e.preventDefault();
-            onOpenAbout();
-          }}
+          onClick={onOpenAbout}
         >
           About us
-        </a>
-        <a
-          href="#disclaimer"
+        </button>
+        <button
+          type="button"
           data-umami-event="Open-Disclaimer"
-          onClick={(e) => {
-            e.preventDefault();
-            onOpenDisclaimer();
-          }}
+          onClick={onOpenDisclaimer}
         >
-          Disclaimer
-        </a>
+          A quick note
+        </button>
       </nav>
     </footer>
   );

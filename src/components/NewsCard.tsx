@@ -4,11 +4,12 @@ import { resolveImageUrl } from '../services/newsService';
 import { getStoryId, hasUserReacted } from '../services/supabaseService';
 import {
   getStoryHref,
-  getStoryProviderName,
+  getStoryGivenPubName,
+  getStoryTopLevelDomain,
   shareStoryWithImage
 } from '../services/urlService';
 import { t } from '../constants/translations';
-import { trackStoryClick } from '../services/trackingService';
+import { trackStoryClick, trackStoryView, trackStoryEngagementClick } from '../services/trackingService';
 
 interface NewsCardProps {
   item: NewsItem;
@@ -18,6 +19,7 @@ interface NewsCardProps {
   reactions: ReactionCounts;
   onReact: (storyId: string, type: ReactionType) => void;
   onOpenStory: (item: NewsItem, index: number) => void;
+  onAdminEdit?: (item: NewsItem) => void;
 }
 
 export const NewsCard: React.FC<NewsCardProps> = ({
@@ -27,18 +29,22 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   categoryBadge,
   reactions,
   onReact,
-  onOpenStory
+  onOpenStory,
+  onAdminEdit
 }) => {
   const storyId = getStoryId(item.title, item.link);
   const imageUrl = resolveImageUrl(item, index, category);
   const effectiveCategory = item.category || category;
   const storyHref = getStoryHref(item, effectiveCategory);
-  const providerName = getStoryProviderName(item);
+  const givenPubName = getStoryGivenPubName(item);
+  const topLevelDomain = getStoryTopLevelDomain(item);
 
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [imageLoaded, setImageLoaded] = useState<boolean>(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const viewTrackedRef = useRef(false);
 
   useEffect(() => {
     if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
@@ -47,6 +53,31 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       setImageLoaded(false);
     }
   }, [imageUrl]);
+
+  // Track view when card becomes visible (IntersectionObserver, once per mount)
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || viewTrackedRef.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      trackStoryView(item, effectiveCategory);
+      viewTrackedRef.current = true;
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !viewTrackedRef.current) {
+            viewTrackedRef.current = true;
+            trackStoryView(item, effectiveCategory);
+            observer.disconnect();
+          }
+        }
+      },
+      { threshold: 0.5 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [item.link]);
 
   const isVotedLove = hasUserReacted(storyId, 'love');
   const isVotedMind = hasUserReacted(storyId, 'mind');
@@ -67,6 +98,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   const handleStoryLinkClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     trackStoryClick(item);
+    trackStoryEngagementClick(item, effectiveCategory);
   };
 
   const handleCardClick = (e: React.MouseEvent<HTMLElement>) => {
@@ -74,6 +106,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     if (target.closest('.news-read-more-btn') || target.closest('button')) {
       return;
     }
+    trackStoryEngagementClick(item, effectiveCategory);
     onOpenStory(item, index);
   };
 
@@ -103,14 +136,98 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     }
   };
 
+  // Long-press to open admin edit (only when onAdminEdit is provided)
+  const longPressTimer = useRef<number | null>(null);
+  const longPressFired = useRef(false);
+  // Finger position at touch start. Small movements during a hold are normal,
+  // so only cancel the timer if the finger actually moves (>10px) — cancelling
+  // on any movement made long-press nearly impossible on real phones.
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+
+  const startLongPress = () => {
+    if (!onAdminEdit) return;
+    longPressFired.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      longPressFired.current = true;
+      onAdminEdit(item);
+    }, 600);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPos.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    startLongPress();
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    touchStartPos.current = null;
+    // If the long-press already fired and opened the edit dialog, swallow
+    // the emulated mouse click that follows the finger lift — otherwise it
+    // can land on the dialog backdrop and close it again. This is what made
+    // longer holds look like "long-press does nothing": the dialog opened,
+    // then the lift-click closed it.
+    if (longPressFired.current) {
+      e.preventDefault();
+    }
+    cancelLongPress();
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const start = touchStartPos.current;
+    const touch = e.touches[0];
+    if (start && touch) {
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (dx * dx + dy * dy > 100) cancelLongPress();
+    }
+  };
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Right-click also opens admin edit on desktop
+    if (e.button === 2 && onAdminEdit) {
+      e.preventDefault();
+      onAdminEdit(item);
+      return;
+    }
+    startLongPress();
+  };
+  const handleMouseUp = () => cancelLongPress();
+  const handleMouseLeave = () => cancelLongPress();
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (onAdminEdit) e.preventDefault();
+  };
+
+  // Suppress click if long-press fired
+  const handleCardClickWrapper = (e: React.MouseEvent<HTMLElement>) => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    handleCardClick(e);
+  };
+
   return (
     <article
+      ref={cardRef}
       className="news-card news-card-clickable"
       tabIndex={0}
       role="article"
       aria-label={item.title}
-      onClick={handleCardClick}
+      onClick={handleCardClickWrapper}
       onKeyDown={handleCardKeyDown}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+      onContextMenu={handleContextMenu}
     >
       <div className={`news-card-image-wrap ${imageLoaded ? 'is-loaded' : ''}`}>
         <img
@@ -136,13 +253,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       </div>
 
       <div className="news-card-content">
-        <div className="news-card-meta">
-          <span>🕒 {pubDate}</span>
-          {providerName && (
-            <span className="story-provider-badge">🌐 {providerName}</span>
-          )}
+        <div className="news-card-meta story-meta-grid">
+          <span className="story-meta-cell story-provider-badge" title={givenPubName}>📰 {givenPubName}</span>
+          <span className="story-meta-cell story-date-badge" title={pubDate}>🕒 {pubDate}</span>
+          <span className="story-meta-cell story-domain-badge" title={topLevelDomain}>🌐 {topLevelDomain}</span>
           {item.approved === true && (
-            <span className="story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
+            <span className="story-meta-cell story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
           )}
         </div>
 
@@ -224,10 +340,28 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               onClick={handleShareClick}
               title="Share story link & image"
               aria-label="Share story"
+              data-umami-event="Share-Story"
+              data-umami-event-story={item.title}
             >
               <span>{copied ? '✓' : '🔗'}</span>
               <span>{copied ? 'Copied' : 'Share'}</span>
             </button>
+
+            {onAdminEdit && (
+              <button
+                type="button"
+                className="reaction-pill admin-edit-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdminEdit(item);
+                }}
+                title="Edit story (admin)"
+                aria-label="Edit story"
+              >
+                <span>✏️</span>
+                <span>Edit</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
