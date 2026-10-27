@@ -240,7 +240,6 @@ export const WorksheetsPanel: React.FC = () => {
 
     const escapedTitle = worksheet.title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const imgSrc = new URL(worksheet.jpgUrl, window.location.origin).href;
-    const pdfHref = new URL(worksheet.pdfUrl, window.location.origin).href;
 
     const printHtml = `<!DOCTYPE html>
 <html>
@@ -250,114 +249,48 @@ export const WorksheetsPanel: React.FC = () => {
   <title>${escapedTitle}</title>
   <style>
     @page {
-      size: portrait;
-      margin: 0.25in;
+      size: letter portrait;
+      margin: 0;
     }
     * {
       box-sizing: border-box;
     }
     html, body {
-      margin: 0;
-      padding: 0;
-      background: #f4f1ea;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: #1f2937;
-    }
-    .print-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 16px;
+      width: 100%;
+      height: 100%;
+      margin: 0 !important;
+      padding: 0 !important;
       background: #ffffff;
-      border-bottom: 1px solid #e5e7eb;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    .print-toolbar-title {
-      font-weight: 700;
-      font-size: 14px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .print-toolbar-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-    .print-btn {
-      appearance: none;
-      border: 1px solid #dc2626;
-      background: #ef4444;
-      color: #ffffff;
-      font-weight: 700;
-      font-size: 13px;
-      padding: 6px 14px;
-      border-radius: 8px;
-      cursor: pointer;
-      text-decoration: none;
-    }
-    .print-link-btn {
-      appearance: none;
-      border: 1px solid #d1d5db;
-      background: #f9fafb;
-      color: #1f2937;
-      font-weight: 700;
-      font-size: 13px;
-      padding: 6px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      text-decoration: none;
     }
     .print-page-wrap {
+      width: 100%;
+      height: 100vh;
+      max-height: 10.8in;
+      padding: 0;
+      margin: 0;
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 16px;
-      min-height: calc(100vh - 52px);
+      overflow: hidden;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     img {
-      width: 100%;
-      max-width: 8.5in;
+      width: auto;
       height: auto;
+      max-width: 100%;
+      max-height: 96vh;
       object-fit: contain;
       display: block;
       margin: 0 auto;
       background: #ffffff;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-      border-radius: 4px;
-    }
-    @media print {
-      html, body {
-        background: #ffffff;
-      }
-      .print-toolbar {
-        display: none !important;
-      }
-      .print-page-wrap {
-        padding: 0;
-        min-height: auto;
-      }
-      img {
-        max-width: 100%;
-        max-height: 98vh;
-        box-shadow: none;
-        border-radius: 0;
-      }
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
   </style>
 </head>
 <body>
-  <div class="print-toolbar">
-    <div class="print-toolbar-title">${escapedTitle}</div>
-    <div class="print-toolbar-actions">
-      <a class="print-link-btn" href="${pdfHref}" download="${worksheet.pdfFilename}">⬇ PDF</a>
-      <button type="button" class="print-btn" onclick="window.print()">🖨️ Print</button>
-    </div>
-  </div>
   <div class="print-page-wrap">
     <img id="print-img" src="${imgSrc}" alt="${escapedTitle}" />
   </div>
@@ -371,7 +304,7 @@ export const WorksheetsPanel: React.FC = () => {
         setTimeout(function() {
           window.focus();
           window.print();
-        }, 150);
+        }, 100);
       }
       if (img.complete && img.naturalWidth > 0) {
         triggerPrint();
@@ -383,19 +316,6 @@ export const WorksheetsPanel: React.FC = () => {
 </body>
 </html>`;
 
-    // Open in a new window/tab so the main website is never lost
-    const printWin = window.open('', '_blank');
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(printHtml);
-      printWin.document.close();
-      setTimeout(() => {
-        setPrintingId((prev) => (prev === worksheet.id ? null : prev));
-      }, 900);
-      return;
-    }
-
-    // Fallback to hidden iframe only if popup was blocked
     const frame = printFrameRef.current;
     const doc = frame?.contentDocument || frame?.contentWindow?.document;
     if (doc) {
@@ -406,7 +326,7 @@ export const WorksheetsPanel: React.FC = () => {
 
     setTimeout(() => {
       setPrintingId((prev) => (prev === worksheet.id ? null : prev));
-    }, 1200);
+    }, 900);
   };
 
   const handleShareWorksheet = async (
