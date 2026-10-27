@@ -24,7 +24,7 @@ ALTER TABLE public.boards ADD COLUMN IF NOT EXISTS icon_emoji TEXT;
 ALTER TABLE public.boards DROP CONSTRAINT IF EXISTS boards_slug_format;
 ALTER TABLE public.boards DROP CONSTRAINT IF EXISTS spaces_slug_format;
 ALTER TABLE public.boards ADD CONSTRAINT spaces_slug_format
-  CHECK (slug ~ '^[a-z0-9-_]{1,50}$');
+  CHECK (slug ~ '^[a-z0-9\-_]{1,50}$');
 
 -- Background color format: #rrggbb (nullable = inherit profile theme)
 DO $$

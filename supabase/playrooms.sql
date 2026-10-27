@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.playrooms (
 -- "spaces" is reserved (/@name/spaces/<space> is the direct space route).
 ALTER TABLE public.playrooms DROP CONSTRAINT IF EXISTS playrooms_slug_format;
 ALTER TABLE public.playrooms ADD CONSTRAINT playrooms_slug_format
-  CHECK (slug ~ '^[a-z0-9-_]{1,50}$' AND slug <> 'spaces');
+  CHECK (slug ~ '^[a-z0-9\-_]{1,50}$' AND slug <> 'spaces');
 
 -- Background color format: #rrggbb (nullable = inherit)
 DO $$
