@@ -3,6 +3,7 @@ import { t } from '../constants/translations';
 import { useAuth } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
 import { trackHomeLogoRefresh, track3DPlayroomClick } from '../services/trackingService';
+import { WORKSHEETS, toggleWorksheetsPanel } from './WorksheetsPanel';
 
 const PLAYGROUND_3D_URL = 'https://playground.google/g/viMkwl';
 
@@ -17,6 +18,7 @@ interface HeaderProps {
   brandLogoUrl?: string | null;
   /** True when the GitHub admin session is active (enables long-press story editing) */
   isAdmin?: boolean;
+  worksheetsCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,7 +29,8 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading,
   brandName,
   brandLogoUrl,
-  isAdmin
+  isAdmin,
+  worksheetsCount = WORKSHEETS.length
 }) => {
   const { user, profile } = useAuth();
 
@@ -85,6 +88,23 @@ export const Header: React.FC<HeaderProps> = ({
       </button>
 
       <div className="news-header-controls">
+        <button
+          id="worksheets-btn"
+          type="button"
+          className="header-icon-button header-worksheets-button"
+          title={`Printable Worksheets & Coloring Pages (${worksheetsCount})`}
+          aria-label={`Printable Worksheets & Coloring Pages (${worksheetsCount} items)`}
+          data-umami-event="Toggle-Worksheets"
+          onClick={toggleWorksheetsPanel}
+        >
+          <span className="avatar-emoji-glyph" aria-hidden="true">📕</span>
+          {worksheetsCount > 0 && (
+            <span className="header-worksheets-count-badge" aria-hidden="true">
+              {worksheetsCount}
+            </span>
+          )}
+        </button>
+
         <button
           id="playground-3d-btn"
           type="button"

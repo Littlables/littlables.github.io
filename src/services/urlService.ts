@@ -30,7 +30,11 @@ const RESERVED_PATH_SEGMENTS = new Set([
   'space',
   'spaces',
   'playrooms',
-  'boards'
+  'boards',
+  'activities',
+  'activity',
+  'worksheets',
+  'worksheet'
 ]);
 
 export function isValidCategory(value: string | null | undefined): value is StandardNewsCategory {
@@ -659,3 +663,186 @@ export async function shareStoryWithImage(
 
   return copied;
 }
+
+/**
+ * Builds the full shareable URL for the activities/worksheets feed (optionally targeting a specific worksheet ID).
+ */
+export function getActivityShareUrl(worksheetId?: string): string {
+  const paramValue = worksheetId && worksheetId.trim() ? worksheetId.trim() : '1';
+  if (typeof window === 'undefined') {
+    return `https://littlables.github.io/?activities=${encodeURIComponent(paramValue)}`;
+  }
+  const url = new URL(window.location.href);
+  url.pathname = '/';
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('activities', paramValue);
+  return url.toString();
+}
+
+/**
+ * Parses whether the browser URL is deep-linking into the activities/worksheets feed
+ * (via ?activities=..., ?activity=..., ?worksheets=..., ?worksheet=..., #activities, or /activities).
+ */
+export function parseActivityFromUrl(): { isOpen: boolean; worksheetId: string | null } {
+  if (typeof window === 'undefined') return { isOpen: false, worksheetId: null };
+  try {
+    const url = new URL(window.location.href);
+    const paramKeys = ['activities', 'activity', 'worksheets', 'worksheet'];
+    for (const key of paramKeys) {
+      if (url.searchParams.has(key)) {
+        const raw = (url.searchParams.get(key) || '').trim();
+        const isGeneric = !raw || raw === '1' || raw === 'true' || raw === 'all' || raw === 'feed';
+        return {
+          isOpen: true,
+          worksheetId: isGeneric ? null : raw
+        };
+      }
+    }
+
+    const interestParam = (url.searchParams.get('interest') || url.searchParams.get('topic') || '').trim().toLowerCase();
+    if (interestParam === 'activities' || interestParam === 'activity' || interestParam === 'worksheets' || interestParam === 'worksheet') {
+      return { isOpen: true, worksheetId: null };
+    }
+
+    const rawHash = url.hash.replace(/^#\/?/, '').trim();
+    if (rawHash) {
+      const hashParts = rawHash.split('/').filter(Boolean);
+      const firstHash = (hashParts[0] || '').toLowerCase();
+      if (firstHash === 'activities' || firstHash === 'activity' || firstHash === 'worksheets' || firstHash === 'worksheet') {
+        const secondHash = hashParts[1] ? decodeURIComponent(hashParts[1]).trim() : null;
+        return { isOpen: true, worksheetId: secondHash || null };
+      }
+    }
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if (pathParts.length > 0) {
+      const firstPath = pathParts[0].toLowerCase();
+      if (firstPath === 'activities' || firstPath === 'activity' || firstPath === 'worksheets' || firstPath === 'worksheet') {
+        const secondPath = pathParts[1] ? decodeURIComponent(pathParts[1]).trim() : null;
+        return { isOpen: true, worksheetId: secondPath || null };
+      }
+    }
+  } catch {}
+  return { isOpen: false, worksheetId: null };
+}
+
+/**
+ * Removes activities/worksheets deep-link parameters from the address bar when closing the activities feed.
+ */
+export function clearActivityFromUrl(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+
+    for (const key of ['activities', 'activity', 'worksheets', 'worksheet']) {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    }
+
+    const interestParam = (url.searchParams.get('interest') || '').trim().toLowerCase();
+    if (interestParam === 'activities' || interestParam === 'activity' || interestParam === 'worksheets' || interestParam === 'worksheet') {
+      url.searchParams.delete('interest');
+      changed = true;
+    }
+
+    const rawHash = url.hash.replace(/^#\/?/, '').trim().toLowerCase();
+    if (
+      rawHash === 'activities' ||
+      rawHash === 'activity' ||
+      rawHash === 'worksheets' ||
+      rawHash === 'worksheet' ||
+      rawHash.startsWith('activities/') ||
+      rawHash.startsWith('activity/') ||
+      rawHash.startsWith('worksheets/') ||
+      rawHash.startsWith('worksheet/')
+    ) {
+      url.hash = '';
+      changed = true;
+    }
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if (
+      pathParts.length > 0 &&
+      ['activities', 'activity', 'worksheets', 'worksheet'].includes(pathParts[0].toLowerCase())
+    ) {
+      url.pathname = '/';
+      changed = true;
+    }
+
+    if (changed) {
+      const nextHref = `${url.pathname}${url.search}${url.hash}` || '/';
+      window.history.replaceState(window.history.state, '', nextHref);
+    }
+  } catch {}
+}
+
+/**
+ * Shares an activity/worksheet card via clipboard and native Web Share API, matching front-page balloon cards.
+ */
+export async function shareWorksheetWithImage(worksheet: {
+  id: string;
+  title: string;
+  description: string;
+  previewImg: string;
+}): Promise<boolean> {
+  const shareUrl = getActivityShareUrl(worksheet.id);
+  const pseudoStory: NewsItem = {
+    title: worksheet.title,
+    description: worksheet.description,
+    link: shareUrl,
+    pubDate: new Date().toISOString(),
+    source: 'littlables',
+    category: 'all',
+    image: worksheet.previewImg
+  };
+
+  updateStoryOpenGraphTags(pseudoStory, worksheet.previewImg, shareUrl);
+
+  const copied = await copyUrlToClipboard(shareUrl, pseudoStory, worksheet.previewImg);
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    const shareText = worksheet.description || worksheet.title;
+    try {
+      const imageFile = await fetchImageAsShareFile(worksheet.previewImg, pseudoStory);
+      if (imageFile && typeof navigator.canShare === 'function') {
+        const withFileAndUrl: ShareData = {
+          title: worksheet.title,
+          text: shareText,
+          url: shareUrl,
+          files: [imageFile]
+        };
+        if (navigator.canShare(withFileAndUrl)) {
+          await navigator.share(withFileAndUrl);
+          return true;
+        }
+        const withFileOnly: ShareData = {
+          title: worksheet.title,
+          text: `${shareText}\n${shareUrl}`,
+          files: [imageFile]
+        };
+        if (navigator.canShare(withFileOnly)) {
+          await navigator.share(withFileOnly);
+          return true;
+        }
+      }
+
+      if (window.matchMedia?.('(pointer: coarse)').matches) {
+        await navigator.share({
+          title: worksheet.title,
+          text: shareText,
+          url: shareUrl
+        });
+        return true;
+      }
+    } catch {
+      // User cancelled native share sheet or browser disallowed; clipboard copy already succeeded.
+    }
+  }
+
+  return copied;
+}
+

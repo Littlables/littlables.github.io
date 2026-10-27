@@ -310,7 +310,7 @@ body {
 .news-widget-header {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 70;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -457,17 +457,19 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-.refresh-news-button:hover:not(:disabled) {
-  background: var(--pill-border, rgba(79, 70, 229, 0.3));
-  color: var(--news-text);
-  transform: translateY(-1px);
-}
+@media (hover: hover) {
+  .refresh-news-button:hover:not(:disabled) {
+    background: var(--pill-border, rgba(79, 70, 229, 0.3));
+    color: var(--news-text);
+    transform: translateY(-1px);
+  }
 
-.header-icon-button:hover:not(:disabled) {
-  background: var(--news-hover-bg, #334155);
-  color: var(--news-text);
-  border-color: var(--news-pill-hover-border, var(--news-accent));
-  transform: translateY(-1px);
+  .header-icon-button:hover:not(:disabled) {
+    background: var(--news-hover-bg, #334155);
+    color: var(--news-text);
+    border-color: var(--news-pill-hover-border, var(--news-accent));
+    transform: translateY(-1px);
+  }
 }
 
 .refresh-news-button:disabled,
@@ -476,15 +478,211 @@ body {
   cursor: not-allowed;
 }
 
-/* 3D playground button: same round header button, bold label */
-.header-3d-button {
+/* 3D playground & Worksheets header buttons */
+.header-3d-button,
+.header-worksheets-button {
   position: relative;
   overflow: visible;
   font-size: 0.8rem;
   font-weight: 700;
 }
 
-.header-3d-button > span {
+.header-worksheets-button {
+  font-size: 1.05rem;
+}
+
+.header-3d-button > span,
+.header-worksheets-button > span {
+  pointer-events: none;
+}
+
+.header-worksheets-count-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.26rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffffff;
+  background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 9999px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Drop-open Printable Worksheets & Activities modal backdrop + container */
+.worksheets-overlay-backdrop {
+  position: fixed;
+  top: 3.45rem;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem 1rem;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.worksheets-overlay-backdrop[hidden] {
+  display: none !important;
+}
+
+.worksheets-dropdown-container {
+  width: min(92vw, 48rem);
+  height: fit-content;
+  max-height: calc(100vh - 6rem);
+  max-height: calc(100dvh - 6rem);
+  margin: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--news-card-bg, #1e293b);
+  border: 1px solid var(--news-card-border, #475569);
+  border-radius: 16px;
+  color: var(--news-text, #f8fafc);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
+  overscroll-behavior: contain;
+}
+
+.worksheets-dropdown-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(127, 127, 127, 0.45) transparent;
+  margin: 9px 2px 9px 0;
+  padding: calc(1.35rem - 9px) calc(1.35rem - 2px) calc(1.35rem - 9px) 1.35rem;
+}
+
+.worksheets-dropdown-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.worksheets-dropdown-scroll::-webkit-scrollbar-track {
+  background: rgba(127, 127, 127, 0.12);
+  margin: 0;
+  border-radius: 9999px;
+}
+
+.worksheets-dropdown-scroll::-webkit-scrollbar-thumb {
+  background: rgba(127, 127, 127, 0.45);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.worksheets-dropdown-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(127, 127, 127, 0.65);
+}
+
+.worksheets-grid {
+  gap: 1.25rem;
+}
+
+.worksheet-card-image-wrap {
+  aspect-ratio: 4 / 3;
+  background-color: #ffffff;
+  background-image: none;
+  animation: none;
+}
+
+.worksheet-card-image {
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.worksheet-card-footer {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.worksheet-download-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.worksheet-action-btn,
+.worksheet-action-btn:link,
+.worksheet-action-btn:visited {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.38rem 0.75rem;
+  border-radius: 9999px;
+  font-family: 'Varela Round', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.worksheet-print-btn {
+  background: var(--news-pill-active-bg, linear-gradient(135deg, #6366f1 0%, #a855f7 100%));
+  color: #ffffff;
+  border: 1px solid var(--news-pill-active-border, rgba(255, 255, 255, 0.35));
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+@media (hover: hover) {
+  .worksheet-print-btn:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+  }
+}
+
+.worksheet-download-btn,
+.worksheet-download-btn:link,
+.worksheet-download-btn:visited {
+  background: var(--news-reaction-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--news-card-border, rgba(255, 255, 255, 0.12));
+  color: var(--news-text, #f8fafc);
+}
+
+.worksheet-download-btn:visited { color: #f8fafc; }
+[data-theme="dark-purple"] .worksheet-download-btn:visited { color: #fbf7ff; }
+[data-theme="light"] .worksheet-download-btn:visited { color: #0f172a; }
+[data-theme="rainbow"] .worksheet-download-btn:visited { color: #ffffff; }
+[data-theme="pastel-rainbow"] .worksheet-download-btn:visited { color: #2e1045; }
+[data-theme="pink"] .worksheet-download-btn:visited { color: #fff1f2; }
+
+@media (hover: hover) {
+  .worksheet-download-btn:hover,
+  .worksheet-download-btn:visited:hover {
+    background: var(--news-reaction-hover-bg, #283548);
+    border-color: var(--news-reaction-hover-border, var(--news-accent));
+    color: var(--news-reaction-hover-text, #ffffff);
+    transform: translateY(-1px);
+  }
+}
+
+.worksheet-print-iframe {
+  position: fixed;
+  width: 0;
+  height: 0;
+  border: 0;
+  opacity: 0;
   pointer-events: none;
 }
 

@@ -20,6 +20,7 @@ import { ProfileDialog, ProfileDialogTab } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
 import { SpacePage } from './components/SpacePage';
 import { SpaceRoutePage } from './components/SpaceRoutePage';
+import { WorksheetsPanel } from './components/WorksheetsPanel';
 import type { OpenProfileTarget } from './components/PlayroomPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
@@ -35,6 +36,7 @@ import { trackStoryDwell } from './services/trackingService';
 import {
   parseTopicFromUrl,
   parseStoryFromUrl,
+  parseActivityFromUrl,
   getTopicHref,
   getStoryHref,
   matchesStoryParam,
@@ -225,7 +227,8 @@ export const App: React.FC = () => {
     if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute) return;
     const currentUrlTopic = parseTopicFromUrl();
     const currentStory = parseStoryFromUrl();
-    if (!currentUrlTopic && !currentStory && category !== 'all') {
+    const currentActivity = parseActivityFromUrl().isOpen;
+    if (!currentUrlTopic && !currentStory && !currentActivity && category !== 'all') {
       const nextHref = getTopicHref(category);
       window.history.replaceState({ interest: category, balloon: null }, '', nextHref);
     }
@@ -600,6 +603,8 @@ export const App: React.FC = () => {
           isLoading={isLoading}
           isAdmin={isAdmin}
         />
+
+        <WorksheetsPanel />
 
         {/* Category nav is hidden on standalone about/profile/playroom/space pages — those show their own views, not the main feed. */}
         {!aboutRoute && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
