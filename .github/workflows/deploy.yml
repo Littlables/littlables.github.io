@@ -69,9 +69,9 @@ jobs:
             filename=$(basename "$svg" .svg)
             echo "Processing $svg..."
             # Generate PDF
-            convert "$svg" "public/img/worksheets/${filename}.pdf"
+            convert -density 300 "$svg" "public/img/worksheets/${filename}.pdf"
             # Generate JPG with white background (prevents transparent vector fills from turning black)
-            convert -background white -flatten "$svg" "public/img/worksheets/${filename}.jpg"
+            convert -density 300 -background white -flatten -quality 95 "$svg" "public/img/worksheets/${filename}.jpg"
           done
           shopt -u nullglob
 
