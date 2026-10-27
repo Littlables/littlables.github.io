@@ -33,10 +33,35 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for SVG worksheet changes
+        id: check_svgs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          elif git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          else
+            CHANGED_FILES=$(git ls-files)
+          fi
+
+          if echo "$CHANGED_FILES" | grep -Eq '^img/svg/worksheets/'; then
+            echo "Changes detected in img/svg/worksheets/ — conversion enabled."
+            echo "should_convert=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changes in worksheets — skipping conversion."
+            echo "should_convert=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install ImageMagick
+        if: steps.check_svgs.outputs.should_convert == 'true'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
 
       - name: Convert SVGs to PDF and JPG
+        if: steps.check_svgs.outputs.should_convert == 'true'
         run: |
           mkdir -p public/img/worksheets
           shopt -s nullglob
@@ -51,6 +76,7 @@ jobs:
           shopt -u nullglob
 
       - name: Commit and push converted assets if changed
+        if: steps.check_svgs.outputs.should_convert == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
