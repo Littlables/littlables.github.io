@@ -76,8 +76,8 @@ async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Pr
     for (const { index } of adSlotStories.map((s) => ({ index: (s as any)._index }))) {
       const adIds = matches[index] || [];
       if (adIds.length > 0) {
-        const slot = Math.floor(index / 3);
-        const adId = adIds[slot % adIds.length];
+        // /ads/match returns IDs ranked from best to worst for this story.
+        const adId = adIds[0];
         const ad = adById.get(adId);
         if (ad) matched[index] = ad;
       }
