@@ -1,3 +1,5 @@
+import { cosineSimilarity } from './embedding-classifier.mjs';
+
 /**
  * Keyword-based ad matching (branch: keyword-ad-matching — early groundwork).
  *
@@ -73,4 +75,23 @@ export function matchAdsToStory(story, ads, options = {}) {
     .sort((a, b) => b.score - a.score)
     .map((r) => ({ ...r.ad, _matchScore: r.score, _matchedKeywords: r.matchedKeywords }));
   return results;
+}
+/**
+ * Rank ads by the closest tagged interest when a story has no exact tag match.
+ * Returns only ads with a usable, non-zero embedding similarity.
+ */
+export function rankAdsByEmbeddingSimilarity(storyVector, ads, keywordVectors, options = {}) {
+  const excluded = options.excludedKeywordIds || new Set();
+  if (!storyVector || !(keywordVectors instanceof Map)) return [];
+  return (Array.isArray(ads) ? ads : [])
+    .map((ad) => {
+      const similarity = (Array.isArray(ad?.keywords) ? ad.keywords : [])
+        .filter((id) => typeof id === 'string' && !excluded.has(id))
+        .map((id) => keywordVectors.get(id))
+        .filter(Boolean)
+        .reduce((best, vector) => Math.max(best, cosineSimilarity(storyVector, vector)), 0);
+      return { ...ad, _matchScore: similarity };
+    })
+    .filter((ad) => ad._matchScore > 0)
+    .sort((a, b) => b._matchScore - a._matchScore);
 }

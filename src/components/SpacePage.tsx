@@ -61,6 +61,7 @@ function extractInterestIds(space: Space): string[] {
 }
 
 async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Promise<Record<number, AdItem>> {
+  if (stories.length < 3 || fetchedAds.length === 0) return {};
   const adSlotStories = stories
     .map((story, index) => ({ story, index }))
     .filter(({ index }) => (index + 1) % 3 === 0)
@@ -75,12 +76,13 @@ async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Pr
     const matched: Record<number, AdItem> = {};
     for (const { index } of adSlotStories.map((s) => ({ index: (s as any)._index }))) {
       const adIds = matches[index] || [];
-      if (adIds.length > 0) {
-        const slot = Math.floor(index / 3);
-        const adId = adIds[slot % adIds.length];
-        const ad = adById.get(adId);
-        if (ad) matched[index] = ad;
-      }
+      const matchedAd = adIds.map(id => adById.get(id)).find(Boolean);
+      const story = stories[index];
+      const fallbackAd = fetchedAds.find(ad => ad.category === story?.category)
+        || fetchedAds.find(ad => ad.category === 'all')
+        || fetchedAds[0];
+      const ad = matchedAd || fallbackAd;
+      if (ad) matched[index] = ad;
     }
     return matched;
   } catch {
@@ -425,7 +427,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
         stories.map((story, index) => {
           const storyId = getStoryId(story.title, story.link);
           const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
-          const shouldInsertAd = (index + 1) % 3 === 0;
+          const shouldInsertAd = stories.length >= 3 && (index + 1) % 3 === 0;
           // Only show ads matched to the interest tags of this balloon.
           const currentAd = storyAds[index] || null;
           return (

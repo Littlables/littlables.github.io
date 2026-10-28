@@ -73,7 +73,7 @@ import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEm
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
-import { matchAdsToStory } from './ad-keyword-matcher.mjs';
+import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -2797,44 +2797,42 @@ export default {
         if (!stories.length) return jsonResponse({ matches: {} });
 
         const keywordVectors = await getKeywordEmbeddings(env);
-        const allKeywords = new Set();
         const storyKeywords = [];
+        const storyVectors = [];
         for (const s of stories) {
           const existing = s.keywords || s.interest_keywords || s.interestKeywords || [];
           if (Array.isArray(existing) && existing.length > 0) {
             const kws = existing.filter(k => typeof k === 'string');
-            for (const k of kws) allKeywords.add(k);
             storyKeywords.push(kws);
+            storyVectors.push(null);
           } else {
             const text = ((s.title || '') + ' ' + (s.description || '')).trim();
             const kws = [];
+            let storyVector = null;
             if (text) {
               try {
-                const vector = await embedText(env, text);
-                const matches = classifyStoryKeywords(vector, keywordVectors);
+                storyVector = await embedText(env, text);
+                const matches = classifyStoryKeywords(storyVector, keywordVectors);
                 for (const m of matches) {
                   kws.push(m.id);
-                  allKeywords.add(m.id);
                 }
               } catch {
                 // Skip stories that fail to classify
               }
             }
             storyKeywords.push(kws);
+            storyVectors.push(storyVector);
           }
         }
 
-        const kwArray = [...allKeywords].slice(0, 20);
         const params = new URLSearchParams({ select: 'ad_id,keywords' });
-        if (kwArray.length > 0) {
-          params.set('keywords', `ov.{${kwArray.join(',')}}`);
-        }
+        // Fetch the complete tag catalog so a slot with no exact overlap can
+        // still fall back to the semantically closest tagged ad.
         const res = await fetch(
           supabaseUrl(env, 'ad_keyword_tags', params),
           { headers: supabaseHeaders(env) }
         );
-        if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
-        const rows = await res.json();
+        const rows = res.ok ? await res.json() : [];
 
         const ads = (Array.isArray(rows) ? rows : [])
           .filter(r => r.ad_id)
@@ -2844,16 +2842,52 @@ export default {
         const matches = {};
         stories.forEach((s, idx) => {
           const kws = storyKeywords[idx];
-          if (!kws || kws.length === 0 || ads.length === 0) return;
           const ranked = matchAdsToStory(
             { interest_keywords: kws },
             ads,
             { excludedKeywordIds: EXCLUDED_KEYWORD_IDS }
           );
-          if (ranked.length > 0) {
+          let rankedIds = ranked.map(a => a.id);
+
+          if (rankedIds.length === 0) {
+            // When no tags overlap, rank ads by the closest available interest
+            // embedding. For already-tagged stories, use the mean of their
+            // interest vectors as the story representation.
+            let targetVector = storyVectors[idx];
+            if (!targetVector && Array.isArray(kws) && kws.length > 0) {
+              const vectors = kws
+                .filter(id => !EXCLUDED_KEYWORD_IDS.has(id))
+                .map(id => keywordVectors.get(id))
+                .filter(Boolean);
+              if (vectors.length > 0) {
+                targetVector = vectors[0].map((_, dimension) =>
+                  vectors.reduce((sum, vector) => sum + vector[dimension], 0) / vectors.length
+                );
+              }
+            }
+
+            if (targetVector) {
+              rankedIds = rankAdsByEmbeddingSimilarity(targetVector, ads, keywordVectors, {
+                excludedKeywordIds: EXCLUDED_KEYWORD_IDS,
+              }).map(ad => ad.id);
+            }
+          }
+
+          if (rankedIds.length === 0) {
+            // Last-resort closest available catalog: prefer the story's
+            // category, then use the full catalog if that category is empty.
+            const category = NEWS_CATEGORY_SET.has(String(s.category || '').toLowerCase())
+              ? String(s.category).toLowerCase()
+              : 'all';
+            const categoryAds = getAds({ category });
+            const fallbackAds = categoryAds.length > 0 ? categoryAds : getAds({ category: 'all' });
+            rankedIds = fallbackAds.map(ad => ad.id);
+          }
+
+          if (rankedIds.length > 0) {
             // Use the frontend's original story index when provided
             const key = s._index != null ? s._index : idx;
-            matches[key] = ranked.map(a => a.id);
+            matches[key] = rankedIds;
           }
         });
 
