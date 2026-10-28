@@ -4,7 +4,7 @@ import { Space, getSpaceBySlug } from '../services/spaceService';
 import { Playroom, getPlayroomBySlug } from '../services/playroomService';
 import { fetchInterestFeed, getCachedInterestFeed } from '../services/playroomFeedService';
 import { AdCard } from './AdCard';
-import { fetchAdsForCategory, fetchMatchedAdIds, getCachedAdsForCategory } from '../services/adsService';
+import { fetchAdsForMatching, fetchMatchedAdIds, getCachedAdsForCategory } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -102,7 +102,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
   const [playroom, setPlayroom] = useState<Playroom | null>(null);
   const [owner, setOwner] = useState<Profile | null>(() => initialData?.owner ?? null);
   const [stories, setStories] = useState<NewsItem[]>([]);
-  const [ads, setAds] = useState<AdItem[]>([]);
+  const [, setAds] = useState<AdItem[]>([]);
   const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [loading, setLoading] = useState(true);
@@ -135,7 +135,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
     }
     const [feed, fetchedAds] = await Promise.all([
       fetchInterestFeed(interestIds).catch(() => ({ items: [] as NewsItem[] })),
-      fetchAdsForCategory('all').catch(() => [] as AdItem[]),
+      fetchAdsForMatching('all'),
     ]);
     if (isCancelled()) return { items: [], ads: [] };
     return { items: feed.items, ads: fetchedAds };

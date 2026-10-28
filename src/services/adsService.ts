@@ -4,6 +4,7 @@ import { isValidCategory, matchesKeywordQuery } from './urlService';
 import { searchSupabaseAdsByKeyword } from './supabaseService';
 
 interface RawProductAd {
+  id?: string;
   name?: string;
   title?: string;
   description?: string;
@@ -117,7 +118,7 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
   // Stable ID: network + hash of URL (or title+sponsor as fallback)
   const network = raw.network || 'unknown';
   const idSeed = url !== '#' ? url : `${title}|${sponsor}`;
-  const id = `ad_${network}_${hashString(idSeed)}`;
+  const id = raw.id || `ad_${network}_${hashString(idSeed)}`;
 
   return {
     id,
@@ -444,6 +445,31 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
       url: '#'
     }
   ];
+}
+
+/**
+ * Fetch the Worker ad catalog for story matching. The /ads/match endpoint
+ * returns IDs from this catalog, so spaces must render from the same IDs.
+ * Do not fall back to the client JSON catalogs here: their IDs may differ.
+ */
+export async function fetchAdsForMatching(category: NewsCategory = 'all'): Promise<AdItem[]> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads';
+    url.searchParams.set('category', category);
+    const response = await fetch(url.href);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (!Array.isArray(data?.ads)) return [];
+    return data.ads
+      .filter((ad: AdItem) => typeof ad?.id === 'string' && ad.id.length > 0)
+      .map((ad: AdItem) => ({
+        ...ad,
+        img: ad.img ? toRootAbsolute(ad.img) : '',
+      }));
+  } catch {
+    return [];
+  }
 }
 
 export function getRandomAds(ads: AdItem[], count: number = 2): AdItem[] {

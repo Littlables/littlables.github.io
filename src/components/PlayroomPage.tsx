@@ -14,7 +14,7 @@ import {
   filterStoriesForSpace,
 } from '../services/playroomFeedService';
 import { AdCard } from './AdCard';
-import { fetchAdsForCategory, getCachedAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
+import { fetchAdsForMatching, getCachedAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -166,7 +166,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         const [playroomSpaces, feed, fetchedAds] = await Promise.all([
           getPlayroomSpaces(resolved.playroom.id).catch(() => [] as Space[]),
           fetchPlayroomFeed(resolved.playroom.id, null).catch(() => ({ items: [] as NewsItem[] })),
-          fetchAdsForCategory('all').catch(() => [] as AdItem[]),
+          fetchAdsForMatching('all'),
         ]);
         if (cancelled) return;
 
