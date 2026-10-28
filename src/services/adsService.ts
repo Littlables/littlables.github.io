@@ -490,7 +490,7 @@ export async function fetchAdKeywordTags(keywords: string[]): Promise<Record<str
  * Returns { [storyIndex]: adId[] }. Empty on failure (fallback to rotation).
  */
 export async function fetchMatchedAdIds(
-  stories: { title?: string; description?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[] }[]
+  stories: { title?: string; description?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[]; _index?: number }[]
 ): Promise<Record<number, string[]>> {
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
@@ -500,6 +500,7 @@ export async function fetchMatchedAdIds(
         title: s.title || '',
         description: s.description || '',
         keywords: s.keywords || s.interest_keywords || s.interestKeywords || [],
+        ...(s._index != null ? { _index: s._index } : {}),
       })),
     };
     const response = await fetch(url.href, {
