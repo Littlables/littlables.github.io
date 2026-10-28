@@ -4,7 +4,7 @@ import { Space, getSpaceBySlug } from '../services/spaceService';
 import { Playroom, getPlayroomBySlug } from '../services/playroomService';
 import { fetchInterestFeed, getCachedInterestFeed } from '../services/playroomFeedService';
 import { AdCard } from './AdCard';
-import { fetchAdsForCategory, fetchMatchedAdIds, getCachedAdsForCategory } from '../services/adsService';
+import { fetchAdsForMatching, fetchMatchedAdIds, getCachedAdsForCategory } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -67,10 +67,7 @@ async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Pr
     .map(({ story, index }) => ({ ...(story as any), _index: index }));
   if (adSlotStories.length === 0 || fetchedAds.length === 0) return {};
   try {
-    const matches = await Promise.race([
-      fetchMatchedAdIds(adSlotStories as any),
-      new Promise<Record<number, string[]>>((resolve) => setTimeout(() => resolve({}), 400)),
-    ]);
+    const matches = await fetchMatchedAdIds(adSlotStories as any);
     const adById = new Map<string, AdItem>();
     for (const ad of fetchedAds) {
       if (ad.id) adById.set(ad.id, ad);
@@ -105,7 +102,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
   const [playroom, setPlayroom] = useState<Playroom | null>(null);
   const [owner, setOwner] = useState<Profile | null>(() => initialData?.owner ?? null);
   const [stories, setStories] = useState<NewsItem[]>([]);
-  const [ads, setAds] = useState<AdItem[]>([]);
+  const [, setAds] = useState<AdItem[]>([]);
   const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [loading, setLoading] = useState(true);
@@ -138,7 +135,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
     }
     const [feed, fetchedAds] = await Promise.all([
       fetchInterestFeed(interestIds).catch(() => ({ items: [] as NewsItem[] })),
-      fetchAdsForCategory('all').catch(() => [] as AdItem[]),
+      fetchAdsForMatching('all'),
     ]);
     if (isCancelled()) return { items: [], ads: [] };
     return { items: feed.items, ads: fetchedAds };
@@ -177,6 +174,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
           setOwner(spaceResult.owner);
           setPlayroom(playroomResult ? playroomResult.playroom : null);
           setStories(cachedFeed.items);
+          setStoryAds({});
           if (cachedAds && cachedAds.length > 0) setAds(cachedAds);
           setLoading(false);
         }
@@ -428,8 +426,8 @@ export const SpacePage: React.FC<SpacePageProps> = ({
           const storyId = getStoryId(story.title, story.link);
           const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
           const shouldInsertAd = (index + 1) % 3 === 0;
-          const adIndex = Math.floor(index / 3);
-          const currentAd = storyAds[index] || (ads.length > 0 ? ads[adIndex % ads.length] : null);
+          // Only show ads matched to the interest tags of this balloon.
+          const currentAd = storyAds[index] || null;
           return (
             <React.Fragment key={`${story.link}-${index}`}>
               <NewsCard

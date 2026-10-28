@@ -14,7 +14,7 @@ import {
   filterStoriesForSpace,
 } from '../services/playroomFeedService';
 import { AdCard } from './AdCard';
-import { fetchAdsForCategory, getCachedAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
+import { fetchAdsForMatching, getCachedAdsForCategory, fetchMatchedAdIds } from '../services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -66,10 +66,7 @@ async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Pr
     .map(({ story, index }) => ({ ...(story as any), _index: index }));
   if (adSlotStories.length === 0 || fetchedAds.length === 0) return {};
   try {
-    const matches = await Promise.race([
-      fetchMatchedAdIds(adSlotStories as any),
-      new Promise<Record<number, string[]>>((resolve) => setTimeout(() => resolve({}), 400)),
-    ]);
+    const matches = await fetchMatchedAdIds(adSlotStories as any);
     const adById = new Map<string, AdItem>();
     for (const ad of fetchedAds) {
       if (ad.id) adById.set(ad.id, ad);
@@ -132,6 +129,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
   // before releasing `loading` so everything renders in a single flicker-free frame.
   useEffect(() => {
     let cancelled = false;
+    setStoryAds({});
     const routeKey = `${username.toLowerCase()}/${slug.toLowerCase()}`;
     initialLoadDoneRef.current = null;
 
@@ -168,7 +166,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         const [playroomSpaces, feed, fetchedAds] = await Promise.all([
           getPlayroomSpaces(resolved.playroom.id).catch(() => [] as Space[]),
           fetchPlayroomFeed(resolved.playroom.id, null).catch(() => ({ items: [] as NewsItem[] })),
-          fetchAdsForCategory('all').catch(() => [] as AdItem[]),
+          fetchAdsForMatching('all'),
         ]);
         if (cancelled) return;
 
@@ -274,6 +272,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
     }
 
     let cancelled = false;
+    setStoryAds({});
     const cached = getCachedPlayroomFeed(playroom.id, activeSpaceId);
     if (cached && refreshTick === 0) {
       setStories(cached.items);
@@ -526,9 +525,8 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
           const storyId = getStoryId(story.title, story.link);
           const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
           const shouldInsertAd = (index + 1) % 3 === 0;
-          const adIndex = Math.floor(index / 3);
-          // Prefer keyword-matched ad for this story; fall back to rotation.
-          const currentAd = storyAds[index] || (ads.length > 0 ? ads[adIndex % ads.length] : null);
+          // Only show ads matched to the interest tags of this balloon.
+          const currentAd = storyAds[index] || null;
           return (
             <React.Fragment key={`${story.link}-${index}`}>
               <NewsCard
