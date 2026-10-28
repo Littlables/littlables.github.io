@@ -60,6 +60,7 @@ interface PlayroomPageProps {
 const VALID_THEMES = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
 
 async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Promise<Record<number, AdItem>> {
+  if (stories.length < 3 || fetchedAds.length === 0) return {};
   const adSlotStories = stories
     .map((story, index) => ({ story, index }))
     .filter(({ index }) => (index + 1) % 3 === 0)
@@ -525,7 +526,7 @@ export const PlayroomPage: React.FC<PlayroomPageProps> = ({
         stories.map((story, index) => {
           const storyId = getStoryId(story.title, story.link);
           const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
-          const shouldInsertAd = (index + 1) % 3 === 0;
+          const shouldInsertAd = stories.length >= 3 && (index + 1) % 3 === 0;
           // Only show ads matched to the interest tags of this balloon.
           const currentAd = storyAds[index] || null;
           return (
