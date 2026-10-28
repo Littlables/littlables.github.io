@@ -596,6 +596,59 @@ body {
   gap: 1.25rem;
 }
 
+.worksheets-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.worksheets-panel-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.worksheets-type-filter-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--news-card-bg);
+  border: 1px solid var(--news-card-border);
+  border-radius: 9999px;
+  padding: 0.3rem 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: all 0.2s ease;
+}
+
+.worksheets-type-filter-container:hover {
+  border-color: var(--news-accent);
+  box-shadow: 0 3px 12px rgba(99, 102, 241, 0.25);
+}
+
+.worksheets-type-filter {
+  max-width: 100%;
+  background: transparent;
+  color: var(--news-text);
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+}
+
+.worksheets-type-filter option {
+  background: var(--news-dropdown-bg, #1e293b);
+  color: var(--news-text, #f8fafc);
+}
+
+.worksheets-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--news-text-muted, #94a3b8);
+}
+
 .worksheet-card-image-wrap {
   aspect-ratio: 4 / 3;
   background-color: #ffffff;
@@ -4088,4 +4141,3 @@ html[data-system-font="true"] .story-provider-badge {
   background: var(--pill-bg, rgba(79, 70, 229, 0.22));
   border-color: var(--pill-border, rgba(99, 102, 241, 0.8));
 }
-

@@ -7,9 +7,18 @@ import {
   shareWorksheetWithImage,
 } from '../services/urlService';
 
+type WorksheetType = 'coloring-page' | 'hidden-puzzle';
+type WorksheetFilter = 'all' | WorksheetType;
+
+const WORKSHEET_TYPES: { id: WorksheetType; label: string }[] = [
+  { id: 'coloring-page', label: 'Coloring Pages' },
+  { id: 'hidden-puzzle', label: 'Hidden Puzzles' },
+];
+
 export interface WorksheetItem {
   id: string;
   title: string;
+  types: WorksheetType[];
   badge: string;
   previewImg: string;
   pdfUrl: string;
@@ -26,6 +35,7 @@ export const WORKSHEETS: WorksheetItem[] = [
   {
     id: 'halloween-2026-coloring-page',
     title: 'Littlables Halloween Party Coloring Page',
+    types: ['coloring-page'],
     badge: '🎨 Coloring Page',
     previewImg: '/img/worksheets/preview/littlables-halloween-coloring-page-preview.jpg',
     pdfUrl: '/img/worksheets/littlables-halloween-2026-coloring-page.pdf',
@@ -41,6 +51,7 @@ export const WORKSHEETS: WorksheetItem[] = [
   {
     id: 'halloween-2026-hidden-objects-coloring-page',
     title: 'Halloween Hidden Objects & Coloring Page',
+    types: ['coloring-page', 'hidden-puzzle'],
     badge: '🔍 Hidden Objects',
     previewImg: '/img/worksheets/preview/littlables-halloween-hidden-objects-coloring-page-preview.jpg',
     pdfUrl: '/img/worksheets/littlables-halloween-2026-hidden-objects-coloring-page.pdf',
@@ -69,6 +80,10 @@ export const WorksheetsPanel: React.FC = () => {
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [worksheetFilter, setWorksheetFilter] = useState<WorksheetFilter>('all');
+  const visibleWorksheets = worksheetFilter === 'all'
+    ? WORKSHEETS
+    : WORKSHEETS.filter((worksheet) => worksheet.types.includes(worksheetFilter));
 
   useLockBodyScroll(isOpen);
 
@@ -355,8 +370,31 @@ export const WorksheetsPanel: React.FC = () => {
         aria-label="Printable Worksheets & Activities"
       >
         <div className="worksheets-dropdown-scroll">
+          <div className="worksheets-panel-header">
+            <h2>Activity Worksheets ({visibleWorksheets.length})</h2>
+            <div className="worksheets-type-filter-container">
+              <select
+                className="worksheets-type-filter"
+                aria-label="Filter worksheets by type"
+                value={worksheetFilter}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === 'all') setWorksheetFilter('all');
+                  else {
+                    const selectedType = WORKSHEET_TYPES.find((type) => type.id === value);
+                    if (selectedType) setWorksheetFilter(selectedType.id);
+                  }
+                }}
+              >
+                <option value="all">All Activities</option>
+                {WORKSHEET_TYPES.map((type) => (
+                  <option key={type.id} value={type.id}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           <div className="news-grid worksheets-grid">
-        {WORKSHEETS.map((worksheet) => (
+        {visibleWorksheets.map((worksheet) => (
           <article
             key={worksheet.id}
             id={`worksheet-card-${worksheet.id}`}
@@ -452,6 +490,9 @@ export const WorksheetsPanel: React.FC = () => {
             </div>
           </article>
         ))}
+        {visibleWorksheets.length === 0 && (
+          <p className="worksheets-empty">No worksheets in this category yet.</p>
+        )}
           </div>
         </div>
 
