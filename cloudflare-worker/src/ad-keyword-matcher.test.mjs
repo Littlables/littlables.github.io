@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreAdForStory, matchAdsToStory } from './ad-keyword-matcher.mjs';
+import { scoreAdForStory, matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 
 const EXCLUDED = new Set(['stocks', 'cryptocurrency', 'business-news']);
 
@@ -52,4 +52,19 @@ test('matchAdsToStory ranks best match first and drops zero scores', () => {
   const ranked = matchAdsToStory(story, ads, { excludedKeywordIds: EXCLUDED });
   assert.deepEqual(ranked.map((r) => r.id), ['b', 'c', 'd']);
   assert.equal(ranked[0]._matchScore, 20);
+});
+
+test('rankAdsByEmbeddingSimilarity returns the closest tagged ad first', () => {
+  const ads = [
+    { id: 'distant', keywords: ['baking'] },
+    { id: 'closest', keywords: ['dinosaurs'] },
+    { id: 'also-close', keywords: ['animals'] },
+  ];
+  const vectors = new Map([
+    ['dinosaurs', [1, 0]],
+    ['animals', [0.8, 0.2]],
+    ['baking', [0, 1]],
+  ]);
+  const ranked = rankAdsByEmbeddingSimilarity([1, 0], ads, vectors, { excludedKeywordIds: EXCLUDED });
+  assert.deepEqual(ranked.map((ad) => ad.id), ['closest', 'also-close']);
 });
