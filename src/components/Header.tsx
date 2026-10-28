@@ -19,6 +19,14 @@ interface HeaderProps {
   /** True when the GitHub admin session is active (enables long-press story editing) */
   isAdmin?: boolean;
   worksheetsCount?: number;
+  /** Points earned by collecting falling emojis */
+  emojiPoints?: number;
+  /** Last collected emoji icon */
+  lastCollectedEmoji?: string;
+  /** Whether the falling emoji game is enabled */
+  gameEnabled?: boolean;
+  /** Callback to toggle the game on/off */
+  onToggleGame?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,9 +38,25 @@ export const Header: React.FC<HeaderProps> = ({
   brandName,
   brandLogoUrl,
   isAdmin,
-  worksheetsCount = WORKSHEETS.length
+  worksheetsCount = WORKSHEETS.length,
+  emojiPoints = 0,
+  lastCollectedEmoji = '🎃',
+  gameEnabled = true,
+  onToggleGame,
 }) => {
   const { user, profile } = useAuth();
+  const [isBumping, setIsBumping] = React.useState(false);
+  const prevPointsRef = React.useRef(emojiPoints);
+
+  React.useEffect(() => {
+    if (emojiPoints > prevPointsRef.current) {
+      setIsBumping(true);
+      const timer = window.setTimeout(() => setIsBumping(false), 260);
+      prevPointsRef.current = emojiPoints;
+      return () => window.clearTimeout(timer);
+    }
+    prevPointsRef.current = emojiPoints;
+  }, [emojiPoints]);
 
   const character =
     profile?.avatar_type === 'character'
@@ -52,40 +76,74 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="news-widget-header">
-      <button
-        type="button"
-        className="news-widget-title"
-        id="widget-main-title"
-        title="Refresh Stories"
-        aria-label={`${brandName || t('headerTitle') || 'littlables'} — Refresh Stories`}
-        data-umami-event="Home-Logo-Refresh"
-        onClick={handleBrandClick}
-      >
-        {brandLogoUrl ? (
-          <img
-            className="widget-brand-icon board-brand-logo"
-            src={brandLogoUrl}
-            width="28"
-            height="28"
-            alt={`${brandName || 'Space'} logo`}
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        ) : (
-          <img
-            className="widget-brand-icon"
-            src="/favicon-48x48.png"
-            width="28"
-            height="28"
-            alt="Littlables logo"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        )}
-        <span id="widget-title-text">{brandName || t('headerTitle') || 'littlables'}</span>
-      </button>
+      <div className="news-header-brand-group">
+        <button
+          type="button"
+          className="news-widget-title"
+          id="widget-main-title"
+          title="Refresh Stories"
+          aria-label={`${brandName || t('headerTitle') || 'littlables'} — Refresh Stories`}
+          data-umami-event="Home-Logo-Refresh"
+          onClick={handleBrandClick}
+        >
+          {brandLogoUrl ? (
+            <img
+              className="widget-brand-icon board-brand-logo"
+              src={brandLogoUrl}
+              width="28"
+              height="28"
+              alt={`${brandName || 'Space'} logo`}
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <img
+              className="widget-brand-icon"
+              src="/favicon-48x48.png"
+              width="28"
+              height="28"
+              alt="Littlables logo"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          )}
+          <span id="widget-title-text">{brandName || t('headerTitle') || 'littlables'}</span>
+        </button>
+
+        <div className="header-points-group">
+          <div
+            id="header-emoji-points"
+            className={`header-points-badge${isBumping ? ' is-bumping' : ''}${!gameEnabled ? ' is-inactive' : ''}`}
+            title={gameEnabled ? `Collected treats: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'}` : `Game paused (${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'})`}
+            aria-label={`Collected treats: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="header-points-emoji" aria-hidden="true">
+              {lastCollectedEmoji || '🎃'}
+            </span>
+            <span className="header-points-count">{emojiPoints.toLocaleString()}</span>
+          </div>
+
+          {onToggleGame && (
+            <button
+              type="button"
+              className={`header-game-toggle${gameEnabled ? ' is-active' : ''}`}
+              role="switch"
+              aria-checked={gameEnabled}
+              aria-label={gameEnabled ? 'Turn off falling emoji game' : 'Turn on falling emoji game'}
+              title={gameEnabled ? 'Turn game off' : 'Turn game on'}
+              onClick={onToggleGame}
+            >
+              <span className="header-game-toggle-track">
+                <span className="header-game-toggle-thumb" />
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="news-header-controls">
         <button

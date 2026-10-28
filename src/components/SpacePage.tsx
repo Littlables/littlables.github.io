@@ -41,7 +41,7 @@ export interface SpacePageProps {
   initialData?: { space?: Space; ownerId: string; owner: Profile } | null;
 }
 
-const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+const VALID_THEMES = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
 
 function extractInterestIds(space: Space): string[] {
   const pills = space.pills && space.pills.length > 0 ? space.pills : [];

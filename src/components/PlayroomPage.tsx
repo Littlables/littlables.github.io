@@ -57,7 +57,7 @@ interface PlayroomPageProps {
   initialData?: { playroom: Playroom; ownerId: string; owner: Profile } | null;
 }
 
-const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+const VALID_THEMES = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
 
 async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Promise<Record<number, AdItem>> {
   const adSlotStories = stories

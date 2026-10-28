@@ -8,7 +8,7 @@
   <meta name="keywords" content="Littlables, family-friendly news, positive news, childcare, family, animals, nature, creative arts, technology, AI, world news, uplifting news">
   <meta name="author" content="Littlables">
   <meta name="robots" content="index, follow, max-image-preview:large">
-  <meta name="theme-color" content="#FFC7D4">
+  <meta name="theme-color" content="#0d051a">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Varela+Round&display=swap" rel="stylesheet">
@@ -33,16 +33,15 @@
   <meta name="twitter:image" content="https://littlables.github.io/littlables-preview.jfif">
 
   <script>
-    // Early theme initialization to prevent any theme flash (FOUC), with device system mode detection
+    // Early theme initialization to prevent any theme flash (FOUC), defaulting to Dark Purple
     (function() {
       try {
         var saved = localStorage.getItem('selected_theme');
-        var allowed = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+        var allowed = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
         if (saved && allowed.indexOf(saved) !== -1) {
           document.documentElement.setAttribute('data-theme', saved);
         } else {
-          var isLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-          document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
+          document.documentElement.setAttribute('data-theme', 'dark-purple');
         }
       } catch (e) {}
       try {

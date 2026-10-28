@@ -2,6 +2,7 @@ import { NewsCategory, ThemeId, NewsItem } from '../types';
 
 export const SAVED_CATEGORY_KEY = 'selected_category';
 export const SAVED_THEME_KEY = 'selected_theme';
+export const DEFAULT_THEME: ThemeId = 'dark-purple';
 
 /** Browser tab title base; page-specific names append as ` | <name>`. */
 export const SITE_TITLE_BASE = 'littlables | discovery playroom';
@@ -17,8 +18,8 @@ export const CATEGORIES: { id: NewsCategory; icon: string; i18nKey: string }[] =
 ];
 
 export const THEMES: { id: ThemeId; name: string; icon: string }[] = [
-  { id: 'dark', name: 'Dark Mode', icon: '🌙' },
   { id: 'dark-purple', name: 'Dark Purple', icon: '🔮' },
+  { id: 'dark', name: 'Dark Mode', icon: '🌙' },
   { id: 'light', name: 'Light Mode', icon: '☀️' },
   { id: 'rainbow', name: 'Rainbow', icon: '🌈' },
   { id: 'pastel-rainbow', name: 'Pastel Rainbow', icon: '🦄' },

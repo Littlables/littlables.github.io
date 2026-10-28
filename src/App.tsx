@@ -21,6 +21,7 @@ import { PublicProfilePage } from './components/PublicProfilePage';
 import { SpacePage } from './components/SpacePage';
 import { SpaceRoutePage } from './components/SpaceRoutePage';
 import { WorksheetsPanel } from './components/WorksheetsPanel';
+import { FallingEmojis } from './components/FallingEmojis';
 import type { OpenProfileTarget } from './components/PlayroomPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
@@ -127,6 +128,45 @@ export const App: React.FC = () => {
   const { profile } = useAuth();
   const { isAdmin } = useAdminStatus();
   const [adminEditStory, setAdminEditStory] = useState<NewsItem | null>(null);
+  const [emojiPoints, setEmojiPoints] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('littlables_emoji_points');
+      const parsed = saved ? parseInt(saved, 10) : 0;
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [lastCollectedEmoji, setLastCollectedEmoji] = useState<string>('🎃');
+  const [gameEnabled, setGameEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('littlables_emoji_game_enabled');
+      return saved !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleGame = useCallback(() => {
+    setGameEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('littlables_emoji_game_enabled', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleCollectEmoji = useCallback((emoji: string) => {
+    setLastCollectedEmoji(emoji);
+    setEmojiPoints((prev) => {
+      const next = prev + 1;
+      try {
+        localStorage.setItem('littlables_emoji_points', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Apply custom background color from profile (overrides theme).
   // Setting --news-bg on :root flows into body, header, and footer,
@@ -647,6 +687,7 @@ export const App: React.FC = () => {
 
   return (
     <>
+      <FallingEmojis onCollect={handleCollectEmoji} enabled={gameEnabled} />
       <div className="news-widget-wrapper">
         <Header
           onHomeClick={handleHomeRefresh}
@@ -655,6 +696,10 @@ export const App: React.FC = () => {
           onOpenProfile={() => handleOpenProfile()}
           isLoading={isLoading}
           isAdmin={isAdmin}
+          emojiPoints={emojiPoints}
+          lastCollectedEmoji={lastCollectedEmoji}
+          gameEnabled={gameEnabled}
+          onToggleGame={handleToggleGame}
         />
 
         <WorksheetsPanel />

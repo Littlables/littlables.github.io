@@ -14,7 +14,7 @@ interface PublicProfilePageProps {
   onOpenProfile?: (target?: OpenProfileTarget) => void;
 }
 
-const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+const VALID_THEMES = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
 
 const SOCIAL_META: { key: keyof Profile['social_links']; label: string; icon: string }[] = [
   { key: 'twitter', label: 'Twitter / X', icon: '𝕏' },

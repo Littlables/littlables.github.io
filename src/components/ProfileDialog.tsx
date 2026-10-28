@@ -1803,7 +1803,7 @@ export function ProfileDialog({
               <div className="color-picker-row">
                 <input
                   type="color"
-                  value={bgColor || themeBg || '#1e293b'}
+                  value={bgColor || themeBg || '#0d051a'}
                   onChange={(e) => handleBgColorChange(e.target.value)}
                   className="color-wheel"
                   aria-label="Pick background color"
@@ -1812,7 +1812,7 @@ export function ProfileDialog({
                   type="text"
                   value={bgHex}
                   onChange={(e) => handleBgHexChange(e.target.value)}
-                  placeholder="#1e293b"
+                  placeholder="#0d051a"
                   maxLength={7}
                   className="hex-input"
                   aria-label="Hex color code"
@@ -2007,7 +2007,7 @@ export function ProfileDialog({
                             <div className="color-picker-row">
                               <input
                                 type="color"
-                                value={editingPlayroom.bgColor || themeBg || '#1e293b'}
+                                value={editingPlayroom.bgColor || themeBg || '#0d051a'}
                                 onChange={(e) => setEditingPlayroom({ ...editingPlayroom, bgColor: e.target.value })}
                                 className="color-wheel"
                                 aria-label="Pick playroom background color"
