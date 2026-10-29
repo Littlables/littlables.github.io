@@ -94,6 +94,8 @@ npm run preview
 
 `.github/workflows/deploy.yml` deploys the frontend to GitHub Pages and automatically tests and deploys the Cloudflare Worker (`cloudflare-worker/`) **only when files in `cloudflare-worker/` have changed** (or when manually triggered via `workflow_dispatch` with `deploy_worker: true`).
 
+Worksheet printables: SVGs in `img/svg/worksheets/` are converted to US Letter PDF/JPG (`public/img/worksheets/`, 2550×3300 at 300 DPI) by the workflow's convert-worksheets job whenever an SVG changes. Note: the converter's auto-commit carries `[skip ci]`, which Pages also honors — so converted outputs only go live with the next regular (non-`[skip ci]`) push to the branch.
+
 Configure the following GitHub Actions repository secrets for Worker deployment:
 - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with **Edit Cloudflare Workers** permissions.
 - `CLOUDFLARE_ACCOUNT_ID` — Your Cloudflare Account ID.
