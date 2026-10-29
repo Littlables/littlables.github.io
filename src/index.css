@@ -4318,7 +4318,11 @@ html[data-system-font="true"] .story-provider-badge {
      still reach the page normally. */
   pointer-events: auto;
   cursor: pointer;
-  touch-action: manipulation;
+  /* A drag that starts on an emoji is a game gesture, not a page scroll:
+     without this the browser scrolls the page, starts text selection, or
+     pops the long-press menu instead of letting the drag collect emojis. */
+  touch-action: none;
+  -webkit-touch-callout: none;
   user-select: none;
   -webkit-user-select: none;
   will-change: transform;

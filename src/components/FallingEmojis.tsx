@@ -256,6 +256,22 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
     window.addEventListener('pointerdown', handlePointerDown, { passive: true });
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    // Non-passive capture touchstart: a touch that STARTS on an emoji is a
+    // game gesture. Cancelling it here stops the browser from turning the
+    // hold-and-drag into a page scroll, a text selection, an image drag,
+    // or a long-press menu — while the (passive) touchmove listener above
+    // still receives every move, so dragging across emojis keeps collecting
+    // them. Touches that start anywhere else are untouched.
+    const handleTouchStartCapture = (e: TouchEvent) => {
+      const target = e.target as Element | null;
+      if (target && target.closest && target.closest('.falling-emoji-item')) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('touchstart', handleTouchStartCapture, {
+      passive: false,
+      capture: true,
+    });
     window.addEventListener('click', handleClickCapture, true);
     document.addEventListener('mouseleave', handleMouseLeave);
 
@@ -337,6 +353,7 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchstart', handleTouchStartCapture, true);
       window.removeEventListener('click', handleClickCapture, true);
       document.removeEventListener('mouseleave', handleMouseLeave);
     };
