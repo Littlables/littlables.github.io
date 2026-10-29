@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getSupabaseClient } from '../services/supabaseService';
 
 export interface LilSource {
   title: string;
@@ -62,9 +63,19 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
     setQuery(trimmed);
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const sb = getSupabaseClient();
+      if (sb) {
+        const { data: sessionData } = await sb.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      }
+
       const response = await fetch('/api/lil/search', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ query: trimmed }),
       });
 

@@ -89,7 +89,7 @@ BEGIN
   FROM public.profiles
   WHERE id = target_user_id;
 
-  IF user_membership IN ('member', 'plus', 'premium') THEN
+  IF user_membership IN ('member', 'plus', 'premium', 'admin') THEN
     RETURN QUERY SELECT 25, 10, 15;
   ELSE
     RETURN QUERY SELECT 5, 1, 5;
@@ -123,10 +123,18 @@ GRANT ALL ON public.boards TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.boards TO authenticated;
 GRANT SELECT ON public.boards TO anon;
 
--- Storage bucket for board logos
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('board-logos', 'board-logos', true)
-ON CONFLICT (id) DO NOTHING;
+-- Storage bucket for board logos (2 MB limit, safe image MIME types only)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'board-logos',
+  'board-logos',
+  true,
+  2097152,
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE
+SET file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- Board logo storage policies
 DROP POLICY IF EXISTS "Board logos are publicly readable" ON storage.objects;

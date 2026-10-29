@@ -2633,6 +2633,14 @@ export default {
     }
     if ((request.method === 'POST' || request.method === 'GET') && pathname === '/api/space/emoji') {
       try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `space-emoji:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) {
+            return jsonResponse({ emoji: '✨', matches: [], error: 'Rate limit exceeded' }, 429);
+          }
+        }
         let name = '';
         let description = '';
         let slug = '';
@@ -2792,6 +2800,14 @@ export default {
     if (request.method === 'POST' && pathname === '/ads/match') {
       try {
         if (!env.AI) throw new Error('Workers AI not available');
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `ads-match:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) {
+            return jsonResponse({ matches: {}, error: 'Rate limit exceeded' }, 429);
+          }
+        }
         const body = await request.json().catch(() => ({}));
         const stories = Array.isArray(body.stories) ? body.stories.slice(0, 20) : [];
         if (!stories.length) return jsonResponse({ matches: {} });

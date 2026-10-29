@@ -27,7 +27,7 @@ export interface MembershipLimits {
 }
 
 export function getMembershipLimits(membership?: string | null): MembershipLimits {
-  if (membership && ['member', 'plus', 'premium'].includes(membership)) {
+  if (membership && ['member', 'plus', 'premium', 'admin'].includes(membership)) {
     return {
       maxSpaces: 25,
       maxPlayrooms: 10,

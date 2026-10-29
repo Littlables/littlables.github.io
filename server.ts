@@ -3,9 +3,94 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+import { SUPABASE_CONFIG } from './src/constants/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const MAX_LIL_QUERY_LENGTH = 500;
+const LIL_RATE_LIMIT_WINDOW_MS = 60_000;
+const LIL_RATE_LIMIT_MAX_REQUESTS = 15;
+const lilRateLimitMap = new Map<string, number[]>();
+
+const DEFAULT_ADMIN_EMAILS = ['katie.lyn.counts@gmail.com'];
+
+function getAllowedAdminEmails(): Set<string> {
+  const extra = String(process.env.VITE_ADMIN_EMAILS || process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set([...DEFAULT_ADMIN_EMAILS, ...extra]);
+}
+
+function checkLilRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const recent = (lilRateLimitMap.get(ip) || []).filter((ts) => now - ts < LIL_RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= LIL_RATE_LIMIT_MAX_REQUESTS) {
+    lilRateLimitMap.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  lilRateLimitMap.set(ip, recent);
+  return true;
+}
+
+async function verifyAdminBearerToken(authHeader: string | undefined): Promise<boolean> {
+  if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
+    return false;
+  }
+  const token = authHeader.slice(7).trim();
+  if (!token) return false;
+
+  const supabaseUrl = (process.env.SUPABASE_URL || SUPABASE_CONFIG.url || '').replace(/\/+$/, '');
+  const apiKey = process.env.SUPABASE_ANON_KEY || SUPABASE_CONFIG.publishableKey || '';
+  if (!supabaseUrl || !apiKey) return false;
+
+  try {
+    const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: apiKey,
+      },
+    });
+    if (!userRes.ok) return false;
+    const user: any = await userRes.json();
+    if (!user || !user.id) return false;
+
+    const email = String(user.email || '').trim().toLowerCase();
+    const allowedEmails = getAllowedAdminEmails();
+    if (
+      user.app_metadata?.role === 'admin' ||
+      user.user_metadata?.is_admin === true ||
+      (email && allowedEmails.has(email))
+    ) {
+      return true;
+    }
+
+    const profileRes = await fetch(
+      `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=username,membership,is_admin,role`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          apikey: apiKey,
+        },
+      }
+    );
+    if (profileRes.ok) {
+      const rows: any = await profileRes.json();
+      const profile = Array.isArray(rows) ? rows[0] : null;
+      if (
+        profile &&
+        (profile.is_admin === true || profile.role === 'admin' || profile.membership === 'admin')
+      ) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 function getCuratedLilResponse(query: string, notice: string) {
   const lower = query.toLowerCase();
@@ -181,21 +266,35 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '16kb' }));
 
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', service: 'littlables' });
   });
 
-  // Lil Search endpoint with Google Search Grounding
+  // Lil Search endpoint with Google Search Grounding (Admin-only)
   app.post('/api/lil/search', async (req, res) => {
-    const { query } = req.body;
+    const clientIp =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.socket.remoteAddress ||
+      'unknown';
+
+    if (!checkLilRateLimit(clientIp)) {
+      return res.status(429).json({ error: 'Too many search requests. Please wait a minute and try again.' });
+    }
+
+    const isAdmin = await verifyAdminBearerToken(req.headers.authorization);
+    if (!isAdmin) {
+      return res.status(401).json({ error: 'Admin authentication is required to use Lil Search.' });
+    }
+
+    const { query } = req.body || {};
     if (!query || typeof query !== 'string' || !query.trim()) {
       return res.status(400).json({ error: 'Please provide a search question or topic.' });
     }
 
-    const prompt = query.trim();
+    const prompt = query.trim().slice(0, MAX_LIL_QUERY_LENGTH);
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
