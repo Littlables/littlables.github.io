@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * List of falling emojis — starts with all Halloween and candy emojis first.
@@ -70,6 +70,37 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
   const onCollectRef = useRef(onCollect);
   onCollectRef.current = onCollect;
 
+  // Hoisted so a tap directly on an emoji span can collect it AND stop the
+  // event there. Previously the spans had pointer-events: none, so a tap's
+  // target was whatever story card sat underneath, and the tap opened it.
+  const collectEmoji = useCallback((item: ActiveEmoji) => {
+    if (item.collected) return;
+    item.collected = true;
+    const popId = nextIdRef.current++;
+    const popX = item.x;
+    const popY = item.y;
+    const popEmoji = item.emoji;
+
+    activeRef.current = activeRef.current.filter((e) => e.id !== item.id);
+    nodeMapRef.current.delete(item.id);
+    setRenderTick((t) => t + 1);
+
+    onCollectRef.current(popEmoji);
+
+    setPops((prev) => [...prev, { id: popId, x: popX, y: popY, emoji: popEmoji }]);
+    window.setTimeout(() => {
+      setPops((prev) => prev.filter((p) => p.id !== popId));
+    }, 650);
+  }, []);
+
+  const collectEmojiById = useCallback(
+    (id: number) => {
+      const item = activeRef.current.find((e) => e.id === id);
+      if (item) collectEmoji(item);
+    },
+    [collectEmoji],
+  );
+
   // Track current mouse pointer so an emoji falling directly onto a stationary cursor also collects
   const pointerRef = useRef<{ x: number; y: number; active: boolean }>({
     x: -9999,
@@ -125,26 +156,6 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
     ];
     activeRef.current = initialBatch;
     setRenderTick((t) => t + 1);
-
-    const collectEmoji = (item: ActiveEmoji) => {
-      if (item.collected) return;
-      item.collected = true;
-      const popId = nextIdRef.current++;
-      const popX = item.x;
-      const popY = item.y;
-      const popEmoji = item.emoji;
-
-      activeRef.current = activeRef.current.filter((e) => e.id !== item.id);
-      nodeMapRef.current.delete(item.id);
-      setRenderTick((t) => t + 1);
-
-      onCollectRef.current(popEmoji);
-
-      setPops((prev) => [...prev, { id: popId, x: popX, y: popY, emoji: popEmoji }]);
-      window.setTimeout(() => {
-        setPops((prev) => prev.filter((p) => p.id !== popId));
-      }, 650);
-    };
 
     const checkHitAtPoint = (clientX: number, clientY: number) => {
       const list = activeRef.current;
@@ -306,6 +317,17 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
             }
           }}
           className="falling-emoji-item"
+          onPointerDown={(e) => {
+            // The span is now the tap target (pointer-events: auto), so the
+            // tap never reaches the story card underneath. preventDefault
+            // also suppresses the synthetic click a tap would otherwise fire.
+            e.preventDefault();
+            e.stopPropagation();
+            collectEmojiById(item.id);
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
           style={{
             fontSize: `${item.size}px`,
             width: `${item.size}px`,

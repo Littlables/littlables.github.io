@@ -4313,7 +4313,12 @@ html[data-system-font="true"] .story-provider-badge {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  pointer-events: none;
+  /* Hit-testable so a tap lands on the emoji itself, not the story card
+     underneath. The layer stays pointer-events: none, so taps anywhere else
+     still reach the page normally. */
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
   will-change: transform;
