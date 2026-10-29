@@ -1,39 +1,49 @@
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 
-const WORKER_URL = 'https://hello-ai.cryptokatiee.workers.dev';
+const DEFAULT_ADMIN_EMAILS = ['katie.lyn.counts@gmail.com'];
+
+function getConfiguredAdminEmails(): Set<string> {
+  const rawEnv = (import.meta as any).env?.VITE_ADMIN_EMAILS || '';
+  const extra = String(rawEnv)
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set([...DEFAULT_ADMIN_EMAILS, ...extra]);
+}
+
+const ADMIN_EMAIL_SET = getConfiguredAdminEmails();
 
 /**
- * Checks if the user has an active GitHub admin session.
- * Uses credentials:include so the worker's session cookie is sent.
+ * Checks whether the currently signed-in site account has admin privileges.
+ * Uses the active Supabase Auth session and Profile row — never exposes or pings
+ * any external /admin URL for visitors.
  */
 export function useAdminStatus() {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminLogin, setAdminLogin] = useState<string | null>(null);
-  const [checking, setChecking] = useState(true);
+  const { user, profile, loading } = useAuth();
 
-  useEffect(() => {
-    let cancelled = false;
-    async function check() {
-      try {
-        const resp = await fetch(`${WORKER_URL}/admin/api/identity`, {
-          credentials: 'include',
-        });
-        if (!cancelled && resp.ok) {
-          const data = await resp.json();
-          if (data.login) {
-            setIsAdmin(true);
-            setAdminLogin(data.login);
-          }
-        }
-      } catch {
-        // Not admin or network error — silently ignore
-      } finally {
-        if (!cancelled) setChecking(false);
-      }
+  return useMemo(() => {
+    if (!user) {
+      return { isAdmin: false, adminLogin: null, checking: loading };
     }
-    check();
-    return () => { cancelled = true; };
-  }, []);
 
-  return { isAdmin, adminLogin, checking };
+    const email = (user.email || '').trim().toLowerCase();
+    const hasAdminRole =
+      profile?.is_admin === true ||
+      profile?.role === 'admin' ||
+      profile?.membership === 'admin' ||
+      user.app_metadata?.role === 'admin' ||
+      user.user_metadata?.is_admin === true ||
+      (email.length > 0 && ADMIN_EMAIL_SET.has(email));
+
+    const adminLogin = hasAdminRole
+      ? profile?.username || user.email || user.id
+      : null;
+
+    return {
+      isAdmin: hasAdminRole,
+      adminLogin,
+      checking: loading,
+    };
+  }, [user, profile, loading]);
 }

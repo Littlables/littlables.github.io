@@ -50,6 +50,61 @@ export async function createAdminSessionCookie(login, secret) {
 }
 
 export async function getAdminIdentity(request, env) {
+  // 1. Check Supabase site account Bearer token first (for inline frontend admin actions)
+  const authHeader = request.headers.get('Authorization') || '';
+  if (authHeader.startsWith('Bearer ') && env?.SUPABASE_URL) {
+    const accessToken = authHeader.slice('Bearer '.length).trim();
+    if (accessToken) {
+      try {
+        const apiKey = env.SUPABASE_ANON_KEY || env.SUPABASE_SECRET_KEY || 'sb_publishable_NNWeMzQK6GCcsAl4Ij1iiw_1sT0v44k';
+        const userResp = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: apiKey,
+          },
+        });
+        if (userResp.ok) {
+          const user = await userResp.json();
+          const email = String(user?.email || '').trim().toLowerCase();
+          const configuredAdmins = String(env.ADMIN_EMAILS || 'katie.lyn.counts@gmail.com')
+            .split(',')
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean);
+          const isEmailAdmin = email && configuredAdmins.includes(email);
+          const isMetaAdmin =
+            user?.app_metadata?.role === 'admin' || user?.user_metadata?.is_admin === true;
+
+          if (isEmailAdmin || isMetaAdmin) {
+            return { login: email || user.id };
+          }
+
+          // Also check profiles table for is_admin / role === 'admin' / membership === 'admin'
+          if (user?.id && env.SUPABASE_SECRET_KEY) {
+            const profResp = await fetch(
+              `${env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=username,is_admin,role,membership`,
+              {
+                headers: {
+                  apikey: env.SUPABASE_SECRET_KEY,
+                  Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
+                },
+              }
+            );
+            if (profResp.ok) {
+              const rows = await profResp.json();
+              const prof = Array.isArray(rows) ? rows[0] : null;
+              if (prof && (prof.is_admin === true || prof.role === 'admin' || prof.membership === 'admin')) {
+                return { login: prof.username || email || user.id };
+              }
+            }
+          }
+        }
+      } catch {
+        // Fall through to GitHub session cookie check
+      }
+    }
+  }
+
+  // 2. Fallback: GitHub OAuth session cookie (for standalone /admin dashboard)
   const token = cookieValue(request, SESSION_COOKIE);
   if (!token) return null;
   const separator = token.lastIndexOf('.');
@@ -94,24 +149,29 @@ export function createOAuthState() {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+function isAllowedFrontendOrigin(origin) {
+  if (!origin) return false;
+  const allowed = ['https://littlables.com', 'https://www.littlables.com', 'https://dev.littlables.com', 'http://localhost:5173', 'http://localhost:3000'];
+  if (allowed.includes(origin)) return true;
+  if (/^https:\/\/ais-(dev|pre)-[a-z0-9-]+\.run\.app$/i.test(origin)) return true;
+  return false;
+}
+
 export function isSameOrigin(request) {
   const origin = request.headers.get('Origin');
   const requestOrigin = new URL(request.url).origin;
   if (origin === requestOrigin) return true;
-  // Allow the Pages frontend origins (for homepage admin editing)
-  const allowed = ['https://littlables.com', 'https://dev.littlables.com', 'http://localhost:5173'];
-  return allowed.includes(origin);
+  return isAllowedFrontendOrigin(origin);
 }
 
 export function getCorsHeaders(request) {
   const origin = request.headers.get('Origin');
-  const allowed = ['https://littlables.com', 'https://dev.littlables.com', 'http://localhost:5173'];
-  if (allowed.includes(origin)) {
+  if (isAllowedFrontendOrigin(origin)) {
     return {
       'Access-Control-Allow-Origin': origin,
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
   }
   return {};

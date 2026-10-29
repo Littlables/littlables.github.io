@@ -34,7 +34,8 @@ const RESERVED_PATH_SEGMENTS = new Set([
   'activities',
   'activity',
   'worksheets',
-  'worksheet'
+  'worksheet',
+  'lil'
 ]);
 
 export function isValidCategory(value: string | null | undefined): value is StandardNewsCategory {
@@ -265,7 +266,7 @@ export function getTopicHref(category: NewsCategory): string {
 export function getTopicShareUrl(category: NewsCategory): string {
   const topicValue = normalizeTopicParamValue(category);
   if (typeof window === 'undefined') {
-    return `https://littlables.github.io/?interest=${encodeURIComponent(topicValue)}`;
+    return `https://littlables.com/?interest=${encodeURIComponent(topicValue)}`;
   }
   const url = new URL(window.location.href);
   url.pathname = '/';
@@ -310,7 +311,7 @@ export function getStoryShareUrl(item: NewsItem, currentCategory: NewsCategory =
   const slug = getStorySlug(item);
 
   if (typeof window === 'undefined') {
-    return `https://littlables.github.io/?interest=${encodeURIComponent(effectiveCategory)}&balloon=${encodeURIComponent(slug)}`;
+    return `https://littlables.com/?interest=${encodeURIComponent(effectiveCategory)}&balloon=${encodeURIComponent(slug)}`;
   }
   const url = new URL(window.location.href);
   url.pathname = '/';
@@ -329,7 +330,7 @@ export function toAbsoluteImageUrl(imageUrl: string): string {
   if (imageUrl.startsWith('data:image/')) return imageUrl;
   if (typeof window === 'undefined') {
     if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
-    return `https://littlables.github.io/${imageUrl.replace(/^\/+/, '')}`;
+    return `https://littlables.com/${imageUrl.replace(/^\/+/, '')}`;
   }
   try {
     return new URL(imageUrl, window.location.href).href;
@@ -359,24 +360,26 @@ export function updateStoryOpenGraphTags(
   if (!item) {
     const defaultTitle = 'Littlables — A Little Scoop of the World';
     const defaultDesc =
-      'Littlables delivers curated, family-friendly news and AI summaries across childcare, animals, creative arts, future tech, and uplifting global stories.';
-    const defaultImg = toAbsoluteImageUrl('img/all_1.jpg');
-    const defaultUrl = typeof window !== 'undefined' ? window.location.href : 'https://littlables.github.io/';
+      'A cozy, family-friendly news feed for curious minds, with stories from around the world and a little room for good news.';
+    const defaultImg = toAbsoluteImageUrl('/littlables-preview.jpg');
+    const defaultUrl = typeof window !== 'undefined' ? window.location.href : 'https://littlables.com/';
 
     setMeta('meta[property="og:title"]', defaultTitle);
     setMeta('meta[name="twitter:title"]', defaultTitle);
     setMeta('meta[property="og:description"]', defaultDesc);
     setMeta('meta[name="twitter:description"]', defaultDesc);
     setMeta('meta[property="og:image"]', defaultImg);
+    setMeta('meta[property="og:image:secure_url"]', defaultImg);
     setMeta('meta[name="twitter:image"]', defaultImg);
+    setMeta('meta[name="twitter:card"]', 'summary_large_image');
     setMeta('meta[property="og:url"]', defaultUrl);
     return;
   }
 
   const title = `${item.title} — Littlables`;
   const desc = item.aiSummary || item.description || item.title;
-  const absImg = toAbsoluteImageUrl(imageUrl || item.image || 'img/all_1.jpg');
-  const url = shareUrl || (typeof window !== 'undefined' ? window.location.href : 'https://littlables.github.io/');
+  const absImg = toAbsoluteImageUrl(imageUrl || item.image || '/img/all_1.jpg');
+  const url = shareUrl || (typeof window !== 'undefined' ? window.location.href : 'https://littlables.com/');
 
   setMeta('meta[property="og:title"]', title);
   setMeta('meta[name="twitter:title"]', title);
@@ -384,8 +387,10 @@ export function updateStoryOpenGraphTags(
   setMeta('meta[name="twitter:description"]', desc);
   if (!absImg.startsWith('data:')) {
     setMeta('meta[property="og:image"]', absImg);
+    setMeta('meta[property="og:image:secure_url"]', absImg);
     setMeta('meta[name="twitter:image"]', absImg);
   }
+  setMeta('meta[name="twitter:card"]', 'summary_large_image');
   setMeta('meta[property="og:url"]', url);
 }
 
@@ -670,7 +675,7 @@ export async function shareStoryWithImage(
 export function getActivityShareUrl(worksheetId?: string): string {
   const paramValue = worksheetId && worksheetId.trim() ? worksheetId.trim() : '1';
   if (typeof window === 'undefined') {
-    return `https://littlables.github.io/?activities=${encodeURIComponent(paramValue)}`;
+    return `https://littlables.com/?activities=${encodeURIComponent(paramValue)}`;
   }
   const url = new URL(window.location.href);
   url.pathname = '/';
@@ -846,3 +851,18 @@ export async function shareWorksheetWithImage(worksheet: {
   return copied;
 }
 
+/**
+ * Checks if current URL is the /lil discovery page.
+ */
+export function parseLilFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname.toLowerCase();
+  return path === '/lil' || path === '/lil/' || /^\/lil\/?$/i.test(path);
+}
+
+/**
+ * Returns href for the /lil search page.
+ */
+export function getLilHref(): string {
+  return '/lil';
+}

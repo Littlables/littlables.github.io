@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NewsItem } from '../types';
 import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
+import { NEWS_CONFIG } from '../constants/config';
+import { getSupabaseClient } from '../services/supabaseService';
 
-const WORKER_URL = 'https://hello-ai.cryptokatiee.workers.dev';
+const WORKER_BASE = NEWS_CONFIG.workerUrl.replace(/\/$/, '');
 
 interface StoryDetails {
   id: number;
@@ -22,10 +24,27 @@ interface AdminEditDialogProps {
 const CATEGORIES = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
 
 async function adminFetch(path: string, options: RequestInit = {}) {
-  const resp = await fetch(`${WORKER_URL}${path}`, {
+  const authHeaders: Record<string, string> = {};
+  try {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data } = await client.auth.getSession();
+      if (data.session?.access_token) {
+        authHeaders['Authorization'] = `Bearer ${data.session.access_token}`;
+      }
+    }
+  } catch {
+    // Proceed with cookie credentials if session token unavailable
+  }
+
+  const resp = await fetch(`${WORKER_BASE}${path}`, {
     ...options,
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+      ...(options.headers || {}),
+    },
   });
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));

@@ -241,7 +241,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           onLoad={() => setImageLoaded(true)}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            const fallback = `img/${effectiveCategory}_1.jpg`;
+            const fallback = `/img/${effectiveCategory}_1.jpg`;
             if (target.src !== fallback && !target.src.endsWith(fallback)) {
               target.src = fallback;
             } else {

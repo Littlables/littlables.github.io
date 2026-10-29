@@ -1,7 +1,16 @@
 import { NEWS_CONFIG } from '../constants/config';
 import type { NewsItem } from '../types';
+import { normalizeFetchedItem, buildCategoryFeedFromRaw } from './newsService';
 import type { Playroom } from './playroomService';
 import type { Space } from './spaceService';
+
+function normalizePlayroomItems(rawItems: any[]): NewsItem[] {
+  if (!Array.isArray(rawItems)) return [];
+  const normalized = rawItems
+    .filter((item) => item && typeof (item.link || item.article_url) === 'string')
+    .map((item) => normalizeFetchedItem(item, item.category || 'all'));
+  return buildCategoryFeedFromRaw(normalized);
+}
 
 export interface PlayroomFeedResponse {
   playroom: Playroom | null;
@@ -158,11 +167,12 @@ export async function fetchPlayroomFeed(
     if (!res.ok) {
       throw new Error(data.error || `Playroom feed request failed (HTTP ${res.status})`);
     }
+    const items = normalizePlayroomItems(data.items);
     const result: PlayroomFeedResponse = {
       playroom: data.playroom || null,
       spaces: Array.isArray(data.spaces) ? data.spaces : [],
-      items: Array.isArray(data.items) ? data.items : [],
-      count: data.count || 0,
+      items,
+      count: items.length,
       error: data.error,
     };
     playroomFeedCache.set(key, { data: result, timestamp: Date.now() });
@@ -211,9 +221,10 @@ export async function fetchInterestFeed(
     if (!res.ok) {
       throw new Error(data.error || `Interest feed request failed (HTTP ${res.status})`);
     }
+    const items = normalizePlayroomItems(data.items);
     const result: InterestFeedResponse = {
-      items: Array.isArray(data.items) ? data.items : [],
-      count: data.count || 0,
+      items,
+      count: items.length,
       error: data.error,
     };
     interestFeedCache.set(key, { data: result, timestamp: Date.now() });

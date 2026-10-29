@@ -42,8 +42,9 @@ export function resolveImageUrl(item: NewsItem, index: number, category: NewsCat
     if (/^https?:\/\//i.test(candidate)) return candidate;
     if (candidate.startsWith('//')) return `https:${candidate}`;
     if (candidate.startsWith('data:image/')) return candidate;
-    if (candidate.startsWith('/') || candidate.startsWith('img/') || candidate.startsWith('./')) {
-      return candidate;
+    if (candidate.startsWith('/')) return candidate;
+    if (candidate.startsWith('img/') || candidate.startsWith('./')) {
+      return `/${candidate.replace(/^\.\//, '')}`;
     }
   }
 
@@ -65,7 +66,7 @@ export function resolveImageUrl(item: NewsItem, index: number, category: NewsCat
   return pool[index % pool.length];
 }
 
-function normalizeFetchedItem(item: any, defaultCategory: NewsCategory): NewsItem {
+export function normalizeFetchedItem(item: any, defaultCategory: NewsCategory = 'all'): NewsItem {
   // Admin-curated override: when displayCategories is set, the story shows under
   // those categories instead of its query-assigned one. The first entry is the
   // primary display category (card label, bucketing, interest matching).
@@ -156,7 +157,7 @@ function persistCacheToSession(): void {
   }
 }
 
-function buildCategoryFeedFromRaw(feedItems: NewsItem[]): NewsItem[] {
+export function buildCategoryFeedFromRaw(feedItems: NewsItem[]): NewsItem[] {
   const approvedItems = feedItems.filter(item => item.approved === true);
   const unapprovedItems = feedItems.filter(item => item.approved !== true);
   return [...approvedItems, ...unapprovedItems];

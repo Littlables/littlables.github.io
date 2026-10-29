@@ -28,6 +28,10 @@ interface HeaderProps {
   gameEnabled?: boolean;
   /** Callback to toggle the game on/off */
   onToggleGame?: () => void;
+  /** Navigate to the /lil page */
+  onOpenLil?: () => void;
+  /** True when currently on the /lil page */
+  isLilActive?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -44,6 +48,8 @@ export const Header: React.FC<HeaderProps> = ({
   lastCollectedEmoji = '🎃',
   gameEnabled = true,
   onToggleGame,
+  onOpenLil,
+  isLilActive,
 }) => {
   const { user, profile } = useAuth();
   const [isBumping, setIsBumping] = React.useState(false);
@@ -152,6 +158,20 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="news-header-controls">
+        {isAdmin && onOpenLil && (
+          <button
+            id="lil-btn"
+            type="button"
+            className={`header-icon-button header-lil-button${isLilActive ? ' is-active' : ''}`}
+            title="Ask Lil — Live Google Search Data with Gemini"
+            aria-label="Open Ask Lil Search"
+            data-umami-event="Open-Lil-Page"
+            onClick={onOpenLil}
+          >
+            <span className="avatar-emoji-glyph" aria-hidden="true">✨</span>
+          </button>
+        )}
+
         <button
           id="worksheets-btn"
           type="button"

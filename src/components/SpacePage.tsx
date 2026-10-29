@@ -8,6 +8,7 @@ import { fetchAdsForMatching, fetchMatchedAdIds, getCachedAdsForCategory } from 
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
+  subscribeToReactions,
   getStoryId,
 } from '../services/supabaseService';
 import { NewsCard } from './NewsCard';
@@ -15,20 +16,35 @@ import { StoryModal } from './StoryModal';
 import { StoryEditView } from './StoryEditView';
 import { useAdminStatus } from '../hooks/useAdminStatus';
 import { t } from '../constants/translations';
-import { SITE_TITLE_BASE } from '../constants/config';
+import { CATEGORIES, SITE_TITLE_BASE } from '../constants/config';
 import { INTEREST_KEYWORDS } from '../constants/interestKeywords';
+import { formatCustomTopicLabel, getTopicHref } from '../services/urlService';
 import { trackStoryDwell } from '../services/trackingService';
 import type { NewsItem, NewsCategory, ReactionCounts, ReactionType, AdItem } from '../types';
 import type { OpenProfileTarget } from './PlayroomPage';
 
-// Map interest ID → label for badge display
-const INTEREST_LABELS = new Map(INTEREST_KEYWORDS.map(k => [k.id, k.label]));
+// Map interest ID → { icon, label } for frontpage-style badge display
+const INTEREST_BADGE_MAP = new Map(
+  INTEREST_KEYWORDS.map((k) => [k.id, `${k.icon} ${k.label}`])
+);
 
-// Get the best (highest-confidence) interest label for a story
-function getBestInterestLabel(story: NewsItem): string | null {
+function getStoryBadge(story: NewsItem, fallbackLabel?: string): string {
   const keywords = story.interestKeywords;
-  if (!keywords || keywords.length === 0) return null;
-  return INTEREST_LABELS.get(keywords[0]) || keywords[0];
+  if (keywords && keywords.length > 0) {
+    const match = INTEREST_BADGE_MAP.get(keywords[0]);
+    if (match) return match;
+  }
+  const targetCat = story.category || 'all';
+  const active = CATEGORIES.find((c) => c.id === targetCat);
+  if (active) {
+    const icon = active.icon || '⚡';
+    if (targetCat === 'all') return fallbackLabel ? `🗂️ ${fallbackLabel}` : `${icon} ${t('breaking') || 'All'}`;
+    return `${icon} ${t((active.i18nKey || 'catAll') as any)}`;
+  }
+  if (story.category) {
+    return `🔍 ${formatCustomTopicLabel(story.category)}`;
+  }
+  return fallbackLabel ? `🗂️ ${fallbackLabel}` : `⚡ ${t('breaking') || 'All'}`;
 }
 
 export interface SpacePageProps {
@@ -76,13 +92,12 @@ async function matchAdsForStories(stories: NewsItem[], fetchedAds: AdItem[]): Pr
     const matched: Record<number, AdItem> = {};
     for (const { index } of adSlotStories.map((s) => ({ index: (s as any)._index }))) {
       const adIds = matches[index] || [];
-      const matchedAd = adIds.map(id => adById.get(id)).find(Boolean);
-      const story = stories[index];
-      const fallbackAd = fetchedAds.find(ad => ad.category === story?.category)
-        || fetchedAds.find(ad => ad.category === 'all')
-        || fetchedAds[0];
-      const ad = matchedAd || fallbackAd;
-      if (ad) matched[index] = ad;
+      const validAds = adIds.map((id) => adById.get(id)).filter((a): a is AdItem => Boolean(a));
+      const slot = Math.floor(index / 3);
+      const matchedAd = validAds.length > 0 ? validAds[slot % validAds.length] : undefined;
+      if (matchedAd) {
+        matched[index] = matchedAd;
+      }
     }
     return matched;
   } catch {
@@ -104,7 +119,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
   const [playroom, setPlayroom] = useState<Playroom | null>(null);
   const [owner, setOwner] = useState<Profile | null>(() => initialData?.owner ?? null);
   const [stories, setStories] = useState<NewsItem[]>([]);
-  const [, setAds] = useState<AdItem[]>([]);
+  const [ads, setAds] = useState<AdItem[]>([]);
   const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
   const [loading, setLoading] = useState(true);
@@ -284,6 +299,23 @@ export const SpacePage: React.FC<SpacePageProps> = ({
     };
   }, [space, playroom, owner, playroomSlug, viewerProfile?.use_viewer_theme_for_boards]);
 
+  // Subscribe to real-time reactions like the frontpage
+  useEffect(() => {
+    const unsubscribe = subscribeToReactions((storyId, type, count) => {
+      setReactions((prev) => {
+        const current = prev[storyId] || { love: 0, mind: 0, cozy: 0 };
+        return {
+          ...prev,
+          [storyId]: {
+            ...current,
+            [type]: count,
+          },
+        };
+      });
+    });
+    return () => unsubscribe();
+  }, []);
+
   const handleReaction = useCallback(async (storyId: string, type: ReactionType) => {
     setReactions((prev) => {
       const current = prev[storyId] || { love: 0, mind: 0, cozy: 0 };
@@ -427,23 +459,28 @@ export const SpacePage: React.FC<SpacePageProps> = ({
         stories.map((story, index) => {
           const storyId = getStoryId(story.title, story.link);
           const cardReactions = reactions[storyId] || { love: 0, mind: 0, cozy: 0 };
-          const shouldInsertAd = stories.length >= 3 && (index + 1) % 3 === 0;
-          // Only show ads matched to the interest tags of this balloon.
-          const currentAd = storyAds[index] || null;
+          const storyBadge = getStoryBadge(story, space?.name);
+
+          const shouldInsertAd = (index + 1) % 3 === 0;
+          const adIndex = Math.floor(index / 3);
+          // Prefer keyword-matched ad for this story; fall back to rotation like the frontpage.
+          const currentAd =
+            storyAds[index] || (ads && ads.length > 0 ? ads[adIndex % ads.length] : null);
+
           return (
             <React.Fragment key={`${story.link}-${index}`}>
               <NewsCard
                 item={story}
                 index={index}
                 category={(story.category as NewsCategory) || 'all'}
-                categoryBadge={getBestInterestLabel(story) || story.category || space?.name || ''}
+                categoryBadge={storyBadge}
                 reactions={cardReactions}
                 onReact={handleReaction}
                 onOpenStory={handleOpenStory}
                 onAdminEdit={isAdmin ? setAdminEditStory : undefined}
               />
               {shouldInsertAd && currentAd && (
-                <AdCard ad={currentAd} category="all" />
+                <AdCard ad={currentAd} category={(story.category as NewsCategory) || 'all'} />
               )}
             </React.Fragment>
           );
@@ -456,7 +493,7 @@ export const SpacePage: React.FC<SpacePageProps> = ({
         category={(selectedStory?.item.category as NewsCategory) || 'all'}
         categoryBadge={
           selectedStory
-            ? getBestInterestLabel(selectedStory.item) || selectedStory.item.category || space?.name || ''
+            ? getStoryBadge(selectedStory.item, space?.name)
             : ''
         }
         reactions={
@@ -466,6 +503,10 @@ export const SpacePage: React.FC<SpacePageProps> = ({
         }
         onReact={handleReaction}
         onClose={handleCloseStory}
+        onSelectCategory={(cat) => {
+          window.history.pushState({ interest: cat, balloon: null }, '', getTopicHref(cat));
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }}
         onAdminEdit={isAdmin ? setAdminEditStory : undefined}
       />
 

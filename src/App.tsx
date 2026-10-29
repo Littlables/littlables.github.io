@@ -22,6 +22,7 @@ import { SpacePage } from './components/SpacePage';
 import { SpaceRoutePage } from './components/SpaceRoutePage';
 import { WorksheetsPanel } from './components/WorksheetsPanel';
 import { FallingEmojis } from './components/FallingEmojis';
+import { LilPage } from './components/LilPage';
 import type { OpenProfileTarget } from './components/PlayroomPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
@@ -43,7 +44,8 @@ import {
   matchesStoryParam,
   isCustomTopic,
   isValidCategory,
-  formatCustomTopicLabel
+  formatCustomTopicLabel,
+  parseLilFromUrl
 } from './services/urlService';
 import { t, TranslationStrings, getDetectedLocale } from './constants/translations';
 import { getCategoryDescription } from './constants/categoryDescriptions';
@@ -126,7 +128,7 @@ export const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
   useSystemFont();
   const { profile } = useAuth();
-  const { isAdmin } = useAdminStatus();
+  const { isAdmin, checking: checkingAdmin } = useAdminStatus();
   const [adminEditStory, setAdminEditStory] = useState<NewsItem | null>(null);
   const [emojiPoints, setEmojiPoints] = useState<number>(() => {
     try {
@@ -206,6 +208,7 @@ export const App: React.FC = () => {
   const [spaceRoute, setSpaceRoute] = useState<{ username: string; slug: string } | null>(() => parseSpaceFromUrl());
   const [playroomSpaceRoute, setPlayroomSpaceRoute] = useState<{ username: string; playroom: string; space: string } | null>(() => parsePlayroomSpaceFromUrl());
   const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
+  const [lilRoute, setLilRoute] = useState<boolean>(() => parseLilFromUrl());
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
@@ -249,6 +252,8 @@ export const App: React.FC = () => {
     if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
     if (selectedStory?.item?.title) {
       document.title = `${SITE_TITLE_BASE} | ${selectedStory.item.title}`;
+    } else if (lilRoute && isAdmin) {
+      document.title = `${SITE_TITLE_BASE} | Ask Lil`;
     } else if (aboutRoute) {
       document.title = `${SITE_TITLE_BASE} | about`;
     } else if (category !== 'all') {
@@ -259,12 +264,12 @@ export const App: React.FC = () => {
     } else {
       document.title = SITE_TITLE_BASE;
     }
-  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute]);
+  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute, lilRoute, isAdmin]);
 
   // Ensure initial URL reflects the active topic if not already in the address bar
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute) return;
+    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute || lilRoute) return;
     const currentUrlTopic = parseTopicFromUrl();
     const currentStory = parseStoryFromUrl();
     const currentActivity = parseActivityFromUrl().isOpen;
@@ -272,12 +277,38 @@ export const App: React.FC = () => {
       const nextHref = getTopicHref(category);
       window.history.replaceState({ interest: category, balloon: null }, '', nextHref);
     }
-  }, []);
+  }, [lilRoute]);
+
+  // Guard the /lil route: only accessible when logged in as admin.
+  // If a non-admin directly visits /lil, return them to the home feed.
+  useEffect(() => {
+    if (checkingAdmin) return;
+    if (lilRoute && !isAdmin) {
+      setLilRoute(false);
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/lil')) {
+        window.history.replaceState(null, '', '/');
+      }
+    }
+  }, [lilRoute, isAdmin, checkingAdmin]);
 
   // Listen to browser Back / Forward navigation
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
+      const urlLil = parseLilFromUrl();
+      if (urlLil && !isAdmin) {
+        setLilRoute(false);
+      } else {
+        setLilRoute(urlLil);
+        if (urlLil) {
+          setAboutRoute(false);
+          setPlayroomOrSpaceRoute(null);
+          setSpaceRoute(null);
+          setPlayroomSpaceRoute(null);
+          setProfileRoute(null);
+          return;
+        }
+      }
       const urlAbout = parseAboutFromUrl();
       setAboutRoute(urlAbout);
       if (urlAbout) {
@@ -328,7 +359,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [category]);
+  }, [category, isAdmin]);
 
   const activeCategoryRef = React.useRef<NewsCategory>(category);
   activeCategoryRef.current = category;
@@ -446,9 +477,9 @@ export const App: React.FC = () => {
   }, [profile?.pills]);
 
   useEffect(() => {
-    if (aboutRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
+    if (aboutRoute || lilRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
     loadFeed(category);
-  }, [category, loadFeed, aboutRoute, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute]);
+  }, [category, loadFeed, aboutRoute, lilRoute, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute]);
 
   // If the signed-in user customized their homepage pills and the current category
   // is no longer in their pill list (and wasn't explicitly navigated via URL ?interest=),
@@ -575,6 +606,7 @@ export const App: React.FC = () => {
     setSpaceRoute(null);
     setPlayroomSpaceRoute(null);
     setAboutRoute(false);
+    setLilRoute(false);
     const userPills = profile?.pills;
     const availableTopics = userPills && userPills.length > 0 ? userPills.map(getPillTopicId) : null;
     const defaultHomeTopic: NewsCategory =
@@ -597,6 +629,24 @@ export const App: React.FC = () => {
       handleSelectCategory(defaultHomeTopic);
     } else {
       loadFeed(defaultHomeTopic, { forceRefresh: true });
+    }
+  };
+
+  const handleOpenLil = () => {
+    if (!isAdmin) return;
+    setSelectedStory(null);
+    setActiveStoryParam(null);
+    setProfileRoute(null);
+    setPlayroomOrSpaceRoute(null);
+    setSpaceRoute(null);
+    setPlayroomSpaceRoute(null);
+    setAboutRoute(false);
+    setLilRoute(true);
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname !== '/lil') {
+        window.history.pushState({}, '', '/lil');
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -700,12 +750,14 @@ export const App: React.FC = () => {
           lastCollectedEmoji={lastCollectedEmoji}
           gameEnabled={gameEnabled}
           onToggleGame={handleToggleGame}
+          onOpenLil={isAdmin ? handleOpenLil : undefined}
+          isLilActive={lilRoute && isAdmin}
         />
 
         <WorksheetsPanel />
 
-        {/* Category nav is hidden on standalone about/profile/playroom/space pages — those show their own views, not the main feed. */}
-        {!aboutRoute && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
+        {/* Category nav is hidden on standalone lil/about/profile/playroom/space pages — those show their own views, not the main feed. */}
+        {!aboutRoute && !(lilRoute && isAdmin) && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
           <CategoryNav
             currentCategory={category}
             onSelectCategory={handleSelectCategory}
@@ -713,7 +765,11 @@ export const App: React.FC = () => {
           />
         )}
 
-        {aboutRoute ? (
+        {lilRoute && isAdmin ? (
+          <main className="news-grid lil-main-grid">
+            <LilPage onHome={handleHomeRefresh} />
+          </main>
+        ) : aboutRoute ? (
           <main className="news-grid">
             <AboutPage
               onExplore={handleHomeRefresh}
@@ -890,6 +946,7 @@ export const App: React.FC = () => {
       <Footer
         onOpenAbout={() => setActiveDialog('about')}
         onOpenDisclaimer={() => setActiveDialog('disclaimer')}
+        onOpenLil={isAdmin ? handleOpenLil : undefined}
       />
 
       <InfoDialog

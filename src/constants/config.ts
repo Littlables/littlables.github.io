@@ -27,13 +27,13 @@ export const THEMES: { id: ThemeId; name: string; icon: string }[] = [
 ];
 
 export const CATEGORY_STOCK_IMAGES: Record<NewsCategory, string[]> = {
-  animals: Array.from({ length: 10 }, (_, i) => `img/animals_${i + 1}.jpg`),
-  childcare: Array.from({ length: 10 }, (_, i) => `img/animals_${i + 1}.jpg`),
-  tech: Array.from({ length: 10 }, (_, i) => `img/tech_${i + 1}.jpg`),
-  arts: Array.from({ length: 10 }, (_, i) => `img/arts_${i + 1}.jpg`),
-  world: Array.from({ length: 10 }, (_, i) => `img/world_${i + 1}.jpg`),
-  uplifting: Array.from({ length: 10 }, (_, i) => `img/uplifting_${i + 1}.jpg`),
-  all: Array.from({ length: 10 }, (_, i) => `img/all_${i + 1}.jpg`)
+  animals: Array.from({ length: 10 }, (_, i) => `/img/animals_${i + 1}.jpg`),
+  childcare: Array.from({ length: 10 }, (_, i) => `/img/animals_${i + 1}.jpg`),
+  tech: Array.from({ length: 10 }, (_, i) => `/img/tech_${i + 1}.jpg`),
+  arts: Array.from({ length: 10 }, (_, i) => `/img/arts_${i + 1}.jpg`),
+  world: Array.from({ length: 10 }, (_, i) => `/img/world_${i + 1}.jpg`),
+  uplifting: Array.from({ length: 10 }, (_, i) => `/img/uplifting_${i + 1}.jpg`),
+  all: Array.from({ length: 10 }, (_, i) => `/img/all_${i + 1}.jpg`)
 };
 
 export const NEWS_CONFIG = {
