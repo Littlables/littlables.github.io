@@ -3405,7 +3405,9 @@ body.story-modal-open {
   padding-bottom: 0;
 }
 .playroom-space-pills .news-category-bar {
-  padding: 0.2rem 1rem;
+  /* No side inset: the first pill lines up with the playroom logo above
+     and the balloons below, instead of sitting 1rem inside them. */
+  padding: 0.2rem 0;
 }
 .playroom-space-pill-logo {
   width: 18px;
