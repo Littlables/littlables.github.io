@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
 import { trackHomeLogoRefresh, track3DPlayroomClick } from '../services/trackingService';
 import { WORKSHEETS, toggleWorksheetsPanel } from './WorksheetsPanel';
+import { SeasonalGameDialog } from './SeasonalGameDialog';
 
 const PLAYGROUND_3D_URL = 'https://playground.google/g/viMkwl';
 
@@ -46,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { user, profile } = useAuth();
   const [isBumping, setIsBumping] = React.useState(false);
+  const [seasonalDialogOpen, setSeasonalDialogOpen] = React.useState(false);
   const prevPointsRef = React.useRef(emojiPoints);
 
   React.useEffect(() => {
@@ -113,19 +115,19 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <div className="header-points-group">
-          <div
+          <button
+            type="button"
             id="header-emoji-points"
             className={`header-points-badge${isBumping ? ' is-bumping' : ''}${!gameEnabled ? ' is-inactive' : ''}`}
-            title={gameEnabled ? `Collected treats: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'}` : `Game paused (${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'})`}
-            aria-label={`Collected treats: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'}`}
-            role="status"
-            aria-live="polite"
+            title="About the seasonal game"
+            aria-label={`Seasonal game: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'} — learn more`}
+            onClick={() => setSeasonalDialogOpen(true)}
           >
             <span className="header-points-emoji" aria-hidden="true">
               {lastCollectedEmoji || '🎃'}
             </span>
-            <span className="header-points-count">{emojiPoints.toLocaleString()}</span>
-          </div>
+            <span className="header-points-count" aria-live="polite">{emojiPoints.toLocaleString()}</span>
+          </button>
 
           {onToggleGame && (
             <button
@@ -143,6 +145,10 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
         </div>
+        <SeasonalGameDialog
+          isOpen={seasonalDialogOpen}
+          onClose={() => setSeasonalDialogOpen(false)}
+        />
       </div>
 
       <div className="news-header-controls">
@@ -212,11 +218,11 @@ export const Header: React.FC<HeaderProps> = ({
           <span
             className="header-admin-badge"
             title="Admin mode — long-press a story to edit"
+            aria-label="Admin mode"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.25rem',
-              padding: '0.25rem 0.6rem',
+              padding: '0.2rem 0.4rem',
               borderRadius: '9999px',
               background: '#7c3aed',
               color: '#fff',
@@ -224,7 +230,7 @@ export const Header: React.FC<HeaderProps> = ({
               fontWeight: 600,
             }}
           >
-            🛠️ Admin
+            🛠️
           </span>
         )}
         {user ? (
