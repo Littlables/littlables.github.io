@@ -78,9 +78,9 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
     category: story.category || '',
   });
   const [categoryTouched, setCategoryTouched] = useState(false);
-  const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
+  const [selectedKeywords, setSelectedKeywords] = useState<string[]>(story.interestKeywords || []);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [origKeywords, setOrigKeywords] = useState<string[]>([]);
+  const [origKeywords, setOrigKeywords] = useState<string[]>(story.interestKeywords || []);
   const [origCategories, setOrigCategories] = useState<string[]>([]);
 
   // Native dialog, same pattern as the expanded balloon view (StoryModal):
@@ -263,43 +263,60 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
           />
         )}
 
-        {loading && <p className="story-edit-note">Loading story details…</p>}
         {error && <p className="story-edit-error">{error}</p>}
         {savedMessage && <p className="story-edit-saved">{savedMessage}</p>}
 
-        {details && (
-          <div className="story-edit-section">
-            <h3 className="story-edit-section-title">Status</h3>
-            <div className="story-edit-actions">
-              <span className={`story-edit-badge ${details.approved ? 'story-edit-badge-green' : ''}`}>
-                {details.approved ? '✓ Approved' : 'Not approved'}
-              </span>
-              {details.removed && (
-                <span className="story-edit-badge story-edit-badge-red">Banned</span>
-              )}
-            </div>
-            <div className="story-edit-actions">
-              {!details.approved && (
-                <button type="button" onClick={() => handleAction('approve')} disabled={saving} className="story-edit-btn story-edit-btn-green">
+        <div className="story-edit-section">
+          <h3 className="story-edit-section-title">Status</h3>
+          {details ? (
+            <>
+              <div className="story-edit-actions">
+                <span className={`story-edit-badge ${details.approved ? 'story-edit-badge-green' : ''}`}>
+                  {details.approved ? '✓ Approved' : 'Not approved'}
+                </span>
+                {details.removed && (
+                  <span className="story-edit-badge story-edit-badge-red">Banned</span>
+                )}
+              </div>
+              <div className="story-edit-actions">
+                {!details.approved && (
+                  <button type="button" onClick={() => handleAction('approve')} disabled={saving} className="story-edit-btn story-edit-btn-green">
+                    Approve
+                  </button>
+                )}
+                {details.approved && (
+                  <button type="button" onClick={() => handleAction('disapprove')} disabled={saving} className="story-edit-btn story-edit-btn-yellow">
+                    Disapprove
+                  </button>
+                )}
+                <button type="button" onClick={() => handleAction('ban')} disabled={saving} className="story-edit-btn story-edit-btn-red">
+                  Ban
+                </button>
+                {(details.approved || details.removed) && (
+                  <button type="button" onClick={() => handleAction('undo')} disabled={saving} className="story-edit-btn story-edit-btn-gray">
+                    Undo
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="story-edit-actions">
+                <span className="story-edit-badge">
+                  {loading ? 'Loading status…' : 'Status unavailable'}
+                </span>
+              </div>
+              <div className="story-edit-actions">
+                <button type="button" disabled className="story-edit-btn story-edit-btn-green">
                   Approve
                 </button>
-              )}
-              {details.approved && (
-                <button type="button" onClick={() => handleAction('disapprove')} disabled={saving} className="story-edit-btn story-edit-btn-yellow">
-                  Disapprove
+                <button type="button" disabled className="story-edit-btn story-edit-btn-red">
+                  Ban
                 </button>
-              )}
-              <button type="button" onClick={() => handleAction('ban')} disabled={saving} className="story-edit-btn story-edit-btn-red">
-                Ban
-              </button>
-              {(details.approved || details.removed) && (
-                <button type="button" onClick={() => handleAction('undo')} disabled={saving} className="story-edit-btn story-edit-btn-gray">
-                  Undo
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
+            </>
+          )}
+        </div>
 
         <label className="story-edit-field">
           <span className="story-edit-label">Title</span>
@@ -427,11 +444,9 @@ export const StoryEditView: React.FC<StoryEditViewProps> = ({ story, onClose, on
         </div>
 
         <div className="story-edit-section story-edit-meta">
-          {details && (
-            <p>
-              Story ID: <span>{details.id}</span>
-            </p>
-          )}
+          <p>
+            Story ID: <span>{details ? details.id : loading ? '…' : '—'}</span>
+          </p>
           {story.provider && (
             <p>
               Provider: <span>{story.provider}</span>

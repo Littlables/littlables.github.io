@@ -11,13 +11,30 @@ const RESERVED_PATH_SEGMENTS = new Set([
   'index.html',
   'admin',
   'story',
+  'balloon',
   'feed',
   'ads',
   'img',
   'assets',
   'public',
   'api',
-  'topic'
+  'topic',
+  'interest',
+  'about',
+  'about-us',
+  'disclaimer',
+  'settings',
+  'signin',
+  'login',
+  'profile',
+  'space',
+  'spaces',
+  'playrooms',
+  'boards',
+  'activities',
+  'activity',
+  'worksheets',
+  'worksheet'
 ]);
 
 export function isValidCategory(value: string | null | undefined): value is StandardNewsCategory {
@@ -113,21 +130,73 @@ export function matchesKeywordQuery(searchableText: string, keyword: string): bo
   });
 }
 
+const MULTI_PART_TLDS = new Set([
+  'co.uk', 'org.uk', 'gov.uk', 'ac.uk', 'me.uk',
+  'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au',
+  'co.nz', 'org.nz', 'govt.nz',
+  'co.jp', 'or.jp', 'ne.jp',
+  'co.kr', 'co.in', 'net.in', 'org.in',
+  'com.br', 'com.mx', 'com.ar', 'com.co',
+  'com.sg', 'co.za', 'com.hk', 'com.tw', 'com.my', 'com.ph'
+]);
+
+const PROVIDER_LABELS: Record<string, string> = {
+  gnews: 'GNews',
+  bing: 'Bing News',
+  newsdata: 'NewsData',
+  thenewsapi: 'TheNewsAPI',
+  worldnewsapi: 'WorldNews',
+  reddit: 'Reddit'
+};
+
+/**
+ * Extracts the top-level / registrable root domain for a story
+ * (e.g. "https://edition.cnn.com/..." -> "cnn.com", "https://www.bbc.co.uk/..." -> "bbc.co.uk").
+ */
+export function getStoryTopLevelDomain(item: NewsItem): string {
+  const rawHost = getDomainFromUrl(item.link).toLowerCase().replace(/^www\./i, '').trim();
+  if (!rawHost || rawHost === 'unknown') {
+    return '';
+  }
+  const parts = rawHost.split('.').filter(Boolean);
+  if (parts.length <= 2) {
+    return rawHost;
+  }
+  const lastTwo = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+  if (MULTI_PART_TLDS.has(lastTwo) && parts.length >= 3) {
+    return `${parts[parts.length - 3]}.${lastTwo}`;
+  }
+  return lastTwo;
+}
+
+/**
+ * Returns the given publication/source name for a story badge.
+ */
+export function getStoryGivenPubName(item: NewsItem): string {
+  if (item.source && item.source.trim()) {
+    return item.source.trim();
+  }
+  if (item.provider && item.provider.trim() && item.provider.trim().toLowerCase() !== 'supabase') {
+    const key = item.provider.trim().toLowerCase();
+    return PROVIDER_LABELS[key] || item.provider.trim();
+  }
+  const rawHost = getDomainFromUrl(item.link).toLowerCase().replace(/^www\./i, '').trim();
+  if (rawHost === 'news.google.com') {
+    return 'Google News';
+  }
+  const tld = getStoryTopLevelDomain(item);
+  if (tld) {
+    const base = tld.split('.')[0] || tld;
+    return base.length <= 3 ? base.toUpperCase() : base.charAt(0).toUpperCase() + base.slice(1);
+  }
+  return 'News Wire';
+}
+
 /**
  * Returns the displayable provider/source name for a story badge.
  */
 export function getStoryProviderName(item: NewsItem): string {
-  if (item.source && item.source.trim()) {
-    return item.source.trim();
-  }
-  const domain = getDomainFromUrl(item.link);
-  if (domain && domain !== 'unknown') {
-    return domain.replace(/^www\./i, '');
-  }
-  if (item.provider && item.provider.trim()) {
-    return item.provider.trim();
-  }
-  return '';
+  return getStoryGivenPubName(item);
 }
 
 /**
@@ -175,37 +244,39 @@ function normalizeTopicParamValue(category: NewsCategory): string {
 }
 
 /**
- * Builds the relative href for a topic so links work on both root and subpaths.
+ * Builds the relative href for an interest so links work on both root and subpaths.
  */
 export function getTopicHref(category: NewsCategory): string {
   const topicValue = normalizeTopicParamValue(category);
   if (typeof window === 'undefined') {
-    return `?topic=${encodeURIComponent(topicValue)}`;
+    return `/?interest=${encodeURIComponent(topicValue)}`;
   }
   const url = new URL(window.location.href);
+  url.pathname = '/';
   url.search = '';
   url.hash = '';
-  url.searchParams.set('topic', topicValue);
+  url.searchParams.set('interest', topicValue);
   return `${url.pathname}${url.search}`;
 }
 
 /**
- * Builds the full shareable URL for a topic.
+ * Builds the full shareable URL for an interest.
  */
 export function getTopicShareUrl(category: NewsCategory): string {
   const topicValue = normalizeTopicParamValue(category);
   if (typeof window === 'undefined') {
-    return `https://littlables.github.io/?topic=${encodeURIComponent(topicValue)}`;
+    return `https://littlables.github.io/?interest=${encodeURIComponent(topicValue)}`;
   }
   const url = new URL(window.location.href);
+  url.pathname = '/';
   url.search = '';
   url.hash = '';
-  url.searchParams.set('topic', topicValue);
+  url.searchParams.set('interest', topicValue);
   return url.toString();
 }
 
 /**
- * Builds the relative href for an individual story page.
+ * Builds the relative href for an individual balloon page.
  */
 export function getStoryHref(item: NewsItem, currentCategory: NewsCategory = 'all'): string {
   const effectiveCategory = isCustomTopic(currentCategory)
@@ -216,18 +287,19 @@ export function getStoryHref(item: NewsItem, currentCategory: NewsCategory = 'al
   const slug = getStorySlug(item);
 
   if (typeof window === 'undefined') {
-    return `?topic=${encodeURIComponent(effectiveCategory)}&story=${encodeURIComponent(slug)}`;
+    return `/?interest=${encodeURIComponent(effectiveCategory)}&balloon=${encodeURIComponent(slug)}`;
   }
   const url = new URL(window.location.href);
+  url.pathname = '/';
   url.search = '';
   url.hash = '';
-  url.searchParams.set('topic', effectiveCategory);
-  url.searchParams.set('story', slug);
+  url.searchParams.set('interest', effectiveCategory);
+  url.searchParams.set('balloon', slug);
   return `${url.pathname}${url.search}`;
 }
 
 /**
- * Builds the full shareable URL for an individual story page.
+ * Builds the full shareable URL for an individual balloon page.
  */
 export function getStoryShareUrl(item: NewsItem, currentCategory: NewsCategory = 'all'): string {
   const effectiveCategory = isCustomTopic(currentCategory)
@@ -238,13 +310,14 @@ export function getStoryShareUrl(item: NewsItem, currentCategory: NewsCategory =
   const slug = getStorySlug(item);
 
   if (typeof window === 'undefined') {
-    return `https://littlables.github.io/?topic=${encodeURIComponent(effectiveCategory)}&story=${encodeURIComponent(slug)}`;
+    return `https://littlables.github.io/?interest=${encodeURIComponent(effectiveCategory)}&balloon=${encodeURIComponent(slug)}`;
   }
   const url = new URL(window.location.href);
+  url.pathname = '/';
   url.search = '';
   url.hash = '';
-  url.searchParams.set('topic', effectiveCategory);
-  url.searchParams.set('story', slug);
+  url.searchParams.set('interest', effectiveCategory);
+  url.searchParams.set('balloon', slug);
   return url.toString();
 }
 
@@ -361,14 +434,26 @@ async function fetchImageAsShareFile(imageUrl: string, item: NewsItem): Promise<
 }
 
 /**
- * Parses the initial or current topic from the browser URL (query, hash, or path).
- * Supports both the 7 standard categories and any custom keyword topic.
+ * Parses the initial or current interest from the browser URL (query, hash, or path).
+ * Supports both the 7 standard categories and any custom keyword interest.
  */
 export function parseTopicFromUrl(): NewsCategory | null {
   if (typeof window === 'undefined') return null;
   try {
     const url = new URL(window.location.href);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+
+    // Non-feed routes (/about, /disclaimer, /@username, /@username/playroom, /@username/spaces/space)
+    // must never be parsed as custom feed topics.
+    if (pathParts.length > 0) {
+      const firstLower = pathParts[0].toLowerCase();
+      if (firstLower.startsWith('@') || (pathParts.length === 1 && RESERVED_PATH_SEGMENTS.has(firstLower))) {
+        return null;
+      }
+    }
+
     const topicParam =
+      url.searchParams.get('interest') ||
       url.searchParams.get('topic') ||
       url.searchParams.get('category') ||
       url.searchParams.get('q') ||
@@ -376,50 +461,44 @@ export function parseTopicFromUrl(): NewsCategory | null {
 
     if (topicParam && topicParam.trim()) {
       const cleaned = topicParam.trim();
+      if (RESERVED_PATH_SEGMENTS.has(cleaned.toLowerCase())) return null;
       return isValidCategory(cleaned) ? cleaned.toLowerCase() : cleaned;
     }
 
-    // Check hash e.g. #childcare, #puppy, or #/topic/puppy. Supabase auth
-    // redirects land with a token fragment (#access_token=...&type=magiclink);
-    // that must never be read as a topic, or the feed loads for the token
-    // blob instead of the real category.
+    // Check hash e.g. #childcare or #/interest/puppy (and legacy #/topic/puppy).
+    // Bare single-word hashes (#about-us, #disclaimer, #about-faq, etc.) are in-page
+    // section anchors and must only match known standard categories, never custom topics.
     const rawHash = url.hash.replace(/^#\/?/, '');
     const isAuthFragment = /(^|&)(access_token|refresh_token)=/.test(rawHash);
-    if (rawHash && !isAuthFragment && !rawHash.startsWith('story/')) {
+    if (rawHash && !isAuthFragment && !rawHash.startsWith('balloon/') && !rawHash.startsWith('story/')) {
       const hashParts = rawHash.split('/').filter(Boolean);
-      if (hashParts[0] === 'topic' && hashParts[1]) {
+      if ((hashParts[0] === 'interest' || hashParts[0] === 'topic') && hashParts[1]) {
         const candidate = decodeURIComponent(hashParts.slice(1).join(' ')).trim();
-        if (candidate) {
+        if (candidate && !RESERVED_PATH_SEGMENTS.has(candidate.toLowerCase())) {
           return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
         }
       } else if (hashParts.length === 1) {
         const candidate = decodeURIComponent(hashParts[0]).trim();
-        if (candidate) {
-          return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
+        if (isValidCategory(candidate)) {
+          return candidate.toLowerCase();
         }
       }
     }
 
-    // Check pathname e.g. /topic/childcare, /topic/puppy, or /childcare
-    const pathParts = url.pathname.split('/').filter(Boolean);
+    // Check pathname e.g. /interest/childcare, /interest/puppy (or legacy /topic/...), or /childcare.
+    // Bare single-segment paths without /interest/ only match known standard categories.
     if (pathParts.length > 0) {
       const lastPart = pathParts[pathParts.length - 1];
       const prevPart = pathParts.length > 1 ? pathParts[pathParts.length - 2] : '';
-      if (prevPart === 'topic' && lastPart) {
+      if ((prevPart === 'interest' || prevPart === 'topic') && lastPart) {
         const candidate = decodeURIComponent(lastPart).trim();
-        if (candidate) {
+        if (candidate && !RESERVED_PATH_SEGMENTS.has(candidate.toLowerCase())) {
           return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
         }
-      }
-      if (
-        lastPart &&
-        !lastPart.includes('.') &&
-        !RESERVED_PATH_SEGMENTS.has(lastPart.toLowerCase()) &&
-        prevPart !== 'story'
-      ) {
+      } else if (pathParts.length === 1 && lastPart && !lastPart.includes('.')) {
         const candidate = decodeURIComponent(lastPart).trim();
-        if (candidate) {
-          return isValidCategory(candidate) ? candidate.toLowerCase() : candidate;
+        if (isValidCategory(candidate)) {
+          return candidate.toLowerCase();
         }
       }
     }
@@ -428,23 +507,30 @@ export function parseTopicFromUrl(): NewsCategory | null {
 }
 
 /**
- * Parses the story slug/ID from the browser URL.
+ * Parses the balloon (story) slug/ID from the browser URL.
  */
 export function parseStoryFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const url = new URL(window.location.href);
-    const storyParam = url.searchParams.get('story');
+    const storyParam = url.searchParams.get('balloon') || url.searchParams.get('story');
     if (storyParam && storyParam.trim()) {
       return storyParam.trim();
     }
 
     const rawHash = url.hash.replace(/^#\/?/, '');
+    if (rawHash.startsWith('balloon/')) {
+      return decodeURIComponent(rawHash.slice('balloon/'.length)).trim() || null;
+    }
     if (rawHash.startsWith('story/')) {
       return decodeURIComponent(rawHash.slice('story/'.length)).trim() || null;
     }
 
     const pathParts = url.pathname.split('/').filter(Boolean);
+    const balloonIdx = pathParts.indexOf('balloon');
+    if (balloonIdx !== -1 && pathParts[balloonIdx + 1]) {
+      return decodeURIComponent(pathParts[balloonIdx + 1]).trim() || null;
+    }
     const storyIdx = pathParts.indexOf('story');
     if (storyIdx !== -1 && pathParts[storyIdx + 1]) {
       return decodeURIComponent(pathParts[storyIdx + 1]).trim() || null;
@@ -577,3 +663,186 @@ export async function shareStoryWithImage(
 
   return copied;
 }
+
+/**
+ * Builds the full shareable URL for the activities/worksheets feed (optionally targeting a specific worksheet ID).
+ */
+export function getActivityShareUrl(worksheetId?: string): string {
+  const paramValue = worksheetId && worksheetId.trim() ? worksheetId.trim() : '1';
+  if (typeof window === 'undefined') {
+    return `https://littlables.github.io/?activities=${encodeURIComponent(paramValue)}`;
+  }
+  const url = new URL(window.location.href);
+  url.pathname = '/';
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('activities', paramValue);
+  return url.toString();
+}
+
+/**
+ * Parses whether the browser URL is deep-linking into the activities/worksheets feed
+ * (via ?activities=..., ?activity=..., ?worksheets=..., ?worksheet=..., #activities, or /activities).
+ */
+export function parseActivityFromUrl(): { isOpen: boolean; worksheetId: string | null } {
+  if (typeof window === 'undefined') return { isOpen: false, worksheetId: null };
+  try {
+    const url = new URL(window.location.href);
+    const paramKeys = ['activities', 'activity', 'worksheets', 'worksheet'];
+    for (const key of paramKeys) {
+      if (url.searchParams.has(key)) {
+        const raw = (url.searchParams.get(key) || '').trim();
+        const isGeneric = !raw || raw === '1' || raw === 'true' || raw === 'all' || raw === 'feed';
+        return {
+          isOpen: true,
+          worksheetId: isGeneric ? null : raw
+        };
+      }
+    }
+
+    const interestParam = (url.searchParams.get('interest') || url.searchParams.get('topic') || '').trim().toLowerCase();
+    if (interestParam === 'activities' || interestParam === 'activity' || interestParam === 'worksheets' || interestParam === 'worksheet') {
+      return { isOpen: true, worksheetId: null };
+    }
+
+    const rawHash = url.hash.replace(/^#\/?/, '').trim();
+    if (rawHash) {
+      const hashParts = rawHash.split('/').filter(Boolean);
+      const firstHash = (hashParts[0] || '').toLowerCase();
+      if (firstHash === 'activities' || firstHash === 'activity' || firstHash === 'worksheets' || firstHash === 'worksheet') {
+        const secondHash = hashParts[1] ? decodeURIComponent(hashParts[1]).trim() : null;
+        return { isOpen: true, worksheetId: secondHash || null };
+      }
+    }
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if (pathParts.length > 0) {
+      const firstPath = pathParts[0].toLowerCase();
+      if (firstPath === 'activities' || firstPath === 'activity' || firstPath === 'worksheets' || firstPath === 'worksheet') {
+        const secondPath = pathParts[1] ? decodeURIComponent(pathParts[1]).trim() : null;
+        return { isOpen: true, worksheetId: secondPath || null };
+      }
+    }
+  } catch {}
+  return { isOpen: false, worksheetId: null };
+}
+
+/**
+ * Removes activities/worksheets deep-link parameters from the address bar when closing the activities feed.
+ */
+export function clearActivityFromUrl(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+
+    for (const key of ['activities', 'activity', 'worksheets', 'worksheet']) {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    }
+
+    const interestParam = (url.searchParams.get('interest') || '').trim().toLowerCase();
+    if (interestParam === 'activities' || interestParam === 'activity' || interestParam === 'worksheets' || interestParam === 'worksheet') {
+      url.searchParams.delete('interest');
+      changed = true;
+    }
+
+    const rawHash = url.hash.replace(/^#\/?/, '').trim().toLowerCase();
+    if (
+      rawHash === 'activities' ||
+      rawHash === 'activity' ||
+      rawHash === 'worksheets' ||
+      rawHash === 'worksheet' ||
+      rawHash.startsWith('activities/') ||
+      rawHash.startsWith('activity/') ||
+      rawHash.startsWith('worksheets/') ||
+      rawHash.startsWith('worksheet/')
+    ) {
+      url.hash = '';
+      changed = true;
+    }
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if (
+      pathParts.length > 0 &&
+      ['activities', 'activity', 'worksheets', 'worksheet'].includes(pathParts[0].toLowerCase())
+    ) {
+      url.pathname = '/';
+      changed = true;
+    }
+
+    if (changed) {
+      const nextHref = `${url.pathname}${url.search}${url.hash}` || '/';
+      window.history.replaceState(window.history.state, '', nextHref);
+    }
+  } catch {}
+}
+
+/**
+ * Shares an activity/worksheet card via clipboard and native Web Share API, matching front-page balloon cards.
+ */
+export async function shareWorksheetWithImage(worksheet: {
+  id: string;
+  title: string;
+  description: string;
+  previewImg: string;
+}): Promise<boolean> {
+  const shareUrl = getActivityShareUrl(worksheet.id);
+  const pseudoStory: NewsItem = {
+    title: worksheet.title,
+    description: worksheet.description,
+    link: shareUrl,
+    pubDate: new Date().toISOString(),
+    source: 'littlables',
+    category: 'all',
+    image: worksheet.previewImg
+  };
+
+  updateStoryOpenGraphTags(pseudoStory, worksheet.previewImg, shareUrl);
+
+  const copied = await copyUrlToClipboard(shareUrl, pseudoStory, worksheet.previewImg);
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    const shareText = worksheet.description || worksheet.title;
+    try {
+      const imageFile = await fetchImageAsShareFile(worksheet.previewImg, pseudoStory);
+      if (imageFile && typeof navigator.canShare === 'function') {
+        const withFileAndUrl: ShareData = {
+          title: worksheet.title,
+          text: shareText,
+          url: shareUrl,
+          files: [imageFile]
+        };
+        if (navigator.canShare(withFileAndUrl)) {
+          await navigator.share(withFileAndUrl);
+          return true;
+        }
+        const withFileOnly: ShareData = {
+          title: worksheet.title,
+          text: `${shareText}\n${shareUrl}`,
+          files: [imageFile]
+        };
+        if (navigator.canShare(withFileOnly)) {
+          await navigator.share(withFileOnly);
+          return true;
+        }
+      }
+
+      if (window.matchMedia?.('(pointer: coarse)').matches) {
+        await navigator.share({
+          title: worksheet.title,
+          text: shareText,
+          url: shareUrl
+        });
+        return true;
+      }
+    } catch {
+      // User cancelled native share sheet or browser disallowed; clipboard copy already succeeded.
+    }
+  }
+
+  return copied;
+}
+

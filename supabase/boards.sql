@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.boards (
   slug TEXT NOT NULL,
   description TEXT,
   logo_url TEXT,
+  icon_emoji TEXT,
   theme TEXT,
   background_color TEXT,
   pills JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -17,20 +18,22 @@ CREATE TABLE IF NOT EXISTS public.boards (
   UNIQUE(user_id, slug)
 );
 
--- Slug format: 1-50 chars, lowercase letters, numbers, dashes
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'boards_slug_format') THEN
-    ALTER TABLE public.boards ADD CONSTRAINT boards_slug_format
-      CHECK (slug ~ '^[a-z0-9-]{1,50}$');
-  END IF;
-END $$;
+ALTER TABLE public.boards ADD COLUMN IF NOT EXISTS icon_emoji TEXT;
+
+-- Slug format: 1-50 chars, lowercase letters, numbers, dashes, underscores
+ALTER TABLE public.boards DROP CONSTRAINT IF EXISTS boards_slug_format;
+ALTER TABLE public.boards DROP CONSTRAINT IF EXISTS spaces_slug_format;
+ALTER TABLE public.boards ADD CONSTRAINT spaces_slug_format
+  CHECK (slug ~ '^[a-z0-9\-_]{1,50}$');
 
 -- Background color format: #rrggbb (nullable = inherit profile theme)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'boards_bg_color_format') THEN
-    ALTER TABLE public.boards ADD CONSTRAINT boards_bg_color_format
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'boards_bg_color_format') THEN
+    ALTER TABLE public.boards DROP CONSTRAINT boards_bg_color_format;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'spaces_bg_color_format') THEN
+    ALTER TABLE public.boards ADD CONSTRAINT spaces_bg_color_format
       CHECK (background_color IS NULL OR background_color ~ '^#[0-9a-fA-F]{6}$');
   END IF;
 END $$;
@@ -73,6 +76,47 @@ DROP TRIGGER IF EXISTS on_board_updated ON public.boards;
 CREATE TRIGGER on_board_updated
   BEFORE UPDATE ON public.boards
   FOR EACH ROW EXECUTE FUNCTION public.handle_board_updated();
+
+-- Ensure membership column and helper exist even if boards.sql is run before profiles_expansion.sql
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS membership TEXT NOT NULL DEFAULT 'free';
+
+CREATE OR REPLACE FUNCTION public.get_membership_limits(target_user_id UUID)
+RETURNS TABLE(max_spaces INT, max_playrooms INT, max_spaces_per_playroom INT) AS $$
+DECLARE
+  user_membership TEXT;
+BEGIN
+  SELECT COALESCE(membership, 'free') INTO user_membership
+  FROM public.profiles
+  WHERE id = target_user_id;
+
+  IF user_membership IN ('member', 'plus', 'premium') THEN
+    RETURN QUERY SELECT 25, 10, 15;
+  ELSE
+    RETURN QUERY SELECT 5, 1, 5;
+  END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+-- Enforce membership limit: max spaces (boards) per user (5 free / 25 member)
+CREATE OR REPLACE FUNCTION public.enforce_max_spaces_per_user()
+RETURNS TRIGGER AS $$
+DECLARE
+  allowed_spaces INT;
+BEGIN
+  SELECT max_spaces INTO allowed_spaces FROM public.get_membership_limits(NEW.user_id);
+  allowed_spaces := COALESCE(allowed_spaces, 5);
+  IF (SELECT COUNT(*) FROM public.boards WHERE user_id = NEW.user_id) > allowed_spaces THEN
+    RAISE EXCEPTION 'Maximum of % spaces per user reached', allowed_spaces
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS enforce_max_spaces_trigger ON public.boards;
+CREATE TRIGGER enforce_max_spaces_trigger
+  AFTER INSERT ON public.boards
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_max_spaces_per_user();
 
 -- Grants (table privileges are separate from RLS policies)
 GRANT ALL ON public.boards TO service_role;

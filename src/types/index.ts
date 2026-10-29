@@ -2,7 +2,7 @@ export type StandardNewsCategory = 'all' | 'childcare' | 'animals' | 'arts' | 't
 
 export type NewsCategory = StandardNewsCategory | (string & {});
 
-export type ThemeId = 'dark' | 'dark-purple' | 'light' | 'rainbow' | 'pastel-rainbow' | 'pink';
+export type ThemeId = 'dark-purple' | 'dark' | 'light' | 'rainbow' | 'pastel-rainbow' | 'pink';
 
 export type ReactionType = 'love' | 'mind' | 'cozy';
 

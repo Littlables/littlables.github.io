@@ -5,10 +5,10 @@
  * never shown as categories in the nav or homepage sections — they exist for:
  *   1. Classification: stories are auto-tagged via embedding similarity
  *      (see embedding-classifier.mjs) and can be hand-tagged in the admin panel.
- *   2. Custom boards: users build boards around keywords (e.g. a "Space" board).
+ *   2. Custom spaces: users build spaces around keywords (e.g. a "Space" space).
  *
  * IDs are URL-safe slugs; labels are display names. `group` organizes the
- * admin/board pickers.
+ * admin/space pickers.
  *
  * Descriptions are embedding prompts written as "what kind of news story",
  * not bare noun lists — this keeps the matcher from firing on passing
@@ -177,14 +177,14 @@ export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Flagged (excluded from front-page feeds) ----
   // These keywords label content we do NOT want on the front page (it never
   // shows in category feeds, including "all"). They still classify normally,
-  // show distinctly in the admin panel, and ARE available for custom boards.
+  // show distinctly in the admin panel, and ARE available for custom spaces.
   { id: 'stocks', label: 'Stocks', icon: '📈', group: 'Flagged', excluded: true, description: 'stock market news: stock prices, investing, VIX index, market sell-offs, shareholder news' },
   { id: 'cryptocurrency', label: 'Crypto', icon: '₿', group: 'Flagged', excluded: true, description: 'cryptocurrency news: Bitcoin, crypto prices, blockchain coins, crypto markets' },
   { id: 'business-news', label: 'Business News', icon: '💼', group: 'Flagged', excluded: true, description: 'corporate business news: earnings reports, mergers and acquisitions, company layoffs, CEO announcements' },
   { id: 'clickbait', label: 'Clickbait', icon: '🎣', group: 'Flagged', excluded: true, description: 'clickbait stories: sensationalist headlines, misleading titles, exaggerated claims designed to get clicks' },
   { id: 'death', label: 'Death', icon: '⚫', group: 'Flagged', excluded: true, description: 'death and dying: obituaries, fatal accidents, murder, deadly diseases, mortality' },
 
-  // ---- Politics (excluded from front page, available for boards) ----
+  // ---- Politics (excluded from front page, available for spaces) ----
   { id: 'politics', label: 'Politics', icon: '🏛️', group: 'Politics', excluded: true, description: 'political news: politicians, political parties, campaigns, political debates and commentary' },
   { id: 'elections', label: 'Elections', icon: '🗳️', group: 'Politics', excluded: true, description: 'elections and voting news: election campaigns, candidates, voting, election results' },
   { id: 'government', label: 'Government', icon: '🏢', group: 'Politics', excluded: true, description: 'government and policy news: new laws, government decisions, public policy, regulations' },
@@ -192,7 +192,7 @@ export const INTEREST_KEYWORDS = Object.freeze([
   // ---- Countries ----
   { id: 'countries-general', label: 'Countries', icon: '🌐', group: 'Countries', description: 'general country news: nations around the world, international stories' },
   // Geographic grouping: tag stories by the country they are about/from.
-  // Powers country boards today; pairs with the planned region/country_code
+  // Powers country spaces today; pairs with the planned region/country_code
   // columns for per-country content serving later.
   { id: 'country-us', label: 'United States', icon: '🇺🇸', group: 'Countries', description: 'stories about the United States: American news, US cities, states, American culture' },
   { id: 'country-uk', label: 'United Kingdom', icon: '🇬🇧', group: 'Countries', description: 'stories about the United Kingdom: Britain, England, London, British culture and news' },

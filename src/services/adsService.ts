@@ -4,6 +4,7 @@ import { isValidCategory, matchesKeywordQuery } from './urlService';
 import { searchSupabaseAdsByKeyword } from './supabaseService';
 
 interface RawProductAd {
+  id?: string;
   name?: string;
   title?: string;
   description?: string;
@@ -117,7 +118,7 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
   // Stable ID: network + hash of URL (or title+sponsor as fallback)
   const network = raw.network || 'unknown';
   const idSeed = url !== '#' ? url : `${title}|${sponsor}`;
-  const id = `ad_${network}_${hashString(idSeed)}`;
+  const id = raw.id || `ad_${network}_${hashString(idSeed)}`;
 
   return {
     id,
@@ -132,14 +133,21 @@ function formatProductAd(raw: RawProductAd, category: NewsCategory, defaultIndex
   };
 }
 
+const jsonFileCache: Record<string, RawProductAd[]> = {};
+
 async function fetchJsonAdsFromPath(basePath: string): Promise<RawProductAd[]> {
-  const candidates = [basePath, `/${basePath.replace(/^\/+/, '')}`, `./${basePath.replace(/^\.?\/+/, '')}`];
+  const normalizedKey = basePath.replace(/^\.?\/+/, '');
+  if (jsonFileCache[normalizedKey]) {
+    return jsonFileCache[normalizedKey];
+  }
+  const candidates = [basePath, `/${normalizedKey}`, `./${normalizedKey}`];
   for (const path of candidates) {
     try {
       const response = await fetch(path);
       if (response.ok) {
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
+          jsonFileCache[normalizedKey] = data;
           return data;
         }
       }
@@ -166,9 +174,27 @@ async function fetchFirstAvailableJson(paths: string[]): Promise<RawProductAd[]>
  * a few TikTok affiliate ads, all shuffled together.
  */
 async function fetchFrontPageAds(): Promise<AdItem[]> {
-  const perCategory = await Promise.all(
-    FRONT_PAGE_AD_CATEGORIES.map((cat) => fetchFirstAvailableJson([`ads/${cat}.json`]))
-  );
+  const [perCategory, amazonAds, tiktokAds, awinAds] = await Promise.all([
+    Promise.all(FRONT_PAGE_AD_CATEGORIES.map((cat) => fetchFirstAvailableJson([`ads/${cat}.json`]))),
+    fetchFirstAvailableJson(['ads/amazon.json']),
+    fetchFirstAvailableJson(['ads/tiktok.json']),
+    fetchAwinAds('all'),
+  ]);
+
+  // Pre-populate individual category ad caches using the already-fetched category + amazon + tiktok catalogs
+  FRONT_PAGE_AD_CATEGORIES.forEach((cat, idx) => {
+    if (!adCache[cat] || adCache[cat].length === 0) {
+      const catRaw = [
+        ...(perCategory[idx] || []),
+        ...amazonAds.filter((ad) => ad.category === cat || ad.category === 'all'),
+        ...shuffleArray(tiktokAds).slice(0, 2),
+      ];
+      if (catRaw.length > 0) {
+        const formatted = catRaw.map((item, i) => formatProductAd(item, cat as NewsCategory, i));
+        adCache[cat] = deprioritizeVrChatAds(shuffleArray(formatted));
+      }
+    }
+  });
 
   const sampled: RawProductAd[] = [];
   for (const ads of perCategory) {
@@ -176,15 +202,12 @@ async function fetchFrontPageAds(): Promise<AdItem[]> {
   }
 
   // Amazon general-interest ads (category 'all')
-  const amazonAds = await fetchFirstAvailableJson(['ads/amazon.json']);
   sampled.push(...amazonAds.filter((ad) => ad.category === 'all'));
 
   // A few TikTok affiliate ads for extra variety
-  const tiktokAds = await fetchFirstAvailableJson(['ads/tiktok.json']);
   sampled.push(...shuffleArray(tiktokAds).slice(0, FRONT_PAGE_TIKTOK_ADS));
 
   // Awin affiliate ads (from Supabase via the worker) for extra variety
-  const awinAds = await fetchAwinAds('all');
   sampled.push(...shuffleArray(awinAds).slice(0, 5));
 
   return sampled.map((item, idx) => formatProductAd(item, 'all', idx));
@@ -195,7 +218,7 @@ async function fetchWorkerAdsByKeyword(keyword: string): Promise<RawProductAd[]>
     const url = new URL(NEWS_CONFIG.workerUrl);
     url.pathname = '/ads';
     url.searchParams.set('q', keyword);
-    const response = await fetch(url.href, { cache: 'no-cache' });
+    const response = await fetch(url.href);
     if (!response.ok) return [];
     const data = await response.json();
     if (Array.isArray(data?.ads)) return data.ads;
@@ -205,17 +228,23 @@ async function fetchWorkerAdsByKeyword(keyword: string): Promise<RawProductAd[]>
   return [];
 }
 
+const awinCache: Record<string, RawProductAd[]> = {};
+
 /** Fetch Awin affiliate ads from the worker (served from Supabase). */
 async function fetchAwinAds(category: string): Promise<RawProductAd[]> {
+  if (awinCache[category]) return awinCache[category];
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
     url.pathname = '/ads';
     url.searchParams.set('category', category);
     url.searchParams.set('network', 'awin');
-    const response = await fetch(url.href, { cache: 'no-cache' });
+    const response = await fetch(url.href);
     if (!response.ok) return [];
     const data = await response.json();
-    if (Array.isArray(data?.ads)) return data.ads;
+    if (Array.isArray(data?.ads)) {
+      awinCache[category] = data.ads;
+      return data.ads;
+    }
   } catch {
     // Awin ads are optional — the site works without them
   }
@@ -286,6 +315,20 @@ async function searchAdsByKeyword(keyword: string): Promise<AdItem[]> {
 
   adCache[cacheKey] = matchedAds;
   return matchedAds;
+}
+
+/**
+ * Synchronously returns cached ads for a category if already loaded in memory.
+ */
+export function getCachedAdsForCategory(category: NewsCategory): AdItem[] | null {
+  if (!isValidCategory(category)) {
+    const cacheKey = `custom:${category.trim().toLowerCase()}`;
+    return adCache[cacheKey] || null;
+  }
+  if (adCache[category] && adCache[category].length > 0) {
+    return deprioritizeVrChatAds(shuffleArray(adCache[category]));
+  }
+  return null;
 }
 
 export async function fetchAdsForCategory(category: NewsCategory): Promise<AdItem[]> {
@@ -404,6 +447,31 @@ export async function fetchAdsForCategory(category: NewsCategory): Promise<AdIte
   ];
 }
 
+/**
+ * Fetch the Worker ad catalog for story matching. The /ads/match endpoint
+ * returns IDs from this catalog, so spaces must render from the same IDs.
+ * Do not fall back to the client JSON catalogs here: their IDs may differ.
+ */
+export async function fetchAdsForMatching(category: NewsCategory = 'all'): Promise<AdItem[]> {
+  try {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/ads';
+    url.searchParams.set('category', category);
+    const response = await fetch(url.href);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (!Array.isArray(data?.ads)) return [];
+    return data.ads
+      .filter((ad: AdItem) => typeof ad?.id === 'string' && ad.id.length > 0)
+      .map((ad: AdItem) => ({
+        ...ad,
+        img: ad.img ? toRootAbsolute(ad.img) : '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export function getRandomAds(ads: AdItem[], count: number = 2): AdItem[] {
   if (!ads || !ads.length) return [];
   // Completely randomize and shuffle all ads for the category together,
@@ -448,7 +516,7 @@ export async function fetchAdKeywordTags(keywords: string[]): Promise<Record<str
  * Returns { [storyIndex]: adId[] }. Empty on failure (fallback to rotation).
  */
 export async function fetchMatchedAdIds(
-  stories: { title?: string; description?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[] }[]
+  stories: { title?: string; description?: string; category?: string; keywords?: string[]; interest_keywords?: string[]; interestKeywords?: string[]; _index?: number }[]
 ): Promise<Record<number, string[]>> {
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
@@ -457,7 +525,9 @@ export async function fetchMatchedAdIds(
       stories: stories.slice(0, 20).map(s => ({
         title: s.title || '',
         description: s.description || '',
+        category: s.category || 'all',
         keywords: s.keywords || s.interest_keywords || s.interestKeywords || [],
+        ...(s._index != null ? { _index: s._index } : {}),
       })),
     };
     const response = await fetch(url.href, {

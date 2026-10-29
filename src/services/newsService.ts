@@ -100,38 +100,156 @@ function isValidStoryItem(item: NewsItem): boolean {
   }
 }
 
-async function fetchSingleCategory(category: NewsCategory): Promise<NewsItem[]> {
-  const url = new URL(NEWS_CONFIG.workerUrl);
-  url.pathname = '/feed';
-  url.searchParams.set('category', category);
+const RAW_CATEGORY_TTL_MS = 2 * 60 * 1000; // 2 minutes fresh window before background revalidation
+const SESSION_CACHE_KEY = 'littlables_feed_cache_v1';
 
-  const response = await fetch(url.href, { cache: 'no-cache' });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || `News feed request failed (HTTP ${response.status})`);
+interface CachedFeedEntry {
+  items: NewsItem[];
+  fetchedAt: number;
+}
+
+const rawCategoryCache = new Map<string, CachedFeedEntry>();
+const feedCache = new Map<string, CachedFeedEntry>();
+const inFlightCategoryRequests = new Map<string, Promise<NewsItem[]>>();
+const inFlightFeedRequests = new Map<string, Promise<NewsItem[]>>();
+
+function normalizeCacheKey(category: NewsCategory): string {
+  const trimmed = String(category || 'all').trim();
+  return isValidCategory(trimmed) ? trimmed.toLowerCase() : `custom:${trimmed.toLowerCase()}`;
+}
+
+function hydrateCacheFromSession(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, CachedFeedEntry>;
+    if (!parsed || typeof parsed !== 'object') return;
+    const now = Date.now();
+    for (const [key, entry] of Object.entries(parsed)) {
+      if (entry && Array.isArray(entry.items) && entry.items.length > 0 && now - entry.fetchedAt < 15 * 60 * 1000) {
+        feedCache.set(key, entry);
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+hydrateCacheFromSession();
+
+function persistCacheToSession(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const serializable: Record<string, CachedFeedEntry> = {};
+    for (const [key, entry] of feedCache.entries()) {
+      if (!key.startsWith('custom:') || Object.keys(serializable).length < 14) {
+        serializable[key] = {
+          items: entry.items.slice(0, 60),
+          fetchedAt: entry.fetchedAt,
+        };
+      }
+    }
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(serializable));
+  } catch {
+    // Ignore quota or storage errors
+  }
+}
+
+function buildCategoryFeedFromRaw(feedItems: NewsItem[]): NewsItem[] {
+  const approvedItems = feedItems.filter(item => item.approved === true);
+  const unapprovedItems = feedItems.filter(item => item.approved !== true);
+  return [...approvedItems, ...unapprovedItems];
+}
+
+async function fetchSingleCategory(
+  category: NewsCategory,
+  options?: { forceRefresh?: boolean }
+): Promise<NewsItem[]> {
+  const key = String(category || 'all').trim().toLowerCase();
+  const forceRefresh = options?.forceRefresh === true;
+  const cached = rawCategoryCache.get(key);
+
+  if (!forceRefresh && cached && Date.now() - cached.fetchedAt < RAW_CATEGORY_TTL_MS) {
+    return cached.items;
   }
 
-  if (!Array.isArray(data.items)) return [];
+  const existingInFlight = inFlightCategoryRequests.get(key);
+  if (!forceRefresh && existingInFlight) {
+    return existingInFlight;
+  }
 
-  return data.items
-    .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
-    .map((item: any) => {
-      const normalized = normalizeFetchedItem(item, category);
-      // When viewing a specific category feed, label the card with the viewed
-      // category if the story's override list includes it.
-      if (
-        isValidCategory(category) &&
-        Array.isArray(normalized.displayCategories) &&
-        normalized.displayCategories.includes(category)
-      ) {
-        normalized.category = category;
-      }
-      return normalized;
-    })
-    .filter(isValidStoryItem);
+  const requestPromise = (async () => {
+    const url = new URL(NEWS_CONFIG.workerUrl);
+    url.pathname = '/space';
+    url.searchParams.set('interest', category);
+
+    let response = await fetch(url.href, forceRefresh ? { cache: 'no-cache' } : undefined);
+    if (response.status === 404) {
+      const legacyUrl = new URL(NEWS_CONFIG.workerUrl);
+      legacyUrl.pathname = '/feed';
+      legacyUrl.searchParams.set('category', category);
+      response = await fetch(legacyUrl.href, forceRefresh ? { cache: 'no-cache' } : undefined);
+    }
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `News feed request failed (HTTP ${response.status})`);
+    }
+
+    if (!Array.isArray(data.items)) return [];
+
+    const items = data.items
+      .filter((item: any) => item && typeof (item.link || item.article_url) === 'string')
+      .map((item: any) => {
+        const normalized = normalizeFetchedItem(item, category);
+        if (
+          isValidCategory(category) &&
+          Array.isArray(normalized.displayCategories) &&
+          normalized.displayCategories.includes(category)
+        ) {
+          normalized.category = category;
+        }
+        return normalized;
+      })
+      .filter(isValidStoryItem);
+
+    const now = Date.now();
+    rawCategoryCache.set(key, { items, fetchedAt: now });
+
+    // Also pre-populate the individual standard category feed cache so switching to it is instant
+    if (isValidCategory(category) && category !== 'all' && items.length > 0) {
+      const mergedCat = buildCategoryFeedFromRaw(items);
+      feedCache.set(normalizeCacheKey(category), { items: mergedCat, fetchedAt: now });
+    }
+
+    return items;
+  })();
+
+  inFlightCategoryRequests.set(key, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    inFlightCategoryRequests.delete(key);
+  }
 }
 
 function storyMatchesKeyword(item: NewsItem, keyword: string): boolean {
+  const parts = String(keyword || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (parts.length > 1) {
+    return parts.some((part) => storyMatchesKeyword(item, part));
+  }
+
+  const single = (parts[0] || '').toLowerCase();
+  if (!single) return false;
+  if (single === 'all') return true;
+  if (isValidCategory(single) && item.category?.toLowerCase() === single) {
+    return true;
+  }
+
   const searchable = [
     item.title,
     item.description,
@@ -139,12 +257,13 @@ function storyMatchesKeyword(item: NewsItem, keyword: string): boolean {
     item.content,
     item.source,
     item.provider,
-    item.category
+    item.category,
+    ...(Array.isArray(item.interestKeywords) ? item.interestKeywords : [])
   ]
     .filter(Boolean)
     .join(' ');
 
-  return matchesKeywordQuery(searchable, keyword);
+  return matchesKeywordQuery(searchable, single);
 }
 
 const byPublicationDate = (first: NewsItem, second: NewsItem) => {
@@ -156,26 +275,6 @@ const byPublicationDate = (first: NewsItem, second: NewsItem) => {
   return firstTimestamp > secondTimestamp ? -1 : 1;
 };
 
-/**
- * Homepage ('all') ordering.
- *
- * A first-time visitor (and anyone reviewing the site, e.g. an advertiser
- * brand manager) judges Littlables from the first cards they see with zero
- * clicks. Those cards should show what the site is for — cozy lifestyle and
- * creative stories — not the newest breaking / political headline from the
- * wire, which can be the freshest item even when it is off-brand.
- *
- * So for the default landing feed only:
- *  1. Rotate through all six front-page categories — Creative Arts,
- *     Childcare & Family, Animals & Nature, Future Tech, Global Currents,
- *     and Uplifting News — so every category gets turns at the top
- *     instead of the slower ones sitting below the whole feed.
- *  2. Show uncategorised stories (the 'all' wire) afterwards, in their
- *     existing order.
- *
- * Within each category the incoming order is preserved (the worker's
- * reaction-ranked order). Category-specific feeds are unaffected.
- */
 const HOMEPAGE_ROTATION_CATEGORIES: StandardNewsCategory[] = ['arts', 'childcare', 'animals', 'tech', 'world', 'uplifting'];
 
 function effectiveStoryCategory(item: NewsItem): NewsCategory {
@@ -187,8 +286,6 @@ export function orderStoriesForHomepage(stories: NewsItem[]): NewsItem[] {
     stories.filter(item => effectiveStoryCategory(item) === category)
   );
 
-  // Round-robin all six categories: arts, childcare, animals, tech, world,
-  // uplifting, arts, ... so every category gets turns at the top.
   const rotated: NewsItem[] = [];
   for (let index = 0; rotated.length < stories.length; index++) {
     let addedAtThisIndex = false;
@@ -207,32 +304,81 @@ export function orderStoriesForHomepage(stories: NewsItem[]): NewsItem[] {
   return [...rotated, ...rest];
 }
 
-/**
- * Searches the story table across the Worker endpoint, Supabase table, and all category feeds
- * for a custom topic keyword.
- */
-async function searchStoriesByKeyword(keyword: string): Promise<NewsItem[]> {
+export function getCachedNewsFeed(category: NewsCategory): NewsItem[] | null {
+  const cacheKey = normalizeCacheKey(category);
+  const direct = feedCache.get(cacheKey);
+  if (direct && direct.items.length > 0) {
+    return direct.items;
+  }
+
+  if (isValidCategory(category) && category !== 'all') {
+    const raw = rawCategoryCache.get(category.toLowerCase());
+    if (raw && raw.items.length > 0) {
+      const built = buildCategoryFeedFromRaw(raw.items);
+      feedCache.set(cacheKey, { items: built, fetchedAt: raw.fetchedAt });
+      return built;
+    }
+    return null;
+  }
+
+  if (!isValidCategory(category)) {
+    const trimmedKeyword = String(category || '').trim();
+    if (!trimmedKeyword) return null;
+    const pool: NewsItem[] = [];
+    for (const entry of feedCache.values()) {
+      pool.push(...entry.items);
+    }
+    if (pool.length === 0) return null;
+    const seen = new Set<string>();
+    const matched: NewsItem[] = [];
+    for (const item of pool) {
+      if (!item.link || seen.has(item.link)) continue;
+      if (storyMatchesKeyword(item, trimmedKeyword)) {
+        seen.add(item.link);
+        matched.push(item);
+      }
+    }
+    return matched.length > 0 ? matched : null;
+  }
+
+  return null;
+}
+
+async function searchStoriesByKeyword(
+  keyword: string,
+  options?: { forceRefresh?: boolean }
+): Promise<NewsItem[]> {
   const trimmedKeyword = keyword.trim();
   if (!trimmedKeyword) return [];
 
-  const [workerKeywordResult, supabaseDirectResult, ...categoryFeedResults] = await Promise.allSettled([
-    fetchSingleCategory(trimmedKeyword),
-    searchSupabaseStoriesByKeyword(trimmedKeyword),
-    ...STANDARD_CATEGORIES.map(cat => fetchSingleCategory(cat))
+  const parts = trimmedKeyword
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const customParts = parts.filter((p) => !isValidCategory(p));
+
+  const [workerKeywordResults, supabaseDirectResults, ...categoryFeedResults] = await Promise.allSettled([
+    Promise.all(customParts.slice(0, 3).map((term) => fetchSingleCategory(term, options).catch(() => [] as NewsItem[]))),
+    Promise.all(customParts.slice(0, 3).map((term) => searchSupabaseStoriesByKeyword(term).catch(() => [] as any[]))),
+    ...STANDARD_CATEGORIES.map(cat => fetchSingleCategory(cat, { forceRefresh: false }))
   ]);
 
   const candidatePool: NewsItem[] = [];
 
-  if (workerKeywordResult.status === 'fulfilled') {
-    candidatePool.push(...workerKeywordResult.value);
+  if (workerKeywordResults.status === 'fulfilled') {
+    for (const list of workerKeywordResults.value) {
+      candidatePool.push(...list);
+    }
   }
 
-  if (supabaseDirectResult.status === 'fulfilled') {
-    candidatePool.push(
-      ...supabaseDirectResult.value
-        .map(item => normalizeFetchedItem(item, item.category || 'all'))
-        .filter(isValidStoryItem)
-    );
+  if (supabaseDirectResults.status === 'fulfilled') {
+    for (const list of supabaseDirectResults.value) {
+      candidatePool.push(
+        ...list
+          .map(item => normalizeFetchedItem(item, item.category || 'all'))
+          .filter(isValidStoryItem)
+      );
+    }
   }
 
   for (const res of categoryFeedResults) {
@@ -241,7 +387,6 @@ async function searchStoriesByKeyword(keyword: string): Promise<NewsItem[]> {
     }
   }
 
-  // Also check fallback stories in case they match the keyword
   for (const cat of STANDARD_CATEGORIES) {
     const fallbacks = FALLBACK_STORIES[cat] || [];
     for (const fb of fallbacks) {
@@ -275,22 +420,27 @@ async function searchStoriesByKeyword(keyword: string): Promise<NewsItem[]> {
 
   unapprovedMatches.sort(byPublicationDate);
 
-  return [...approvedMatches, ...unapprovedMatches];
+  const combined = [...approvedMatches, ...unapprovedMatches];
+  return parts.length > 1 ? orderStoriesForHomepage(combined) : combined;
 }
 
-export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]> {
+async function fetchNewsFeedInternal(
+  category: NewsCategory,
+  options?: { forceRefresh?: boolean }
+): Promise<NewsItem[]> {
   if (!isValidCategory(category)) {
-    return searchStoriesByKeyword(category);
+    const results = await searchStoriesByKeyword(category, options);
+    feedCache.set(normalizeCacheKey(category), { items: results, fetchedAt: Date.now() });
+    persistCacheToSession();
+    return results;
   }
 
   try {
     if (category === 'all') {
-      // For the homepage, fetch "all" and in parallel fetch approved/custom stories
-      // from other categories so custom images and curated stories show on the homepage!
       const otherCategories: StandardNewsCategory[] = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
       const [allFeedResult, ...otherCategoryResults] = await Promise.allSettled([
-        fetchSingleCategory('all'),
-        ...otherCategories.map(cat => fetchSingleCategory(cat))
+        fetchSingleCategory('all', options),
+        ...otherCategories.map(cat => fetchSingleCategory(cat, options))
       ]);
 
       const baseItems: NewsItem[] = allFeedResult.status === 'fulfilled' ? allFeedResult.value : [];
@@ -298,7 +448,6 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
 
       for (const res of otherCategoryResults) {
         if (res.status === 'fulfilled') {
-          // Include all approved stories curated from other categories
           extraApproved.push(...res.value.filter(item => item.approved === true));
         }
       }
@@ -307,9 +456,6 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
       const combinedApproved: NewsItem[] = [];
       const combinedUnapproved: NewsItem[] = [];
 
-      // 1. First add all approved stories (from all and other categories),
-      // preserving the worker's reaction-ranked order. No re-sort here: a
-      // date or image sort would undo within-day reaction ranking.
       const allApprovedStories = [...baseItems.filter(i => i.approved === true), ...extraApproved];
 
       for (const item of allApprovedStories) {
@@ -319,7 +465,6 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
         }
       }
 
-      // 2. Add unapproved stories to keep the wire fresh
       for (const item of baseItems.filter(i => i.approved !== true)) {
         if (!seenUrls.has(item.link)) {
           seenUrls.add(item.link);
@@ -328,44 +473,103 @@ export async function fetchNewsFeed(category: NewsCategory): Promise<NewsItem[]>
       }
 
       const merged = [...combinedApproved, ...combinedUnapproved];
-      return merged.length > 0
+      const finalAll = merged.length > 0
         ? orderStoriesForHomepage(merged)
         : (FALLBACK_STORIES.all || []);
+
+      feedCache.set(normalizeCacheKey('all'), { items: finalAll, fetchedAt: Date.now() });
+      persistCacheToSession();
+      return finalAll;
     }
 
-    // Specific category feed
-    const feedItems = await fetchSingleCategory(category);
+    const feedItems = await fetchSingleCategory(category, options);
     if (!feedItems.length) {
       throw new Error(`News feed returned no stories for category: ${category}`);
     }
 
-    // Preserve the worker's reaction-ranked order: filtering keeps order,
-    // so no re-sort here (a date sort would undo within-day ranking).
-    const approvedItems = feedItems
-      .filter(item => item.approved === true);
+    const merged = buildCategoryFeedFromRaw(feedItems);
+    const finalCat = merged.length > 0 ? merged : (FALLBACK_STORIES[category] || FALLBACK_STORIES.all);
 
-    const unapprovedItems = feedItems
-      .filter(item => item.approved !== true);
-
-    const merged = [...approvedItems, ...unapprovedItems];
-    return merged.length > 0 ? merged : (FALLBACK_STORIES[category] || FALLBACK_STORIES.all);
+    feedCache.set(normalizeCacheKey(category), { items: finalCat, fetchedAt: Date.now() });
+    persistCacheToSession();
+    return finalCat;
   } catch (err) {
     console.warn('Fetch news feed returned error, using fallback curated stories:', err);
     return FALLBACK_STORIES[category] || FALLBACK_STORIES.all;
   }
 }
 
-/**
- * Fetch stories tagged with an interest keyword (for custom boards).
- * Interest keywords never appear as categories; the worker serves them
- * via /feed?keyword=.
- */
+export async function fetchNewsFeed(
+  category: NewsCategory,
+  options?: { forceRefresh?: boolean }
+): Promise<NewsItem[]> {
+  const cacheKey = normalizeCacheKey(category);
+  const forceRefresh = options?.forceRefresh === true;
+  const cached = feedCache.get(cacheKey);
+
+  if (!forceRefresh && cached && cached.items.length > 0) {
+    const age = Date.now() - cached.fetchedAt;
+    if (age < RAW_CATEGORY_TTL_MS) {
+      return cached.items;
+    }
+  }
+
+  const existing = inFlightFeedRequests.get(cacheKey);
+  if (!forceRefresh && existing) {
+    return existing;
+  }
+
+  const promise = fetchNewsFeedInternal(category, options);
+  inFlightFeedRequests.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightFeedRequests.delete(cacheKey);
+  }
+}
+
+export function prefetchCategoriesInBackground(extraTopics: NewsCategory[] = []): void {
+  if (typeof window === 'undefined') return;
+  const runPrefetch = () => {
+    const targets: NewsCategory[] = [...STANDARD_CATEGORIES, ...extraTopics];
+    const seen = new Set<string>();
+    for (const topic of targets) {
+      const key = normalizeCacheKey(topic);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cached = feedCache.get(key);
+      if (cached && Date.now() - cached.fetchedAt < RAW_CATEGORY_TTL_MS) {
+        continue;
+      }
+      fetchNewsFeed(topic).catch(() => {});
+    }
+  };
+
+  if ('requestIdleCallback' in window) {
+    (window as any).requestIdleCallback(runPrefetch, { timeout: 1500 });
+  } else {
+    setTimeout(runPrefetch, 250);
+  }
+}
+
 export async function fetchKeywordFeed(keywordId: string): Promise<NewsItem[]> {
+  const cacheKey = `keyword:${keywordId.trim().toLowerCase()}`;
+  const cached = feedCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < RAW_CATEGORY_TTL_MS) {
+    return cached.items;
+  }
+
   try {
     const url = new URL(NEWS_CONFIG.workerUrl);
-    url.pathname = '/feed';
+    url.pathname = '/space';
     url.searchParams.set('keyword', keywordId);
-    const response = await fetch(url.href, { cache: 'no-cache' });
+    let response = await fetch(url.href);
+    if (response.status === 404) {
+      const legacyUrl = new URL(NEWS_CONFIG.workerUrl);
+      legacyUrl.pathname = '/feed';
+      legacyUrl.searchParams.set('keyword', keywordId);
+      response = await fetch(legacyUrl.href);
+    }
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.error || `Keyword feed request failed (HTTP ${response.status})`);
@@ -376,9 +580,12 @@ export async function fetchKeywordFeed(keywordId: string): Promise<NewsItem[]> {
       .map((item: any) => normalizeFetchedItem(item, 'all'));
     const approved = items.filter((i: NewsItem) => i.approved === true).sort(byPublicationDate);
     const unapproved = items.filter((i: NewsItem) => i.approved !== true).sort(byPublicationDate);
-    return [...approved, ...unapproved];
+    const merged = [...approved, ...unapproved];
+    feedCache.set(cacheKey, { items: merged, fetchedAt: Date.now() });
+    return merged;
   } catch (err) {
     console.warn('Fetch keyword feed returned error:', err);
     return [];
   }
 }
+

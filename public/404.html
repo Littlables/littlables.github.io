@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>littlables | discovery playroom</title>
+  <script>
+    // Single-Page App redirect for GitHub Pages / static hosts that don't use _redirects.
+    // Preserves path, query string, and hash by forwarding them to /?__spa_path=...
+    (function () {
+      var l = window.location;
+      var target = l.pathname + l.search + l.hash;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        '/?__spa_path=' + encodeURIComponent(target)
+      );
+    })();
+  </script>
+</head>
+<body></body>
+</html>

@@ -285,7 +285,7 @@ test('public feed API reads approved and unapproved stories while excluding bann
   };
   try {
     const response = await worker.fetch(
-      new Request('https://worker.example/feed?category=childcare'),
+      new Request('https://worker.example/space?interest=childcare'),
       {
         ...authEnv,
         SUPABASE_URL: 'https://supabase.example',
@@ -1176,7 +1176,7 @@ test('public feed and ads endpoints search stories and ads when custom topic key
 
   try {
     const feedRes = await worker.fetch(
-      new Request('https://worker.example/feed?category=puppy'),
+      new Request('https://worker.example/space?interest=puppy'),
       {
         ...authEnv,
         SUPABASE_URL: 'https://supabase.example',

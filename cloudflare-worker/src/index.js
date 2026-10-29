@@ -69,11 +69,11 @@ import {
 } from './news-storage.mjs';
 import { getAds, getAdById, updateAd, createAd } from './ads-data.mjs';
 import { syncAwin, getAwinAds } from './awin-sync.mjs';
-import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings } from './embedding-classifier.mjs';
+import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings, cosineSimilarity } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
-import { matchAdsToStory } from './ad-keyword-matcher.mjs';
+import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -172,6 +172,7 @@ async function serveNewsFeed(request, env, ctx) {
     if (!limit.success) return jsonResponse({ error: 'News feed request rate limit exceeded' }, 429);
 
     const rawCategory = (
+      url.searchParams.get('interest') ||
       url.searchParams.get('category') ||
       url.searchParams.get('topic') ||
       url.searchParams.get('q') ||
@@ -179,7 +180,7 @@ async function serveNewsFeed(request, env, ctx) {
     ).trim();
     const normalizedCategory = rawCategory.toLowerCase();
 
-    // Interest keyword feed (for custom boards). Keywords never appear as
+    // Interest keyword feed (for custom spaces). Keywords never appear as
     // categories; this is the dedicated read path for them.
     const keywordParam = (url.searchParams.get('keyword') || '').trim();
     if (keywordParam) {
@@ -2575,7 +2576,7 @@ export default {
     if (request.method === 'GET' && pathname === '/ai-image') {
       return serveAiStoryImage(request, env);
     }
-    if (request.method === 'GET' && pathname === '/feed') {
+    if (request.method === 'GET' && (pathname === '/space' || pathname === '/feed')) {
       if (
         (url.searchParams.get('auto_sync') === '1' || env?.AUTO_SYNC_ON_FEED === 'true') &&
         ctx &&
@@ -2630,10 +2631,118 @@ export default {
         return jsonResponse({ playroom: null, spaces: [], items: [], error: err.message }, 500);
       }
     }
+    if ((request.method === 'POST' || request.method === 'GET') && pathname === '/api/space/emoji') {
+      try {
+        let name = '';
+        let description = '';
+        let slug = '';
+        let pills = [];
+        if (request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          name = String(body.name || '').trim();
+          description = String(body.description || '').trim();
+          slug = String(body.slug || '').trim();
+          pills = Array.isArray(body.pills) ? body.pills : [];
+        } else {
+          name = (url.searchParams.get('name') || '').trim();
+          description = (url.searchParams.get('description') || '').trim();
+          slug = (url.searchParams.get('slug') || '').trim();
+        }
+
+        const selectedKeywordIds = new Set();
+        const customTexts = [];
+        for (const p of pills) {
+          if (!p || !p.id || p.id === 'all') continue;
+          if (p.type === 'keyword') {
+            selectedKeywordIds.add(String(p.id).trim());
+          } else if (p.type === 'custom') {
+            if (p.label) customTexts.push(String(p.label).trim());
+            if (p.keywords) customTexts.push(String(p.keywords).trim());
+          } else if (p.type === 'category') {
+            customTexts.push(String(p.id).trim());
+          }
+        }
+
+        const textParts = [name, description, customTexts.join(', '), slug.replace(/[-_]/g, ' ')].filter(Boolean);
+        const queryText = textParts.join('. ').slice(0, 1000);
+
+        const persisted = await getPersistedKeywordEmbeddings(env);
+        const keywordVectors = persisted?.vectors || (await getKeywordEmbeddings(env));
+        const textVector = queryText && env?.AI ? await embedText(env, queryText) : null;
+
+        if (!keywordVectors || keywordVectors.size === 0) {
+          return jsonResponse({ emoji: '✨', matches: [] }, 200);
+        }
+
+        // Compute combined target vector from text embedding + selected keyword embeddings
+        let targetVector = null;
+        if (textVector && Array.isArray(textVector)) {
+          targetVector = [...textVector];
+        }
+        const selectedVectors = [];
+        for (const kwId of selectedKeywordIds) {
+          const vec = keywordVectors.get(kwId);
+          if (Array.isArray(vec) && vec.length > 0) selectedVectors.push(vec);
+        }
+        if (selectedVectors.length > 0) {
+          const dim = selectedVectors[0].length;
+          const tagCentroid = new Array(dim).fill(0);
+          for (const vec of selectedVectors) {
+            for (let i = 0; i < dim; i++) tagCentroid[i] += vec[i] / selectedVectors.length;
+          }
+          if (targetVector && targetVector.length === dim) {
+            for (let i = 0; i < dim; i++) {
+              targetVector[i] = targetVector[i] * 0.65 + tagCentroid[i] * 0.35;
+            }
+          } else {
+            targetVector = tagCentroid;
+          }
+        }
+
+        if (!targetVector) {
+          return jsonResponse({ emoji: '✨', matches: [] }, 200);
+        }
+
+        const byEmoji = new Map();
+        for (const kw of INTEREST_KEYWORDS) {
+          const kwVec = keywordVectors.get(kw.id);
+          if (!kwVec) continue;
+          let sim = cosineSimilarity(targetVector, kwVec);
+          if (selectedKeywordIds.has(kw.id)) {
+            sim += 0.08;
+          }
+          if (kw.id.endsWith('-general')) {
+            sim *= 0.94;
+          }
+          const confidence = Math.round(sim * 10000) / 10000;
+          const prev = byEmoji.get(kw.icon);
+          if (!prev || confidence > prev.confidence) {
+            byEmoji.set(kw.icon, {
+              emoji: kw.icon,
+              id: kw.id,
+              label: kw.label,
+              group: kw.group,
+              confidence
+            });
+          }
+        }
+
+        const matches = [...byEmoji.values()]
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 12);
+
+        return jsonResponse({
+          emoji: matches[0]?.emoji || '✨',
+          matches
+        });
+      } catch (err) {
+        return jsonResponse({ emoji: '✨', matches: [], error: err.message }, 200);
+      }
+    }
     if (request.method === 'POST' && pathname === '/api/engagement') {
       return handleEngagementEvent(request, env);
     }
-    if (request.method === 'POST' && pathname === '/api/analytics/board') {
+    if (request.method === 'POST' && (pathname === '/api/analytics/space' || pathname === '/api/analytics/board')) {
       return handleBoardEvent(request, env);
     }
     if (request.method === 'POST' && pathname === '/api/ad-engagement') {
@@ -2688,44 +2797,42 @@ export default {
         if (!stories.length) return jsonResponse({ matches: {} });
 
         const keywordVectors = await getKeywordEmbeddings(env);
-        const allKeywords = new Set();
         const storyKeywords = [];
+        const storyVectors = [];
         for (const s of stories) {
           const existing = s.keywords || s.interest_keywords || s.interestKeywords || [];
           if (Array.isArray(existing) && existing.length > 0) {
             const kws = existing.filter(k => typeof k === 'string');
-            for (const k of kws) allKeywords.add(k);
             storyKeywords.push(kws);
+            storyVectors.push(null);
           } else {
             const text = ((s.title || '') + ' ' + (s.description || '')).trim();
             const kws = [];
+            let storyVector = null;
             if (text) {
               try {
-                const vector = await embedText(env, text);
-                const matches = classifyStoryKeywords(vector, keywordVectors);
+                storyVector = await embedText(env, text);
+                const matches = classifyStoryKeywords(storyVector, keywordVectors);
                 for (const m of matches) {
                   kws.push(m.id);
-                  allKeywords.add(m.id);
                 }
               } catch {
                 // Skip stories that fail to classify
               }
             }
             storyKeywords.push(kws);
+            storyVectors.push(storyVector);
           }
         }
 
-        const kwArray = [...allKeywords].slice(0, 20);
         const params = new URLSearchParams({ select: 'ad_id,keywords' });
-        if (kwArray.length > 0) {
-          params.set('keywords', `ov.{${kwArray.join(',')}}`);
-        }
+        // Fetch the complete tag catalog so a slot with no exact overlap can
+        // still fall back to the semantically closest tagged ad.
         const res = await fetch(
           supabaseUrl(env, 'ad_keyword_tags', params),
           { headers: supabaseHeaders(env) }
         );
-        if (!res.ok) throw new Error('tags fetch failed: ' + res.status);
-        const rows = await res.json();
+        const rows = res.ok ? await res.json() : [];
 
         const ads = (Array.isArray(rows) ? rows : [])
           .filter(r => r.ad_id)
@@ -2735,16 +2842,52 @@ export default {
         const matches = {};
         stories.forEach((s, idx) => {
           const kws = storyKeywords[idx];
-          if (!kws || kws.length === 0 || ads.length === 0) return;
           const ranked = matchAdsToStory(
             { interest_keywords: kws },
             ads,
             { excludedKeywordIds: EXCLUDED_KEYWORD_IDS }
           );
-          if (ranked.length > 0) {
+          let rankedIds = ranked.map(a => a.id);
+
+          if (rankedIds.length === 0) {
+            // When no tags overlap, rank ads by the closest available interest
+            // embedding. For already-tagged stories, use the mean of their
+            // interest vectors as the story representation.
+            let targetVector = storyVectors[idx];
+            if (!targetVector && Array.isArray(kws) && kws.length > 0) {
+              const vectors = kws
+                .filter(id => !EXCLUDED_KEYWORD_IDS.has(id))
+                .map(id => keywordVectors.get(id))
+                .filter(Boolean);
+              if (vectors.length > 0) {
+                targetVector = vectors[0].map((_, dimension) =>
+                  vectors.reduce((sum, vector) => sum + vector[dimension], 0) / vectors.length
+                );
+              }
+            }
+
+            if (targetVector) {
+              rankedIds = rankAdsByEmbeddingSimilarity(targetVector, ads, keywordVectors, {
+                excludedKeywordIds: EXCLUDED_KEYWORD_IDS,
+              }).map(ad => ad.id);
+            }
+          }
+
+          if (rankedIds.length === 0) {
+            // Last-resort closest available catalog: prefer the story's
+            // category, then use the full catalog if that category is empty.
+            const category = NEWS_CATEGORY_SET.has(String(s.category || '').toLowerCase())
+              ? String(s.category).toLowerCase()
+              : 'all';
+            const categoryAds = getAds({ category });
+            const fallbackAds = categoryAds.length > 0 ? categoryAds : getAds({ category: 'all' });
+            rankedIds = fallbackAds.map(ad => ad.id);
+          }
+
+          if (rankedIds.length > 0) {
             // Use the frontend's original story index when provided
             const key = s._index != null ? s._index : idx;
-            matches[key] = ranked.map(a => a.id);
+            matches[key] = rankedIds;
           }
         });
 

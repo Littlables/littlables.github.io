@@ -4,7 +4,8 @@ import { resolveImageUrl } from '../services/newsService';
 import { getStoryId, hasUserReacted } from '../services/supabaseService';
 import {
   getStoryHref,
-  getStoryProviderName,
+  getStoryGivenPubName,
+  getStoryTopLevelDomain,
   shareStoryWithImage
 } from '../services/urlService';
 import { t } from '../constants/translations';
@@ -35,7 +36,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   const imageUrl = resolveImageUrl(item, index, category);
   const effectiveCategory = item.category || category;
   const storyHref = getStoryHref(item, effectiveCategory);
-  const providerName = getStoryProviderName(item);
+  const givenPubName = getStoryGivenPubName(item);
+  const topLevelDomain = getStoryTopLevelDomain(item);
 
   const [bouncing, setBouncing] = useState<ReactionType | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -251,13 +253,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       </div>
 
       <div className="news-card-content">
-        <div className="news-card-meta">
-          <span>🕒 {pubDate}</span>
-          {providerName && (
-            <span className="story-provider-badge">🌐 {providerName}</span>
-          )}
+        <div className="news-card-meta story-meta-grid">
+          <span className="story-meta-cell story-provider-badge" title={givenPubName}>📰 {givenPubName}</span>
+          <span className="story-meta-cell story-date-badge" title={pubDate}>🕒 {pubDate}</span>
+          <span className="story-meta-cell story-domain-badge" title={topLevelDomain}>🌐 {topLevelDomain}</span>
           {item.approved === true && (
-            <span className="story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
+            <span className="story-meta-cell story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
           )}
         </div>
 
@@ -339,6 +340,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               onClick={handleShareClick}
               title="Share story link & image"
               aria-label="Share story"
+              data-umami-event="Share-Story"
+              data-umami-event-story={item.title}
             >
               <span>{copied ? '✓' : '🔗'}</span>
               <span>{copied ? 'Copied' : 'Share'}</span>

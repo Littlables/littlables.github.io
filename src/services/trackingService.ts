@@ -123,6 +123,10 @@ export function trackHomeLogoRefresh() {
   }
 }
 
+export function track3DPlayroomClick(url = 'https://playground.google/g/viMkwl') {
+  trackExitPage(url, 'playground.google | 3D Playroom');
+}
+
 // ── Engagement tracking for recommendation engine ──
 // Sends anonymous view/click events to the worker for CTR-based scoring.
 // Fire-and-forget: never blocks UI, never throws.
@@ -260,19 +264,19 @@ export function trackStoryDwell(item: NewsItem, dwellSeconds: number, category?:
   }
 }
 
-// ── Board creation analytics ──
-// Logs which pills a new board uses. Anonymous: pills only, no user_id, no name.
+// ── Space creation analytics ──
+// Logs which pills a new space uses. Anonymous: pills only, no user_id, no name.
 
-interface BoardPill {
+interface SpacePill {
   id: string;
-  type: 'category' | 'custom' | 'keyword' | 'board';
+  type: 'category' | 'custom' | 'keyword' | 'space' | 'board';
 }
 
 /**
- * Record a board creation (pills only — never the board name or user).
- * Call after a successful board insert.
+ * Record a space creation (pills only — never the space name or user).
+ * Call after a successful space insert.
  */
-export function trackBoardCreated(pills: BoardPill[]) {
+export function trackSpaceCreated(pills: SpacePill[]) {
   if (typeof window === 'undefined' || !Array.isArray(pills) || pills.length === 0) return;
   try {
     const keywordIds = pills.filter((p) => p.type === 'keyword').map((p) => p.id);

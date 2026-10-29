@@ -1,5 +1,6 @@
 import { getSupabaseClient } from './supabaseService';
-import { slugify, type Board } from './boardService';
+import { slugify, hydrateSpaceEmoji, type Space } from './spaceService';
+import type { Profile } from '../contexts/AuthContext';
 
 export interface Playroom {
   id: string;
@@ -46,11 +47,11 @@ export async function getUserPlayrooms(userId: string): Promise<Playroom[]> {
 export async function getPlayroomBySlug(
   username: string,
   slug: string
-): Promise<{ playroom: Playroom; ownerId: string } | null> {
+): Promise<{ playroom: Playroom; ownerId: string; owner: Profile } | null> {
   const client = requireClient();
   const { data: profile, error: profileError } = await client
     .from('profiles')
-    .select('id')
+    .select('*')
     .eq('username', username.toLowerCase())
     .maybeSingle();
   if (profileError) throw profileError;
@@ -63,11 +64,15 @@ export async function getPlayroomBySlug(
     .maybeSingle();
   if (error) throw error;
   if (!playroom) return null;
-  return { playroom: playroom as Playroom, ownerId: profile.id as string };
+  return {
+    playroom: playroom as Playroom,
+    ownerId: profile.id as string,
+    owner: profile as Profile,
+  };
 }
 
-/** Spaces (boards) in a playroom, in playroom order. */
-export async function getPlayroomSpaces(playroomId: string): Promise<Board[]> {
+/** Spaces in a playroom, in playroom order. */
+export async function getPlayroomSpaces(playroomId: string): Promise<Space[]> {
   const client = requireClient();
   const { data, error } = await client
     .from('playroom_spaces')
@@ -75,13 +80,40 @@ export async function getPlayroomSpaces(playroomId: string): Promise<Board[]> {
     .eq('playroom_id', playroomId)
     .order('position', { ascending: true });
   if (error) throw error;
-  const rows = (data || []) as Array<{ position: number; boards: Board | Board[] | null }>;
-  const boards: Board[] = [];
+  const rows = (data || []) as Array<{ position: number; boards: Space | Space[] | null }>;
+  const spaces: Space[] = [];
   for (const row of rows) {
-    const b = Array.isArray(row.boards) ? row.boards[0] : row.boards;
-    if (b) boards.push(b);
+    const s = Array.isArray(row.boards) ? row.boards[0] : row.boards;
+    if (s) spaces.push(hydrateSpaceEmoji(s));
   }
-  return boards;
+  return spaces;
+}
+
+/** Batch-fetch spaces for multiple playrooms in a single query. */
+export async function getPlayroomSpacesMap(playroomIds: string[]): Promise<Record<string, Space[]>> {
+  const result: Record<string, Space[]> = {};
+  for (const id of playroomIds) result[id] = [];
+  if (playroomIds.length === 0) return result;
+  const client = requireClient();
+  const { data, error } = await client
+    .from('playroom_spaces')
+    .select('playroom_id, position, boards(*)')
+    .in('playroom_id', playroomIds)
+    .order('position', { ascending: true });
+  if (error) throw error;
+  const rows = (data || []) as Array<{
+    playroom_id: string;
+    position: number;
+    boards: Space | Space[] | null;
+  }>;
+  for (const row of rows) {
+    const s = Array.isArray(row.boards) ? row.boards[0] : row.boards;
+    if (s) {
+      if (!result[row.playroom_id]) result[row.playroom_id] = [];
+      result[row.playroom_id].push(hydrateSpaceEmoji(s));
+    }
+  }
+  return result;
 }
 
 /** Ensure the slug is unique for this user and not reserved (appends -2, -3, ...). */
@@ -137,42 +169,64 @@ export async function deletePlayroom(playroomId: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Add a space to a playroom (no-op if already present). Respects the 5-space cap. */
-export async function addSpaceToPlayroom(playroomId: string, boardId: string): Promise<void> {
+/** Add a space to a playroom (no-op if already present). */
+export async function addSpaceToPlayroom(
+  playroomId: string,
+  spaceId: string,
+  maxSpaces = 15
+): Promise<void> {
   const client = requireClient();
   const { data: existing, error: countError } = await client
     .from('playroom_spaces')
-    .select('board_id', { count: 'exact' })
+    .select('space_id', { count: 'exact' })
     .eq('playroom_id', playroomId);
   if (countError) throw countError;
-  if ((existing || []).some((r: any) => r.board_id === boardId)) return;
-  if ((existing || []).length >= 5) throw new Error('A playroom can hold at most 5 spaces');
+  if ((existing || []).some((r: any) => r.space_id === spaceId)) return;
+  if ((existing || []).length >= maxSpaces) {
+    throw new Error(`A playroom can hold at most ${maxSpaces} spaces`);
+  }
   const { error } = await client
     .from('playroom_spaces')
-    .insert({ playroom_id: playroomId, board_id: boardId, position: (existing || []).length });
+    .insert({ playroom_id: playroomId, space_id: spaceId, position: (existing || []).length });
   if (error) throw error;
 }
 
-export async function removeSpaceFromPlayroom(playroomId: string, boardId: string): Promise<void> {
+export async function removeSpaceFromPlayroom(playroomId: string, spaceId: string): Promise<void> {
   const client = requireClient();
   const { error } = await client
     .from('playroom_spaces')
     .delete()
     .eq('playroom_id', playroomId)
-    .eq('board_id', boardId);
+    .eq('space_id', spaceId);
   if (error) throw error;
 }
 
-/** Persist a new space order within a playroom (array of board ids, first = top). */
-export async function reorderPlayroomSpaces(playroomId: string, orderedBoardIds: string[]): Promise<void> {
+/** Persist a new display order for playrooms (array of playroom ids, first = top). */
+export async function reorderPlayrooms(orderedPlayroomIds: string[]): Promise<void> {
   const client = requireClient();
   await Promise.all(
-    orderedBoardIds.map((boardId, i) =>
+    orderedPlayroomIds.map((playroomId, i) =>
+      client
+        .from('playrooms')
+        .update({ position: i })
+        .eq('id', playroomId)
+        .then(({ error }) => {
+          if (error) throw error;
+        })
+    )
+  );
+}
+
+/** Persist a new space order within a playroom (array of space ids, first = top). */
+export async function reorderPlayroomSpaces(playroomId: string, orderedSpaceIds: string[]): Promise<void> {
+  const client = requireClient();
+  await Promise.all(
+    orderedSpaceIds.map((spaceId, i) =>
       client
         .from('playroom_spaces')
         .update({ position: i })
         .eq('playroom_id', playroomId)
-        .eq('board_id', boardId)
+        .eq('space_id', spaceId)
         .then(({ error }) => {
           if (error) throw error;
         })

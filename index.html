@@ -33,16 +33,22 @@
   <meta name="twitter:image" content="https://littlables.github.io/littlables-preview.jfif">
 
   <script>
-    // Early theme initialization to prevent any theme flash (FOUC), with device system mode detection
+    // Early theme initialization to prevent any theme flash (FOUC), defaulting to Dark Purple
     (function() {
       try {
         var saved = localStorage.getItem('selected_theme');
-        var allowed = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+        var allowed = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
         if (saved && allowed.indexOf(saved) !== -1) {
           document.documentElement.setAttribute('data-theme', saved);
         } else {
-          var isLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-          document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
+          document.documentElement.setAttribute('data-theme', 'dark-purple');
+        }
+      } catch (e) {}
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var spaPath = params.get('__spa_path');
+        if (spaPath && spaPath.charAt(0) === '/') {
+          window.history.replaceState(null, '', spaPath);
         }
       } catch (e) {}
     })();

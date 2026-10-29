@@ -58,7 +58,9 @@ jobs:
 
       - name: Install ImageMagick
         if: steps.check_svgs.outputs.should_convert == 'true'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick librsvg2-bin
+          sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/g' /etc/ImageMagick-*/policy.xml || true
 
       - name: Convert SVGs to PDF and JPG
         if: steps.check_svgs.outputs.should_convert == 'true'
@@ -68,10 +70,19 @@ jobs:
           for svg in img/svg/worksheets/*.svg; do
             filename=$(basename "$svg" .svg)
             echo "Processing $svg..."
-            # Generate PDF
-            convert -density 300 "$svg" "public/img/worksheets/${filename}.pdf"
-            # Generate JPG with white background (prevents transparent vector fills from turning black)
-            convert -density 300 -background white -flatten -quality 95 "$svg" "public/img/worksheets/${filename}.jpg"
+            # Trim excess SVG whitespace, then fit & center onto a 300 DPI US Letter canvas (2550x3300)
+            # with safe print margins (2310x2970) so the copyright footer never spills onto page 2
+            convert -density 300 -background white -flatten "$svg" \
+              -fuzz 5% -trim +repage \
+              -resize 2310x2970 -gravity center -background white -extent 2550x3300 \
+              -units PixelsPerInch -density 300 \
+              "public/img/worksheets/${filename}.pdf"
+            # Generate JPG with white background and identical US Letter aspect ratio & safe margins
+            convert -density 300 -background white -flatten "$svg" \
+              -fuzz 5% -trim +repage \
+              -resize 2310x2970 -gravity center -background white -extent 2550x3300 \
+              -units PixelsPerInch -density 300 -quality 95 \
+              "public/img/worksheets/${filename}.jpg"
           done
           shopt -u nullglob
 

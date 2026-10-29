@@ -5,7 +5,7 @@ import { useTheme } from './hooks/useTheme';
 import { useSystemFont } from './hooks/useSystemFont';
 import { useLockBodyScroll } from './hooks/useLockBodyScroll';
 import { Header } from './components/Header';
-import { CategoryNav, scrollActiveCategoryIntoView } from './components/CategoryNav';
+import { CategoryNav, scrollActiveCategoryIntoView, getPillTopicId, resolvePillSearchQuery } from './components/CategoryNav';
 import { NewsCard } from './components/NewsCard';
 import { StoryEditView } from './components/StoryEditView';
 import { useAdminStatus } from './hooks/useAdminStatus';
@@ -15,15 +15,18 @@ import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { AboutPage } from './components/AboutPage';
 import { SettingsDialog } from './components/SettingsDialog';
-import { SignInDialog } from './components/SignInDialog';
-import { ProfileDialog } from './components/ProfileDialog';
+import { SignInDialog, getSavedPendingOtpEmail } from './components/SignInDialog';
+import { ProfileDialog, ProfileDialogTab } from './components/ProfileDialog';
 import { PublicProfilePage } from './components/PublicProfilePage';
-import { BoardPage } from './components/BoardPage';
+import { SpacePage } from './components/SpacePage';
 import { SpaceRoutePage } from './components/SpaceRoutePage';
+import { WorksheetsPanel } from './components/WorksheetsPanel';
+import { FallingEmojis } from './components/FallingEmojis';
+import type { OpenProfileTarget } from './components/PlayroomPage';
 import { useAuth } from './contexts/AuthContext';
 import type { PillConfig } from './contexts/AuthContext';
-import { fetchNewsFeed } from './services/newsService';
-import { fetchAdsForCategory, fetchMatchedAdIds } from './services/adsService';
+import { fetchNewsFeed, getCachedNewsFeed, prefetchCategoriesInBackground } from './services/newsService';
+import { fetchAdsForCategory, getCachedAdsForCategory, fetchMatchedAdIds } from './services/adsService';
 import {
   fetchReactionsForStories,
   toggleStoryReaction,
@@ -34,6 +37,7 @@ import { trackStoryDwell } from './services/trackingService';
 import {
   parseTopicFromUrl,
   parseStoryFromUrl,
+  parseActivityFromUrl,
   getTopicHref,
   getStoryHref,
   matchesStoryParam,
@@ -51,8 +55,8 @@ function parseProfileFromUrl(): string | null {
   return match ? match[1].toLowerCase() : null;
 }
 
-/** Extracts a `@username/boardslug` board route, e.g. `/@katie/cozy-reads`. */
-function parseBoardFromUrl(): { username: string; slug: string } | null {
+/** Extracts a `@username/slug` playroom-or-space route, e.g. `/@katie/my-playroom`. */
+function parsePlayroomOrSpaceFromUrl(): { username: string; slug: string } | null {
   if (typeof window === 'undefined') return null;
   const match = window.location.pathname.match(/^\/@([a-z0-9_]{3,30})\/([a-z0-9-_]{1,50})\/?$/i);
   return match ? { username: match[1].toLowerCase(), slug: match[2].toLowerCase() } : null;
@@ -124,6 +128,45 @@ export const App: React.FC = () => {
   const { profile } = useAuth();
   const { isAdmin } = useAdminStatus();
   const [adminEditStory, setAdminEditStory] = useState<NewsItem | null>(null);
+  const [emojiPoints, setEmojiPoints] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('littlables_emoji_points');
+      const parsed = saved ? parseInt(saved, 10) : 0;
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [lastCollectedEmoji, setLastCollectedEmoji] = useState<string>('🎃');
+  const [gameEnabled, setGameEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('littlables_emoji_game_enabled');
+      return saved !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleGame = useCallback(() => {
+    setGameEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('littlables_emoji_game_enabled', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleCollectEmoji = useCallback((emoji: string) => {
+    setLastCollectedEmoji(emoji);
+    setEmojiPoints((prev) => {
+      const next = prev + 1;
+      try {
+        localStorage.setItem('littlables_emoji_points', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Apply custom background color from profile (overrides theme).
   // Setting --news-bg on :root flows into body, header, and footer,
@@ -151,23 +194,30 @@ export const App: React.FC = () => {
     return 'all';
   });
 
-  const [stories, setStories] = useState<NewsItem[]>([]);
-  const [ads, setAds] = useState<AdItem[]>([]);
+  const [stories, setStories] = useState<NewsItem[]>(() => getCachedNewsFeed(category) || []);
+  const [ads, setAds] = useState<AdItem[]>(() => getCachedAdsForCategory(category) || []);
   // Per-story keyword-matched ads: story index -> matched AdItem (computed after load)
   const [storyAds, setStoryAds] = useState<Record<number, AdItem>>({});
   const [reactions, setReactions] = useState<Record<string, ReactionCounts>>({});
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !getCachedNewsFeed(category));
   const [error, setError] = useState<string | null>(null);
   const [profileRoute, setProfileRoute] = useState<string | null>(() => parseProfileFromUrl());
-  const [boardRoute, setBoardRoute] = useState<{ username: string; slug: string } | null>(() => parseBoardFromUrl());
+  const [playroomOrSpaceRoute, setPlayroomOrSpaceRoute] = useState<{ username: string; slug: string } | null>(() => parsePlayroomOrSpaceFromUrl());
   const [spaceRoute, setSpaceRoute] = useState<{ username: string; slug: string } | null>(() => parseSpaceFromUrl());
   const [playroomSpaceRoute, setPlayroomSpaceRoute] = useState<{ username: string; playroom: string; space: string } | null>(() => parsePlayroomSpaceFromUrl());
   const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
-  // Board branding shown in the header while viewing a board page
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
-  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(null);
+  const [activeDialog, setActiveDialog] = useState<'about' | 'disclaimer' | 'settings' | 'signin' | 'profile' | null>(() =>
+    getSavedPendingOtpEmail() ? 'signin' : null
+  );
+  const [profileDialogTarget, setProfileDialogTarget] = useState<OpenProfileTarget | null>(null);
+
+  const handleOpenProfile = useCallback((target?: OpenProfileTarget) => {
+    setProfileDialogTarget(target || null);
+    setActiveDialog('profile');
+  }, []);
 
   // Lock background scrolling whenever any dialog/modal window is open,
   // so scrolling inside the window can't chain out to the page behind it.
@@ -196,7 +246,7 @@ export const App: React.FC = () => {
     const locale = getDetectedLocale();
     document.documentElement.lang = locale.lang;
     document.documentElement.dir = locale.lang === 'ar' ? 'rtl' : 'ltr';
-    if (profileRoute || boardRoute || spaceRoute || playroomSpaceRoute) return;
+    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
     if (selectedStory?.item?.title) {
       document.title = `${SITE_TITLE_BASE} | ${selectedStory.item.title}`;
     } else if (aboutRoute) {
@@ -209,16 +259,18 @@ export const App: React.FC = () => {
     } else {
       document.title = SITE_TITLE_BASE;
     }
-  }, [selectedStory, category, profileRoute, boardRoute, spaceRoute, playroomSpaceRoute, aboutRoute]);
+  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute]);
 
   // Ensure initial URL reflects the active topic if not already in the address bar
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute) return;
     const currentUrlTopic = parseTopicFromUrl();
     const currentStory = parseStoryFromUrl();
-    if (!currentUrlTopic && !currentStory && category !== 'all') {
+    const currentActivity = parseActivityFromUrl().isOpen;
+    if (!currentUrlTopic && !currentStory && !currentActivity && category !== 'all') {
       const nextHref = getTopicHref(category);
-      window.history.replaceState({ topic: category, story: null }, '', nextHref);
+      window.history.replaceState({ interest: category, balloon: null }, '', nextHref);
     }
   }, []);
 
@@ -229,7 +281,7 @@ export const App: React.FC = () => {
       const urlAbout = parseAboutFromUrl();
       setAboutRoute(urlAbout);
       if (urlAbout) {
-        setBoardRoute(null);
+        setPlayroomOrSpaceRoute(null);
         setSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
@@ -238,7 +290,7 @@ export const App: React.FC = () => {
       const urlPlayroomSpace = parsePlayroomSpaceFromUrl();
       setPlayroomSpaceRoute(urlPlayroomSpace);
       if (urlPlayroomSpace) {
-        setBoardRoute(null);
+        setPlayroomOrSpaceRoute(null);
         setSpaceRoute(null);
         setProfileRoute(null);
         return;
@@ -246,14 +298,14 @@ export const App: React.FC = () => {
       const urlSpace = parseSpaceFromUrl();
       setSpaceRoute(urlSpace);
       if (urlSpace) {
-        setBoardRoute(null);
+        setPlayroomOrSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
         return;
       }
-      const urlBoard = parseBoardFromUrl();
-      setBoardRoute(urlBoard);
-      if (urlBoard) {
+      const urlPlayroomOrSpace = parsePlayroomOrSpaceFromUrl();
+      setPlayroomOrSpaceRoute(urlPlayroomOrSpace);
+      if (urlPlayroomOrSpace) {
         setSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
@@ -262,10 +314,12 @@ export const App: React.FC = () => {
       const urlProfile = parseProfileFromUrl();
       setProfileRoute(urlProfile);
       if (urlProfile) return;
-      const urlTopic = parseTopicFromUrl() || 'all';
+      const urlTopic = parseTopicFromUrl();
       const urlStory = parseStoryFromUrl();
-      if (urlTopic !== category) {
+      if (urlTopic && urlTopic !== category) {
         setCategoryState(urlTopic);
+      } else if (!urlTopic && window.location.pathname === '/' && !window.location.hash && category !== 'all') {
+        setCategoryState('all');
       }
       setActiveStoryParam(urlStory);
       if (!urlStory) {
@@ -276,85 +330,141 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [category]);
 
-  const loadFeed = useCallback(async (cat: NewsCategory) => {
-    setIsLoading(true);
+  const activeCategoryRef = React.useRef<NewsCategory>(category);
+  activeCategoryRef.current = category;
+
+  const loadFeed = useCallback(async (cat: NewsCategory, options?: { forceRefresh?: boolean }) => {
     setError(null);
 
-    let fetchedStories: NewsItem[] = [];
-    try {
-      // Parallel fetch news and category/keyword-based ads
-      const [stories, categoryAds] = await Promise.all([
-        fetchNewsFeed(cat),
-        fetchAdsForCategory(cat)
-      ]);
+    const searchQuery = resolvePillSearchQuery(cat, profile?.pills);
+    const adCategory = isValidCategory(searchQuery) ? searchQuery : (isValidCategory(cat) ? cat : 'all');
 
-      // On the homepage, prioritize stories matching the user's interests
-      let displayStories = stories;
-      if (cat === 'all' && profile?.pills && profile.pills.length > 0) {
-        displayStories = prioritizeByInterests(stories, profile.pills);
+    // Instant cache hit: display cached stories & ads immediately without showing the loading skeleton
+    const cachedStories = !options?.forceRefresh ? getCachedNewsFeed(searchQuery) : null;
+    const cachedAds = !options?.forceRefresh ? getCachedAdsForCategory(adCategory) : null;
+
+    if (cachedStories && cachedStories.length > 0) {
+      const initialDisplay =
+        cat === 'all' && profile?.pills && profile.pills.length > 0
+          ? prioritizeByInterests(cachedStories, profile.pills)
+          : cachedStories;
+      setStories(initialDisplay);
+      if (cachedAds && cachedAds.length > 0) {
+        setAds(cachedAds);
       }
-
-      fetchedStories = displayStories;
-      setStories(displayStories);
-      setAds(categoryAds);
-
-      // Keyword-match ads to stories server-side (non-blocking).
-      // Only ad-slot stories (every 3rd) are sent — no need to classify the rest.
-      // Worker classifies untagged stories, ranks ads, returns ad IDs by story index.
-      // Frontend looks up ad content by ID from the JSON cache.
-      // Falls back to rotation when matching fails or returns nothing.
-      try {
-        const adSlotStories = displayStories
-          .map((story, index) => ({ story, index }))
-          .filter(({ index }) => (index + 1) % 3 === 0)
-          .map(({ story, index }) => ({ ...(story as any), _index: index }));
-        const matches = await fetchMatchedAdIds(adSlotStories as any);
-        // Build ad lookup by ID from the fetched pool
-        const adById = new Map<string, AdItem>();
-        for (const ad of categoryAds) {
-          if (ad.id) adById.set(ad.id, ad);
-        }
-        const matched: Record<number, AdItem> = {};
-        for (const { index } of adSlotStories.map(s => ({ index: (s as any)._index }))) {
-          const adIds = matches[index] || [];
-          if (adIds.length > 0) {
-            const slot = Math.floor(index / 3);
-            const adId = adIds[slot % adIds.length];
-            const ad = adById.get(adId);
-            if (ad) matched[index] = ad;
-          }
-        }
-        setStoryAds(matched);
-      } catch {
-        // Matching is optional — rotation fallback in render covers failures
-        setStoryAds({});
-      }
-    } catch (err: any) {
-      console.error('Error loading stories:', err);
-      setError(err?.message || 'Unable to load stories.');
-    } finally {
-      // Stories are showing — release the loading state immediately.
-      // Reactions load afterward and must not hold the button.
       setIsLoading(false);
+    } else {
+      setIsLoading(true);
     }
 
-    // Fetch reactions for stories (non-blocking for the refresh button)
     try {
-      if (fetchedStories.length > 0) {
-        const storyIds = fetchedStories.map((s: NewsItem) => getStoryId(s.title, s.link));
-        const reactionData = await fetchReactionsForStories(storyIds);
-        setReactions(reactionData);
+      // Parallel fetch news and category/keyword-based ads
+      const [fetched, categoryAds] = await Promise.all([
+        fetchNewsFeed(searchQuery, options),
+        fetchAdsForCategory(adCategory)
+      ]);
+
+      // Ignore stale responses if the user already switched to another space
+      if (activeCategoryRef.current !== cat) return;
+
+      // On the homepage, prioritize stories matching the user's interests
+      let displayStories = fetched;
+      if (cat === 'all' && profile?.pills && profile.pills.length > 0) {
+        displayStories = prioritizeByInterests(fetched, profile.pills);
+      }
+
+      setStories(displayStories);
+      setAds(categoryAds);
+      setIsLoading(false);
+
+      // Kick off background prefetch of other categories + user's custom spaces
+      const extraTopics = profile?.pills
+        ? profile.pills.map((p) => resolvePillSearchQuery(getPillTopicId(p), profile.pills))
+        : undefined;
+      prefetchCategoriesInBackground(extraTopics);
+
+      // Keyword-match ads to stories server-side in the background (non-blocking).
+      // Stories and rotational ads are already visible on screen.
+      const adSlotStories = displayStories
+        .map((story, index) => ({ story, index }))
+        .filter(({ index }) => (index + 1) % 3 === 0)
+        .map(({ story, index }) => ({ ...(story as any), _index: index }));
+
+      if (adSlotStories.length > 0 && categoryAds.length > 0) {
+        fetchMatchedAdIds(adSlotStories as any)
+          .then((matches) => {
+            if (activeCategoryRef.current !== cat) return;
+            const adById = new Map<string, AdItem>();
+            for (const ad of categoryAds) {
+              if (ad.id) adById.set(ad.id, ad);
+            }
+            const matched: Record<number, AdItem> = {};
+            for (const { index } of adSlotStories.map(s => ({ index: (s as any)._index }))) {
+              const adIds = matches[index] || [];
+              if (adIds.length > 0) {
+                const slot = Math.floor(index / 3);
+                const adId = adIds[slot % adIds.length];
+                const ad = adById.get(adId);
+                if (ad) matched[index] = ad;
+              }
+            }
+            setStoryAds(matched);
+          })
+          .catch(() => {
+            if (activeCategoryRef.current === cat) setStoryAds({});
+          });
+      } else {
+        setStoryAds({});
+      }
+
+      // Fetch reactions for stories non-blocking
+      if (displayStories.length > 0) {
+        const storyIds = displayStories.map((s: NewsItem) => getStoryId(s.title, s.link));
+        fetchReactionsForStories(storyIds)
+          .then((reactionData) => {
+            if (activeCategoryRef.current === cat) {
+              setReactions(reactionData);
+            }
+          })
+          .catch(() => {
+            if (activeCategoryRef.current === cat) setReactions({});
+          });
       } else {
         setReactions({});
       }
-    } catch {
-      setReactions({});
+    } catch (err: any) {
+      if (activeCategoryRef.current !== cat) return;
+      console.error('Error loading stories:', err);
+      if (!cachedStories || cachedStories.length === 0) {
+        setError(err?.message || 'Unable to load stories.');
+      }
+    } finally {
+      if (activeCategoryRef.current === cat) {
+        setIsLoading(false);
+      }
     }
-  }, []);
+  }, [profile?.pills]);
 
   useEffect(() => {
+    if (aboutRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
     loadFeed(category);
-  }, [category, loadFeed]);
+  }, [category, loadFeed, aboutRoute, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute]);
+
+  // If the signed-in user customized their homepage pills and the current category
+  // is no longer in their pill list (and wasn't explicitly navigated via URL ?interest=),
+  // switch to the first available pill in their ordered interests.
+  useEffect(() => {
+    const userPills = profile?.pills;
+    if (!userPills || userPills.length === 0) return;
+    if (parseTopicFromUrl()) return;
+    const availableTopics = userPills.map(getPillTopicId);
+    if (!availableTopics.includes(category)) {
+      const firstTopic = availableTopics[0];
+      if (firstTopic) {
+        setCategoryState(firstTopic);
+      }
+    }
+  }, [profile?.pills, category]);
 
   // Resolve deep-linked story parameter when stories load or URL changes
   useEffect(() => {
@@ -408,9 +518,31 @@ export const App: React.FC = () => {
   }, []);
 
   const handleSelectCategory = (newCat: NewsCategory) => {
+    activeCategoryRef.current = newCat;
+    const searchQuery = resolvePillSearchQuery(newCat, profile?.pills);
+    const adCategory = isValidCategory(searchQuery) ? searchQuery : (isValidCategory(newCat) ? newCat : 'all');
+    const cached = getCachedNewsFeed(searchQuery);
+    if (cached && cached.length > 0) {
+      const display =
+        newCat === 'all' && profile?.pills && profile.pills.length > 0
+          ? prioritizeByInterests(cached, profile.pills)
+          : cached;
+      setStories(display);
+      setIsLoading(false);
+    }
+    const cachedAds = getCachedAdsForCategory(adCategory);
+    if (cachedAds && cachedAds.length > 0) {
+      setAds(cachedAds);
+    }
+    setStoryAds({});
     setCategoryState(newCat);
     setSelectedStory(null);
     setActiveStoryParam(null);
+    setAboutRoute(false);
+    setProfileRoute(null);
+    setPlayroomOrSpaceRoute(null);
+    setSpaceRoute(null);
+    setPlayroomSpaceRoute(null);
     if (isValidCategory(newCat)) {
       try {
         localStorage.setItem(SAVED_CATEGORY_KEY, newCat);
@@ -418,10 +550,7 @@ export const App: React.FC = () => {
     }
     if (typeof window !== 'undefined') {
       const nextHref = getTopicHref(newCat);
-      window.history.pushState({ topic: newCat, story: null }, '', nextHref);
-      window.requestAnimationFrame(() => {
-        scrollActiveCategoryIntoView();
-      });
+      window.history.pushState({ interest: newCat, balloon: null }, '', nextHref);
     }
   };
 
@@ -442,25 +571,32 @@ export const App: React.FC = () => {
     setSelectedStory(null);
     setActiveStoryParam(null);
     setProfileRoute(null);
-    setBoardRoute(null);
+    setPlayroomOrSpaceRoute(null);
+    setSpaceRoute(null);
+    setPlayroomSpaceRoute(null);
+    setAboutRoute(false);
+    const userPills = profile?.pills;
+    const availableTopics = userPills && userPills.length > 0 ? userPills.map(getPillTopicId) : null;
+    const defaultHomeTopic: NewsCategory =
+      availableTopics && !availableTopics.includes('all') ? availableTopics[0] : 'all';
     try {
-      localStorage.setItem(SAVED_CATEGORY_KEY, 'all');
+      localStorage.setItem(SAVED_CATEGORY_KEY, defaultHomeTopic);
     } catch {}
     if (typeof window !== 'undefined') {
       // Always return to the site root (clears any /@username profile path)
-      const homeHref = `/?topic=${encodeURIComponent('all')}`;
+      const homeHref = getTopicHref(defaultHomeTopic);
       if (window.location.pathname + window.location.search !== homeHref) {
-        window.history.pushState({ topic: 'all', story: null }, '', homeHref);
+        window.history.pushState({ interest: defaultHomeTopic, balloon: null }, '', homeHref);
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       window.requestAnimationFrame(() => {
         scrollActiveCategoryIntoView();
       });
     }
-    if (category !== 'all') {
-      setCategoryState('all');
+    if (category !== defaultHomeTopic) {
+      handleSelectCategory(defaultHomeTopic);
     } else {
-      loadFeed('all');
+      loadFeed(defaultHomeTopic, { forceRefresh: true });
     }
   };
 
@@ -470,7 +606,7 @@ export const App: React.FC = () => {
     dwellStartRef.current = { item, category, startedAt: Date.now() };
     if (typeof window !== 'undefined') {
       const storyHref = getStoryHref(item, category);
-      window.history.pushState({ topic: category, story: item.link }, '', storyHref);
+      window.history.pushState({ interest: category, balloon: item.link }, '', storyHref);
       setActiveStoryParam(parseStoryFromUrl());
     }
   };
@@ -487,7 +623,7 @@ export const App: React.FC = () => {
     setActiveStoryParam(null);
     if (typeof window !== 'undefined') {
       const topicHref = getTopicHref(category);
-      window.history.pushState({ topic: category, story: null }, '', topicHref);
+      window.history.pushState({ interest: category, balloon: null }, '', topicHref);
     }
   };
 
@@ -551,21 +687,29 @@ export const App: React.FC = () => {
 
   return (
     <>
+      <FallingEmojis onCollect={handleCollectEmoji} enabled={gameEnabled} />
       <div className="news-widget-wrapper">
         <Header
           onHomeClick={handleHomeRefresh}
           onOpenSettings={() => setActiveDialog('settings')}
           onOpenSignIn={() => setActiveDialog('signin')}
-          onOpenProfile={() => setActiveDialog('profile')}
+          onOpenProfile={() => handleOpenProfile()}
           isLoading={isLoading}
           isAdmin={isAdmin}
+          emojiPoints={emojiPoints}
+          lastCollectedEmoji={lastCollectedEmoji}
+          gameEnabled={gameEnabled}
+          onToggleGame={handleToggleGame}
         />
 
-        {/* Category nav is hidden on profile/playroom/space pages — those show curated feeds, not the main feed. */}
-        {!profileRoute && !boardRoute && !spaceRoute && !playroomSpaceRoute && (
+        <WorksheetsPanel />
+
+        {/* Category nav is hidden on standalone about/profile/playroom/space pages — those show their own views, not the main feed. */}
+        {!aboutRoute && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
           <CategoryNav
             currentCategory={category}
             onSelectCategory={handleSelectCategory}
+            userPills={profile?.pills}
           />
         )}
 
@@ -578,31 +722,32 @@ export const App: React.FC = () => {
             />
           </main>
         ) : playroomSpaceRoute ? (
-          <BoardPage
+          <SpacePage
             username={playroomSpaceRoute.username}
             slug={playroomSpaceRoute.space}
             playroomSlug={playroomSpaceRoute.playroom}
             onHome={handleHomeRefresh}
-            onOpenProfile={() => setActiveDialog('profile')}
+            onOpenProfile={handleOpenProfile}
           />
         ) : spaceRoute ? (
-          <BoardPage
+          <SpacePage
             username={spaceRoute.username}
             slug={spaceRoute.slug}
             onHome={handleHomeRefresh}
-            onOpenProfile={() => setActiveDialog('profile')}
+            onOpenProfile={handleOpenProfile}
           />
-        ) : boardRoute ? (
+        ) : playroomOrSpaceRoute ? (
           <SpaceRoutePage
-            username={boardRoute.username}
-            slug={boardRoute.slug}
+            username={playroomOrSpaceRoute.username}
+            slug={playroomOrSpaceRoute.slug}
             onHome={handleHomeRefresh}
-            onOpenProfile={() => setActiveDialog('profile')}
+            onOpenProfile={handleOpenProfile}
           />
         ) : profileRoute ? (
           <PublicProfilePage
             username={profileRoute}
             onHome={handleHomeRefresh}
+            onOpenProfile={handleOpenProfile}
           />
         ) : (
         <main id="news-grid-container" className="news-grid">
@@ -775,8 +920,17 @@ export const App: React.FC = () => {
 
       <ProfileDialog
         isOpen={activeDialog === 'profile'}
-        onClose={() => setActiveDialog(null)}
+        onClose={() => {
+          setActiveDialog(null);
+          setProfileDialogTarget(null);
+        }}
         notify={notify}
+        initialTab={profileDialogTarget?.tab as ProfileDialogTab | undefined}
+        initialEditPlayroomId={profileDialogTarget?.playroomId || null}
+        initialEditPlayroom={profileDialogTarget?.playroom || null}
+        initialEditPlayroomSpaces={profileDialogTarget?.playroomSpaces || null}
+        initialEditSpaceId={profileDialogTarget?.spaceId || null}
+        initialEditSpace={profileDialogTarget?.space || null}
       />
 
       {toast && (

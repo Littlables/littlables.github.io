@@ -47,46 +47,48 @@ export const InfoDialog: React.FC<InfoDialogProps> = ({ id, isOpen, onClose, onS
       onClick={handleBackdropClick}
       onClose={onClose}
     >
-      {id === 'about' ? (
-        <AboutPage
-          onExplore={onClose}
-          onSignIn={onSignIn}
-          signedIn={signedIn}
-        />
-      ) : (
-        <div className="disclaimer-body">
-          <h2 id="disclaimer-title">A quick note 📝</h2>
-          <ul className="disclaimer-points">
-            <li>
-              <span className="disclaimer-point-icon" aria-hidden="true">📰</span>
-              <span><strong>Stories come from publishers across the web.</strong> We don't own them, and linking isn't an endorsement — publishers are responsible for their own content.</span>
-            </li>
-            <li>
-              <span className="disclaimer-point-icon" aria-hidden="true">🧸</span>
-              <span><strong>The Little Scoop badge means we reviewed it.</strong> Stories without the badge haven't been reviewed yet.</span>
-            </li>
-            <li>
-              <span className="disclaimer-point-icon" aria-hidden="true">🤖</span>
-              <span><strong>Summaries are AI-generated</strong> to give you the gist fast. They can miss context or get things wrong — always check the original article for important details.</span>
-            </li>
-            <li>
-              <span className="disclaimer-point-icon" aria-hidden="true">🔗</span>
-              <span><strong>Follow the source link</strong> to read the full story and verify anything that matters.</span>
-            </li>
-          </ul>
-          <p className="disclaimer-foot">
-            Questions? Reach us at <strong>hello@littlables.com</strong> 💛
-          </p>
-        </div>
-      )}
+      <div className="site-info-scroll">
+        {id === 'about' ? (
+          <AboutPage
+            onExplore={onClose}
+            onSignIn={onSignIn}
+            signedIn={signedIn}
+          />
+        ) : (
+          <div className="disclaimer-body">
+            <h2 id="disclaimer-title">A quick note 📝</h2>
+            <ul className="disclaimer-points">
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">📰</span>
+                <span><strong>Stories come from publishers across the web.</strong> We don't own them, and linking isn't an endorsement — publishers are responsible for their own content.</span>
+              </li>
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">🧸</span>
+                <span><strong>The Little Scoop badge means we reviewed it.</strong> Stories without the badge haven't been reviewed yet.</span>
+              </li>
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">🤖</span>
+                <span><strong>Summaries are AI-generated</strong> to give you the gist fast. They can miss context or get things wrong — always check the original article for important details.</span>
+              </li>
+              <li>
+                <span className="disclaimer-point-icon" aria-hidden="true">🔗</span>
+                <span><strong>Follow the source link</strong> to read the full story and verify anything that matters.</span>
+              </li>
+            </ul>
+            <p className="disclaimer-foot">
+              Questions? Reach us at <strong>hello@littlables.com</strong> 💛
+            </p>
+          </div>
+        )}
 
-      <button
-        type="button"
-        className="sign-in-button secondary-button"
-        onClick={onClose}
-      >
-        Close
-      </button>
+        <button
+          type="button"
+          className="sign-in-button secondary-button"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
     </dialog>
   );
 };

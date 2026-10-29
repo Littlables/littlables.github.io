@@ -12,9 +12,33 @@ export interface SocialLinks {
 
 export interface PillConfig {
   id: string;
-  type: 'category' | 'custom' | 'keyword' | 'board';
+  type: 'category' | 'custom' | 'keyword' | 'space' | 'board';
   label?: string;      // for custom pills
   keywords?: string;   // for custom pills (search keywords)
+  icon?: string;       // matched or user-overridden emoji icon
+}
+
+export type MembershipTier = 'free' | 'member' | 'plus' | 'premium';
+
+export interface MembershipLimits {
+  maxSpaces: number;
+  maxPlayrooms: number;
+  maxPlayroomSpaces: number;
+}
+
+export function getMembershipLimits(membership?: string | null): MembershipLimits {
+  if (membership && ['member', 'plus', 'premium'].includes(membership)) {
+    return {
+      maxSpaces: 25,
+      maxPlayrooms: 10,
+      maxPlayroomSpaces: 15,
+    };
+  }
+  return {
+    maxSpaces: 5,
+    maxPlayrooms: 1,
+    maxPlayroomSpaces: 5,
+  };
 }
 
 export interface Profile {
@@ -30,6 +54,7 @@ export interface Profile {
   background_color: string | null;
   pills: PillConfig[] | null;
   use_viewer_theme_for_boards: boolean;
+  membership?: MembershipTier | string;
   created_at: string;
   updated_at: string;
 }
@@ -43,7 +68,7 @@ interface AuthContextValue {
   signInWithEmail: (email: string) => Promise<void>;
   verifyEmailOtp: (email: string, token: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateProfile: (updates: Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
+  updateProfile: (updates: Partial<Omit<Profile, 'id' | 'membership' | 'created_at' | 'updated_at'>>) => Promise<void>;
   uploadAvatar: (file: File) => Promise<string>;
   uploadAvatarFile: (file: File) => Promise<string>;
   checkUsernameAvailable: (username: string) => Promise<boolean>;

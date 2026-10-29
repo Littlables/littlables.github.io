@@ -1,15 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ThemeId } from '../types';
-import { THEMES, SAVED_THEME_KEY } from '../constants/config';
+import { DEFAULT_THEME, THEMES, SAVED_THEME_KEY } from '../constants/config';
 
 export function useTheme() {
-  const getSystemTheme = (): ThemeId => {
-    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-      return 'light';
-    }
-    return 'dark';
-  };
-
   const [theme, setThemeState] = useState<ThemeId>(() => {
     try {
       const saved = localStorage.getItem(SAVED_THEME_KEY) as ThemeId;
@@ -17,7 +10,7 @@ export function useTheme() {
         return saved;
       }
     } catch {}
-    return getSystemTheme();
+    return DEFAULT_THEME;
   });
 
   const setTheme = useCallback((newTheme: ThemeId) => {
@@ -30,22 +23,6 @@ export function useTheme() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
-      const handleSystemThemeChange = (e: MediaQueryListEvent) => {
-        try {
-          if (!localStorage.getItem(SAVED_THEME_KEY)) {
-            const systemTheme: ThemeId = e.matches ? 'light' : 'dark';
-            setThemeState(systemTheme);
-            document.documentElement.setAttribute('data-theme', systemTheme);
-          }
-        } catch {}
-      };
-
-      mediaQuery.addEventListener('change', handleSystemThemeChange);
-      return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
-    }
   }, [theme]);
 
   return { theme, setTheme, themes: THEMES };

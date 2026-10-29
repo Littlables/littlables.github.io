@@ -1,48 +1,120 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAuth, PillConfig, SocialLinks } from '../contexts/AuthContext';
+import { useAuth, Profile, PillConfig, SocialLinks, getMembershipLimits } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
 import { THEMES, CATEGORIES } from '../constants/config';
 import { INTEREST_KEYWORDS, INTEREST_KEYWORD_GROUPS } from '../constants/interestKeywords';
 import {
-  Board,
+  Space,
   slugify,
   sanitizeSlugInput,
   ensureUniqueSlug,
-  getUserBoards,
-  createBoard,
-  updateBoard,
-  deleteBoard,
-  reorderBoards,
-  uploadBoardLogo,
-} from '../services/boardService';
+  getUserSpaces,
+  createSpace,
+  updateSpace,
+  deleteSpace,
+  reorderSpaces,
+  uploadSpaceLogo,
+} from '../services/spaceService';
 import {
   Playroom,
   getUserPlayrooms,
   getPlayroomSpaces,
   createPlayroom,
   updatePlayroom,
+  deletePlayroom,
+  reorderPlayrooms,
   ensureUniquePlayroomSlug,
   addSpaceToPlayroom,
   removeSpaceFromPlayroom,
+  reorderPlayroomSpaces,
   uploadPlayroomLogo,
 } from '../services/playroomService';
 import { t } from '../constants/translations';
 import { TranslationStrings } from '../constants/translations';
 import { useTheme } from '../hooks/useTheme';
 import { useSystemFont } from '../hooks/useSystemFont';
+import {
+  getSpaceEmoji,
+  getAutoSpaceEmoji,
+  getRankedSpaceEmojis,
+  getPillEmoji,
+  getClosestEmojiForText,
+  fetchWorkerSpaceEmojiMatches,
+  getEmojiPickerGroups,
+  extractSingleEmoji,
+  hasNonEmojiCharacters,
+  type EmojiMatch,
+} from '../services/spaceEmojiService';
+
+export type ProfileDialogTab = 'profile' | 'avatar' | 'interests' | 'theme' | 'playrooms' | 'spaces';
 
 interface ProfileDialogProps {
   isOpen: boolean;
   onClose: () => void;
   notify: (message: string, kind?: 'success' | 'error') => void;
+  initialTab?: ProfileDialogTab;
+  initialEditPlayroomId?: string | null;
+  initialEditPlayroom?: Playroom | null;
+  initialEditPlayroomSpaces?: Space[] | null;
+  initialEditSpaceId?: string | null;
+  initialEditSpace?: Space | null;
 }
 
-type Tab = 'profile' | 'avatar' | 'interests' | 'theme' | 'boards';
+type Tab = 'profile' | 'avatar' | 'interests' | 'theme' | 'playrooms';
 
-/** Max spaces (boards) a user can create. */
-const MAX_SPACES = 5;
-/** Max spaces a playroom can hold on the free tier. */
-const MAX_PLAYROOM_SPACES = 5;
+function normalizeTab(tab?: ProfileDialogTab): Tab {
+  if (!tab) return 'profile';
+  if (tab === 'spaces') return 'playrooms';
+  return tab;
+}
+
+interface EditingPlayroom {
+  id: string | null; // null = new playroom
+  name: string;
+  slug: string;
+  description: string;
+  logoUrl: string | null; // existing URL or blob preview
+  logoFile: File | null;
+  theme: string; // '' = inherit profile theme
+  bgColor: string; // '' = inherit
+}
+
+interface EditingSpace {
+  id: string | null; // null = new space
+  name: string;
+  slug: string;
+  description: string;
+  logoUrl: string | null; // existing URL or blob preview
+  logoFile: File | null;
+  iconEmoji: string | null; // null = use closest embedding emoji; string = user override
+  pills: PillConfig[];
+}
+
+function toEditingPlayroom(playroom: Playroom): EditingPlayroom {
+  return {
+    id: playroom.id,
+    name: playroom.name,
+    slug: playroom.slug,
+    description: playroom.description || '',
+    logoUrl: playroom.logo_url,
+    logoFile: null,
+    theme: playroom.theme || '',
+    bgColor: playroom.background_color || '',
+  };
+}
+
+function toEditingSpace(space: Space): EditingSpace {
+  return {
+    id: space.id,
+    name: space.name,
+    slug: space.slug,
+    description: space.description || '',
+    logoUrl: space.logo_url,
+    logoFile: null,
+    iconEmoji: extractSingleEmoji(space.icon_emoji) || null,
+    pills: [...(space.pills || [])],
+  };
+}
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; placeholder: string }[] = [
   { key: 'twitter', label: 'X / Twitter', placeholder: '@handle' },
@@ -72,55 +144,60 @@ function normalizeSocialLink(key: string, value: string): string {
   return build ? build(username) : v;
 }
 
-export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
+export function ProfileDialog({
+  isOpen,
+  onClose,
+  notify,
+  initialTab,
+  initialEditPlayroomId,
+  initialEditPlayroom,
+  initialEditPlayroomSpaces,
+  initialEditSpaceId,
+  initialEditSpace,
+}: ProfileDialogProps) {
   const { user, profile, updateProfile, uploadAvatarFile, checkUsernameAvailable, signOut } = useAuth();
+  const {
+    maxSpaces: MAX_SPACES,
+    maxPlayrooms: MAX_PLAYROOMS,
+    maxPlayroomSpaces: MAX_PLAYROOM_SPACES,
+  } = getMembershipLimits(profile?.membership);
+  const isFreeMembership = !profile?.membership || profile.membership === 'free';
   const { theme: localTheme, setTheme: setLocalTheme } = useTheme();
   const { systemFont, setSystemFont } = useSystemFont();
 
-  const [tab, setTab] = useState<Tab>('profile');
+  const [wasOpen, setWasOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>(() => normalizeTab(initialTab));
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
   const [bio, setBio] = useState('');
   const [socials, setSocials] = useState<SocialLinks>({});
   const [pills, setPills] = useState<PillConfig[]>([]);
-  // Boards
-  const [boards, setBoards] = useState<Board[]>([]);
-  const [boardsLoading, setBoardsLoading] = useState(false);
-  // Playrooms (free tier: one per user)
+  // Spaces & Playrooms (cached across opens so reopening is instant)
+  const [spaces, setSpaces] = useState<Space[]>([]);
   const [playrooms, setPlayrooms] = useState<Playroom[]>([]);
-  const [playroomSpaces, setPlayroomSpaces] = useState<Board[]>([]);
-  const [playroomsLoading, setPlayroomsLoading] = useState(false);
+  const [playroomSpaces, setPlayroomSpaces] = useState<Space[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const collectionsLoadedForUserRef = useRef<string | null>(null);
   const [showAddSpacePicker, setShowAddSpacePicker] = useState(false);
-  interface EditingPlayroom {
-    id: string;
-    name: string;
-    slug: string;
-    description: string;
-    logoUrl: string | null; // existing URL or blob preview
-    logoFile: File | null;
-    theme: string; // '' = inherit profile theme
-    bgColor: string; // '' = inherit
-  }
+  const [confirmRemoveSpaceId, setConfirmRemoveSpaceId] = useState<string | null>(null);
+  const [confirmDeleteSpaceId, setConfirmDeleteSpaceId] = useState<string | null>(null);
+  const [confirmDeletePlayroomId, setConfirmDeletePlayroomId] = useState<string | null>(null);
   const [editingPlayroom, setEditingPlayroom] = useState<EditingPlayroom | null>(null);
   const playroomLogoRef = useRef<HTMLInputElement>(null);
-  interface EditingBoard {
-    id: string | null; // null = new board
-    name: string;
-    slug: string;
-    description: string;
-    logoUrl: string | null; // existing URL or blob preview
-    logoFile: File | null;
-    pills: PillConfig[];
-  }
-  const [editingBoard, setEditingBoard] = useState<EditingBoard | null>(null);
-  const boardLogoRef = useRef<HTMLInputElement>(null);
+  const [editingSpace, setEditingSpace] = useState<EditingSpace | null>(null);
+  const spaceLogoRef = useRef<HTMLInputElement>(null);
+  const [showSpaceEmojiPicker, setShowSpaceEmojiPicker] = useState(false);
+  const [emojiSearchQuery, setEmojiSearchQuery] = useState('');
+  const [customEmojiInput, setCustomEmojiInput] = useState('');
+  const [customEmojiRejected, setCustomEmojiRejected] = useState(false);
+  const [workerEmojiMatches, setWorkerEmojiMatches] = useState<EmojiMatch[] | null>(null);
   const [bgColor, setBgColor] = useState('');
   const [bgHex, setBgHex] = useState('');
   // The active theme's background color, so the wheel reflects the current
   // theme when no custom color is picked
   const [themeBg, setThemeBg] = useState('');
-  const [useViewerThemeForBoards, setUseViewerThemeForBoards] = useState(false);
+  const [useViewerThemeForSpaces, setUseViewerThemeForSpaces] = useState(false);
   const [saving, setSaving] = useState(false);
   // Save/error feedback goes through the app-level toast popover, so it
   // floats above the layout and survives the dialog being closed
@@ -153,21 +230,18 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   const effAvatarCharacter = pendingAvatar ? pendingAvatar.characterId : profile?.avatar_character;
   const usernameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load profile data when the dialog opens — not on every profile update,
-  // so saves (Clear, theme pick, avatar) don't clobber edits or yank the tab
-  const loadedForOpen = useRef(false);
-  const boardsLoadedForOpen = useRef(false);
-  useEffect(() => {
-    if (!isOpen) {
-      loadedForOpen.current = false;
-      // Discard any unsaved avatar preview (reverts like the background color)
-      setPendingAvatar((prev) => {
-        if (prev?.url?.startsWith('blob:')) URL.revokeObjectURL(prev.url);
-        return null;
-      });
-      return;
-    }
-    if (profile && !loadedForOpen.current) {
+  // Synchronously initialize tab, profile fields, and target playroom/space editor
+  // on the exact render where `isOpen` becomes true so Frame 1 never flashes the
+  // wrong tab or an unpopulated list.
+  const loadedProfileOnOpenRef = useRef(false);
+  if (isOpen && !wasOpen) {
+    setWasOpen(true);
+    setTab(normalizeTab(initialTab));
+    setShowAddSpacePicker(false);
+    setConfirmRemoveSpaceId(null);
+    setConfirmDeleteSpaceId(null);
+    setConfirmDeletePlayroomId(null);
+    if (profile) {
       setDisplayName(profile.display_name || '');
       setUsername(profile.username || '');
       setUsernameStatus('idle');
@@ -176,11 +250,65 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       setPills(profile.pills || CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })));
       setBgColor(profile.background_color || '');
       setBgHex(profile.background_color || '');
-      setUseViewerThemeForBoards(profile.use_viewer_theme_for_boards || false);
-      setTab('profile');
-      setError('');
-      setSaved(false);
-      loadedForOpen.current = true;
+      setUseViewerThemeForSpaces(profile.use_viewer_theme_for_boards || false);
+      loadedProfileOnOpenRef.current = true;
+    } else {
+      loadedProfileOnOpenRef.current = false;
+    }
+
+    const targetPlayroom =
+      initialEditPlayroom ||
+      (initialEditPlayroomId ? playrooms.find((p) => p.id === initialEditPlayroomId) || null : null);
+    setEditingPlayroom(targetPlayroom ? toEditingPlayroom(targetPlayroom) : null);
+    if (initialEditPlayroom && !playrooms.some((p) => p.id === initialEditPlayroom.id)) {
+      setPlayrooms((prev) => (prev.length > 0 ? prev : [initialEditPlayroom]));
+    }
+    if (initialEditPlayroomSpaces) {
+      setPlayroomSpaces(initialEditPlayroomSpaces);
+    }
+
+    const targetSpace =
+      initialEditSpace ||
+      (initialEditSpaceId ? spaces.find((s) => s.id === initialEditSpaceId) || null : null);
+    setEditingSpace(targetSpace ? toEditingSpace(targetSpace) : null);
+    if (initialEditSpace && !spaces.some((s) => s.id === initialEditSpace.id)) {
+      setSpaces((prev) => (prev.length > 0 ? prev : [initialEditSpace]));
+    }
+  } else if (!isOpen && wasOpen) {
+    setWasOpen(false);
+    setEditingSpace(null);
+    setEditingPlayroom(null);
+    setShowAddSpacePicker(false);
+    setShowSpaceEmojiPicker(false);
+    setEmojiSearchQuery('');
+    setCustomEmojiInput('');
+    setWorkerEmojiMatches(null);
+    setConfirmRemoveSpaceId(null);
+    setConfirmDeleteSpaceId(null);
+    setConfirmDeletePlayroomId(null);
+    loadedProfileOnOpenRef.current = false;
+  }
+
+  // If `profile` finishes loading while the dialog is already open, populate fields once
+  useEffect(() => {
+    if (!isOpen) {
+      setPendingAvatar((prev) => {
+        if (prev?.url?.startsWith('blob:')) URL.revokeObjectURL(prev.url);
+        return null;
+      });
+      return;
+    }
+    if (profile && !loadedProfileOnOpenRef.current) {
+      setDisplayName(profile.display_name || '');
+      setUsername(profile.username || '');
+      setUsernameStatus('idle');
+      setBio(profile.bio || '');
+      setSocials(profile.social_links || {});
+      setPills(profile.pills || CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })));
+      setBgColor(profile.background_color || '');
+      setBgHex(profile.background_color || '');
+      setUseViewerThemeForSpaces(profile.use_viewer_theme_for_boards || false);
+      loadedProfileOnOpenRef.current = true;
     }
   }, [isOpen, profile]);
 
@@ -195,7 +323,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
   // so what she sees while picking is what gets saved. Reverts to the
   // last saved color if the dialog closes without saving.
   useEffect(() => {
-    if (!isOpen || tab !== 'theme') return;
+    if (!isOpen) return;
     const valid = (c: string) => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
     const live = valid(bgColor) ? bgColor : null;
     const saved = valid(profile?.background_color || '') ? profile?.background_color || null : null;
@@ -206,7 +334,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       if (saved) root.style.setProperty('--news-bg', saved);
       else root.style.removeProperty('--news-bg');
     };
-  }, [isOpen, tab, bgColor, profile?.background_color]);
+  }, [isOpen, bgColor, profile?.background_color]);
 
   // Keep the color wheel in sync with the active theme's background when
   // no custom color is picked
@@ -216,22 +344,125 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     setThemeBg(/^#[0-9a-fA-F]{6}$/.test(v) ? v : '');
   }, [isOpen, localTheme, bgColor, profile?.background_color]);
 
-  // Load boards + playrooms when the dialog opens
+  // Coordinated loader for spaces + playrooms + playroomSpaces.
+  // Preloads in the background as soon as the user is signed in, and refreshes
+  // silently on open so the Playrooms/Spaces tab renders with zero flicker.
+  const loadCollections = async (options?: {
+    silent?: boolean;
+    targetPlayroomId?: string | null;
+    targetSpaceId?: string | null;
+  }) => {
+    if (!user) return;
+    const silent = options?.silent ?? collectionsLoadedForUserRef.current === user.id;
+    if (!silent) setCollectionsLoading(true);
+    try {
+      const [loadedSpaces, initialRooms] = await Promise.all([
+        getUserSpaces(user.id),
+        getUserPlayrooms(user.id),
+      ]);
+      let rooms = initialRooms;
+      if (rooms.length === 0) {
+        const created = await createPlayroom(user.id, {
+          name: 'My playroom',
+          slug: 'my-playroom',
+          description: null,
+          logo_url: null,
+          theme: null,
+          background_color: null,
+          position: 0,
+        });
+        rooms = [created];
+      }
+      const wantedPlayroomId = options?.targetPlayroomId ?? initialEditPlayroomId;
+      const targetRoom = (wantedPlayroomId && rooms.find((r) => r.id === wantedPlayroomId)) || rooms[0];
+      const loadedPlayroomSpaces = targetRoom ? await getPlayroomSpaces(targetRoom.id) : [];
+
+      setSpaces(loadedSpaces);
+      setPlayrooms(rooms);
+      setPlayroomSpaces(loadedPlayroomSpaces);
+      collectionsLoadedForUserRef.current = user.id;
+
+      if (wantedPlayroomId && targetRoom) {
+        setEditingPlayroom((prev) => prev || toEditingPlayroom(targetRoom));
+      }
+      const wantedSpaceId = options?.targetSpaceId ?? initialEditSpaceId;
+      if (wantedSpaceId) {
+        const foundSpace = loadedSpaces.find((s) => s.id === wantedSpaceId);
+        if (foundSpace) {
+          setEditingSpace((prev) => prev || toEditingSpace(foundSpace));
+        }
+      }
+    } catch (err) {
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Failed to load playrooms');
+      }
+    } finally {
+      if (!silent) setCollectionsLoading(false);
+    }
+  };
+
+  // Preload spaces + playrooms as soon as `user?.id` is known (even before dialog opens)
   useEffect(() => {
-    if (!isOpen) {
-      boardsLoadedForOpen.current = false;
-      setEditingBoard(null);
-      setEditingPlayroom(null);
-      setShowAddSpacePicker(false);
+    if (!user?.id) {
+      collectionsLoadedForUserRef.current = null;
+      setSpaces([]);
+      setPlayrooms([]);
+      setPlayroomSpaces([]);
       return;
     }
-    if (user && !boardsLoadedForOpen.current) {
-      boardsLoadedForOpen.current = true;
-      loadBoards();
-      loadPlayrooms();
+    if (collectionsLoadedForUserRef.current !== user.id) {
+      loadCollections({ silent: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, user]);
+  }, [user?.id]);
+
+  // Refresh silently when dialog opens (or load if not yet loaded)
+  useEffect(() => {
+    if (!isOpen || !user) return;
+    const alreadyHaveTarget =
+      !!initialEditPlayroom ||
+      !!initialEditSpace ||
+      collectionsLoadedForUserRef.current === user.id;
+    loadCollections({
+      silent: alreadyHaveTarget,
+      targetPlayroomId: initialEditPlayroomId,
+      targetSpaceId: initialEditSpaceId,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, user?.id, initialEditPlayroomId, initialEditSpaceId]);
+
+  // Query Cloudflare Worker BGE neural embeddings (debounced) while editing a space
+  useEffect(() => {
+    if (!isOpen || !editingSpace) {
+      setWorkerEmojiMatches(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchWorkerSpaceEmojiMatches({
+        id: editingSpace.id,
+        name: editingSpace.name,
+        slug: editingSpace.slug,
+        description: editingSpace.description,
+        pills: editingSpace.pills,
+      }).then((matches) => {
+        if (!cancelled && matches && matches.length > 0) {
+          setWorkerEmojiMatches(matches);
+        }
+      });
+    }, 320);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    isOpen,
+    editingSpace?.id,
+    editingSpace?.name,
+    editingSpace?.slug,
+    editingSpace?.description,
+    editingSpace?.pills,
+  ]);
 
   if (!isOpen) return null;
 
@@ -408,19 +639,14 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       if (exists) {
         return prev.filter((p) => p.id !== pillId);
       }
-      const allPills: PillConfig[] = [
-        ...CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const })),
-        ...prev.filter((p) => p.type !== 'category'),
-      ];
-      const ordered = allPills.filter((p) => prev.some((pp) => pp.id === p.id) || p.id === pillId);
-      return ordered;
+      return [...prev, { id: pillId, type: 'category' as const }];
     });
   };
 
-  /** Snapshot a board's topics as match keywords for a board interest pill. */
-  const boardInterestKeywords = (board: Board): string => {
+  /** Snapshot a space's topics as match keywords for a space interest pill. */
+  const spaceInterestKeywords = (space: Space): string => {
     const terms: string[] = [];
-    for (const p of board.pills || []) {
+    for (const p of space.pills || []) {
       if (p.type === 'category' || p.type === 'keyword') terms.push(p.id);
       else if (p.type === 'custom') {
         if (p.keywords) terms.push(p.keywords);
@@ -430,22 +656,38 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     return terms.join(', ');
   };
 
-  /** Toggle one of the user's boards as an interest (boosts matching stories on the homepage). */
-  const toggleBoardPill = (board: Board) => {
-    const pillId = `board-${board.id}`;
+  /** Check if a pill represents a given user space (supports both 'space-<id>' and legacy 'board-<id>'). */
+  const isPillForSpace = (pill: PillConfig, spaceId: string) =>
+    pill.id === `space-${spaceId}` || pill.id === `board-${spaceId}`;
+
+  /** Toggle one of the user's spaces as an interest (boosts matching stories on the homepage). */
+  const toggleSpacePill = (space: Space) => {
+    const pillId = `space-${space.id}`;
     setPills((prev) => {
-      if (prev.some((p) => p.id === pillId)) {
-        return prev.filter((p) => p.id !== pillId);
+      if (prev.some((p) => isPillForSpace(p, space.id))) {
+        return prev.filter((p) => !isPillForSpace(p, space.id));
       }
-      const keywords = boardInterestKeywords(board);
-      return [...prev, { id: pillId, type: 'board' as const, label: board.name, keywords: keywords || undefined }];
+      const keywords = spaceInterestKeywords(space);
+      return [
+        ...prev,
+        {
+          id: pillId,
+          type: 'space' as const,
+          label: space.name,
+          keywords: keywords || undefined,
+          icon: getSpaceEmoji(space),
+        },
+      ];
     });
   };
 
   const addCustomPill = () => {
     if (!newPillLabel.trim()) return;
     const id = `custom-${Date.now()}`;
-    setPills((prev) => [...prev, { id, type: 'custom', label: newPillLabel.trim(), keywords: newPillKeywords.trim() || undefined }]);
+    const label = newPillLabel.trim();
+    const keywords = newPillKeywords.trim() || undefined;
+    const icon = getClosestEmojiForText(label, keywords);
+    setPills((prev) => [...prev, { id, type: 'custom', label, keywords, icon }]);
     setNewPillLabel('');
     setNewPillKeywords('');
   };
@@ -476,48 +718,54 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     }
   };
 
-  // ---- Boards ----
-  const loadBoards = async () => {
-    if (!user) return;
-    setBoardsLoading(true);
+  const handleResetInterests = async () => {
+    const defaultPills: PillConfig[] = CATEGORIES.map((c) => ({ id: c.id, type: 'category' as const }));
+    setPills(defaultPills);
+    setSaving(true);
     try {
-      setBoards(await getUserBoards(user.id));
+      await updateProfile({ pills: defaultPills });
+      notify('Interests reset to default', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load spaces');
+      notify(err instanceof Error ? err.message : 'Failed to reset interests', 'error');
     } finally {
-      setBoardsLoading(false);
+      setSaving(false);
     }
   };
 
-  const handleNewBoard = () => {
-    if (boards.length >= MAX_SPACES) return;
-    setEditingBoard({
+  // ---- Spaces ----
+  const handleNewSpace = () => {
+    if (spaces.length >= MAX_SPACES) return;
+    setShowSpaceEmojiPicker(false);
+    setEmojiSearchQuery('');
+    setCustomEmojiInput('');
+    setNewPillLabel('');
+    setNewPillKeywords('');
+    setEditingSpace({
       id: null,
       name: '',
       slug: '',
       description: '',
       logoUrl: null,
       logoFile: null,
-      pills: [...pills],
+      iconEmoji: null,
+      // Do not carry over custom interests or space pills into a new space
+      pills: pills.filter((p) => p.type !== 'custom' && p.type !== 'space' && p.type !== 'board'),
     });
   };
 
-  const handleEditBoard = (board: Board) => {
-    setEditingBoard({
-      id: board.id,
-      name: board.name,
-      slug: board.slug,
-      description: board.description || '',
-      logoUrl: board.logo_url,
-      logoFile: null,
-      pills: [...(board.pills || [])],
-    });
+  const handleEditSpace = (space: Space) => {
+    setShowSpaceEmojiPicker(false);
+    setEmojiSearchQuery('');
+    setCustomEmojiInput('');
+    setNewPillLabel('');
+    setNewPillKeywords('');
+    setEditingSpace(toEditingSpace(space));
   };
 
-  const handleBoardLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSpaceLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (boardLogoRef.current) boardLogoRef.current.value = '';
-    if (!file || !editingBoard) return;
+    if (spaceLogoRef.current) spaceLogoRef.current.value = '';
+    if (!file || !editingSpace) return;
     if (!file.type.startsWith('image/')) {
       setError('Please choose an image file');
       return;
@@ -526,38 +774,49 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       setError('Image must be under 2MB');
       return;
     }
-    if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
-    setEditingBoard({ ...editingBoard, logoUrl: URL.createObjectURL(file), logoFile: file });
+    if (editingSpace.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingSpace.logoUrl);
+    setEditingSpace({ ...editingSpace, logoUrl: URL.createObjectURL(file), logoFile: file });
   };
 
-  const handleBoardPillToggle = (pill: PillConfig) => {
-    if (!editingBoard) return;
-    const exists = editingBoard.pills.some((p) => p.type === pill.type && p.id === pill.id);
-    setEditingBoard({
-      ...editingBoard,
+  const handleSpacePillToggle = (pill: PillConfig) => {
+    if (!editingSpace) return;
+    const exists = editingSpace.pills.some((p) => p.type === pill.type && p.id === pill.id);
+    setEditingSpace({
+      ...editingSpace,
       pills: exists
-        ? editingBoard.pills.filter((p) => !(p.type === pill.type && p.id === pill.id))
-        : [...editingBoard.pills, pill],
+        ? editingSpace.pills.filter((p) => !(p.type === pill.type && p.id === pill.id))
+        : [...editingSpace.pills, pill],
     });
   };
 
-  const addCustomBoardPill = () => {
-    if (!editingBoard || !newPillLabel.trim()) return;
+  const addCustomSpacePill = () => {
+    if (!editingSpace || !newPillLabel.trim()) return;
+    const label = newPillLabel.trim();
+    const alreadyExists = editingSpace.pills.some(
+      (p) => p.type === 'custom' && (p.label || '').trim().toLowerCase() === label.toLowerCase()
+    );
+    if (alreadyExists) {
+      setNewPillLabel('');
+      setNewPillKeywords('');
+      return;
+    }
     const id = `custom-${Date.now()}`;
+    const keywords = newPillKeywords.trim() || undefined;
     const pill: PillConfig = {
       id,
       type: 'custom',
-      label: newPillLabel.trim(),
-      keywords: newPillKeywords.trim() || undefined,
+      label,
+      keywords,
+      icon: getClosestEmojiForText(label, keywords),
     };
-    setEditingBoard({ ...editingBoard, pills: [...editingBoard.pills, pill] });
+    setEditingSpace({ ...editingSpace, pills: [...editingSpace.pills, pill] });
     setNewPillLabel('');
     setNewPillKeywords('');
   };
 
-  const handleSaveBoard = async () => {
-    if (!editingBoard || !user) return;
-    const name = editingBoard.name.trim();
+  const handleSaveSpace = async () => {
+    if (!editingSpace || !user) return;
+    const name = editingSpace.name.trim();
     if (!name) {
       setError('Give your space a name');
       return;
@@ -568,46 +827,81 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     try {
       const slug = await ensureUniqueSlug(
         user.id,
-        slugify(editingBoard.slug.trim() || name),
-        editingBoard.id || undefined
+        slugify(editingSpace.slug.trim() || name),
+        editingSpace.id || undefined
       );
-      let logoUrl = editingBoard.logoUrl;
-      // New boards: create first (need the id for the logo path), then upload
+      let logoUrl = editingSpace.logoUrl;
+      const iconEmojiOverride = extractSingleEmoji(editingSpace.iconEmoji) || null;
+      // New spaces: create first (need the id for the logo path), then upload
       // Spaces are interest-defined feeds: theme/background live on the playroom, not the space.
-      let boardId = editingBoard.id;
-      if (!boardId) {
-        const created = await createBoard(user.id, {
+      const isNewSpace = !editingSpace.id;
+      let spaceId = editingSpace.id;
+      if (!spaceId) {
+        const created = await createSpace(user.id, {
           name,
           slug,
-          description: editingBoard.description.trim() || null,
+          description: editingSpace.description.trim() || null,
           logo_url: null,
+          icon_emoji: iconEmojiOverride,
           theme: null,
           background_color: null,
-          pills: editingBoard.pills,
-          position: boards.length,
+          pills: editingSpace.pills,
+          position: spaces.length,
         });
-        boardId = created.id;
+        spaceId = created.id;
       }
-      if (editingBoard.logoFile && boardId) {
-        logoUrl = await uploadBoardLogo(user.id, boardId, editingBoard.logoFile);
+      if (editingSpace.logoFile && spaceId) {
+        logoUrl = await uploadSpaceLogo(user.id, spaceId, editingSpace.logoFile);
       }
-      const updated = await updateBoard(boardId, {
+      const updated = await updateSpace(spaceId, {
         name,
         slug,
-        description: editingBoard.description.trim() || null,
-        logo_url: editingBoard.logoFile ? logoUrl : editingBoard.logoUrl,
+        description: editingSpace.description.trim() || null,
+        logo_url: editingSpace.logoFile ? logoUrl : editingSpace.logoUrl,
+        icon_emoji: iconEmojiOverride,
         theme: null,
         background_color: null,
-        pills: editingBoard.pills,
+        pills: editingSpace.pills,
       });
-      if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
-      setBoards((prev) => {
-        const exists = prev.some((b) => b.id === updated.id);
-        const next = exists ? prev.map((b) => (b.id === updated.id ? updated : b)) : [...prev, updated];
+      if (editingSpace.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingSpace.logoUrl);
+      setSpaces((prev) => {
+        const exists = prev.some((s) => s.id === updated.id);
+        const next = exists ? prev.map((s) => (s.id === updated.id ? updated : s)) : [...prev, updated];
         return next.sort((a, b) => a.position - b.position);
       });
-      setEditingBoard(null);
+      // Keep any homepage space pill for this space in sync with its updated name, keywords, and emoji
+      const resolvedIcon = getSpaceEmoji(updated);
+      const updatedKeywords = spaceInterestKeywords(updated);
+      setPills((prev) => {
+        if (!prev.some((p) => isPillForSpace(p, updated.id))) return prev;
+        const synced = prev.map((p) =>
+          isPillForSpace(p, updated.id)
+            ? { ...p, label: updated.name, keywords: updatedKeywords || undefined, icon: resolvedIcon }
+            : p
+        );
+        updateProfile({ pills: synced }).catch(() => {});
+        return synced;
+      });
+      if (isNewSpace) {
+        const defaultPlayroom = playrooms[0];
+        if (defaultPlayroom && playroomSpaces.length < MAX_PLAYROOM_SPACES) {
+          try {
+            await addSpaceToPlayroom(defaultPlayroom.id, updated.id, MAX_PLAYROOM_SPACES);
+            setPlayroomSpaces((prev) =>
+              prev.some((s) => s.id === updated.id) ? prev : [...prev, updated]
+            );
+          } catch {
+            /* non-fatal if playroom is already at capacity */
+          }
+        }
+      } else {
+        setPlayroomSpaces((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      }
+      setEditingSpace(null);
+      setShowSpaceEmojiPicker(false);
       setSaved(true);
+      window.dispatchEvent(new CustomEvent('littlables:spaces-changed', { detail: { space: updated } }));
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save space');
     } finally {
@@ -615,73 +909,67 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     }
   };
 
-  const handleDeleteBoard = async (boardId: string, boardName: string) => {
-    if (!window.confirm(`Delete the "${boardName}" space? This can't be undone.`)) return;
+  const handleDeleteSpace = async (spaceId: string) => {
     setError('');
+    setConfirmDeleteSpaceId(null);
     try {
-      await deleteBoard(boardId);
-      setBoards((prev) => prev.filter((b) => b.id !== boardId));
-      if (editingBoard?.id === boardId) setEditingBoard(null);
+      await deleteSpace(spaceId);
+      setSpaces((prev) => prev.filter((s) => s.id !== spaceId));
+      setPlayroomSpaces((prev) => prev.filter((s) => s.id !== spaceId));
+      if (editingSpace?.id === spaceId) setEditingSpace(null);
       setSaved(true);
+      window.dispatchEvent(new CustomEvent('littlables:spaces-changed'));
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete space');
     }
   };
 
-  const handleMoveBoard = async (boardId: string, dir: -1 | 1) => {
-    const idx = boards.findIndex((b) => b.id === boardId);
+  const handleMoveSpace = async (spaceId: string, dir: -1 | 1) => {
+    const idx = spaces.findIndex((s) => s.id === spaceId);
     const swapIdx = idx + dir;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= boards.length) return;
-    const next = [...boards];
+    if (idx < 0 || swapIdx < 0 || swapIdx >= spaces.length) return;
+    const next = [...spaces];
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-    setBoards(next);
+    setSpaces(next);
     try {
-      await reorderBoards(next.map((b) => b.id));
+      await reorderSpaces(next.map((s) => s.id));
+      window.dispatchEvent(new CustomEvent('littlables:spaces-changed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reorder');
-      loadBoards();
+      loadCollections({ silent: true });
     }
   };
 
   // ---- Playrooms ----
-  const loadPlayrooms = async () => {
-    if (!user) return;
-    setPlayroomsLoading(true);
-    try {
-      let rooms = await getUserPlayrooms(user.id);
-      // Free tier gets one playroom; self-heal if missing (e.g. signed up after the backfill)
-      if (rooms.length === 0) {
-        const created = await createPlayroom(user.id, {
-          name: 'My playroom',
-          slug: 'my-playroom',
-          description: null,
-          logo_url: null,
-          theme: null,
-          background_color: null,
-          position: 0,
-        });
-        rooms = [created];
-      }
-      setPlayrooms(rooms);
-      setPlayroomSpaces(await getPlayroomSpaces(rooms[0].id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load playrooms');
-    } finally {
-      setPlayroomsLoading(false);
-    }
+  const handleNewPlayroom = () => {
+    if (playrooms.length >= MAX_PLAYROOMS) return;
+    setConfirmDeletePlayroomId(null);
+    setConfirmRemoveSpaceId(null);
+    setShowAddSpacePicker(false);
+    setPlayroomSpaces([]);
+    setEditingPlayroom({
+      id: null,
+      name: '',
+      slug: '',
+      description: '',
+      logoUrl: null,
+      logoFile: null,
+      theme: '',
+      bgColor: '',
+    });
   };
 
-  const handleEditPlayroom = (playroom: Playroom) => {
-    setEditingPlayroom({
-      id: playroom.id,
-      name: playroom.name,
-      slug: playroom.slug,
-      description: playroom.description || '',
-      logoUrl: playroom.logo_url,
-      logoFile: null,
-      theme: playroom.theme || '',
-      bgColor: playroom.background_color || '',
-    });
+  const handleEditPlayroom = async (playroom: Playroom) => {
+    setConfirmDeletePlayroomId(null);
+    setConfirmRemoveSpaceId(null);
+    setShowAddSpacePicker(false);
+    setEditingPlayroom(toEditingPlayroom(playroom));
+    try {
+      setPlayroomSpaces(await getPlayroomSpaces(playroom.id));
+    } catch {
+      /* keep current spaces on transient error */
+    }
   };
 
   const handlePlayroomLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -713,13 +1001,30 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       const slug = await ensureUniquePlayroomSlug(
         user.id,
         slugify(editingPlayroom.slug.trim() || name),
-        editingPlayroom.id
+        editingPlayroom.id || undefined
       );
       let logoUrl = editingPlayroom.logoUrl;
-      if (editingPlayroom.logoFile) {
-        logoUrl = await uploadPlayroomLogo(user.id, editingPlayroom.id, editingPlayroom.logoFile);
+      const isNewPlayroom = !editingPlayroom.id;
+      let playroomId = editingPlayroom.id;
+
+      if (!playroomId) {
+        const created = await createPlayroom(user.id, {
+          name,
+          slug,
+          description: editingPlayroom.description.trim() || null,
+          logo_url: null,
+          theme: editingPlayroom.theme || null,
+          background_color: editingPlayroom.bgColor || null,
+          position: playrooms.length,
+        });
+        playroomId = created.id;
       }
-      const updated = await updatePlayroom(editingPlayroom.id, {
+
+      if (editingPlayroom.logoFile && playroomId) {
+        logoUrl = await uploadPlayroomLogo(user.id, playroomId, editingPlayroom.logoFile);
+      }
+
+      const updated = await updatePlayroom(playroomId, {
         name,
         slug,
         description: editingPlayroom.description.trim() || null,
@@ -727,12 +1032,24 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
         theme: editingPlayroom.theme || null,
         background_color: editingPlayroom.bgColor || null,
       });
+
+      if (isNewPlayroom && playroomSpaces.length > 0) {
+        for (const s of playroomSpaces) {
+          await addSpaceToPlayroom(updated.id, s.id, MAX_PLAYROOM_SPACES);
+        }
+      }
+
       if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
-      setPlayrooms((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      setPlayrooms((prev) => {
+        const exists = prev.some((p) => p.id === updated.id);
+        const next = exists ? prev.map((p) => (p.id === updated.id ? updated : p)) : [...prev, updated];
+        return next.sort((a, b) => a.position - b.position);
+      });
       setEditingPlayroom(null);
+      setShowAddSpacePicker(false);
       setSaved(true);
-      // Tell the public profile page to refetch (it won't remount on dialog close)
-      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
+      // Tell the public profile and playroom pages to refetch (they won't remount on dialog close)
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed', { detail: { playroom: updated } }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save playroom');
     } finally {
@@ -740,35 +1057,100 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     }
   };
 
-  const handleAddSpaceToPlayroom = async (boardId: string) => {
-    const playroom = playrooms[0];
-    if (!playroom) return;
+  const handleDeletePlayroom = async (playroomId: string) => {
+    setError('');
+    setConfirmDeletePlayroomId(null);
+    try {
+      await deletePlayroom(playroomId);
+      setPlayrooms((prev) => prev.filter((p) => p.id !== playroomId));
+      if (editingPlayroom?.id === playroomId) setEditingPlayroom(null);
+      setSaved(true);
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete playroom');
+    }
+  };
+
+  const handleMovePlayroom = async (playroomId: string, dir: -1 | 1) => {
+    const idx = playrooms.findIndex((p) => p.id === playroomId);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= playrooms.length) return;
+    const next = [...playrooms];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    setPlayrooms(next);
+    try {
+      await reorderPlayrooms(next.map((p) => p.id));
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder playrooms');
+      loadCollections({ silent: true });
+    }
+  };
+
+  const handleAddSpaceToPlayroom = async (spaceId: string) => {
     if (playroomSpaces.length >= MAX_PLAYROOM_SPACES) {
       setError(`A playroom can hold at most ${MAX_PLAYROOM_SPACES} spaces`);
       return;
     }
     setError('');
+    if (editingPlayroom && !editingPlayroom.id) {
+      const targetSpace = spaces.find((s) => s.id === spaceId);
+      if (targetSpace && !playroomSpaces.some((ps) => ps.id === spaceId)) {
+        setPlayroomSpaces((prev) => [...prev, targetSpace]);
+      }
+      setShowAddSpacePicker(false);
+      return;
+    }
+    const playroom = (editingPlayroom?.id && playrooms.find((p) => p.id === editingPlayroom.id)) || playrooms[0];
+    if (!playroom) return;
     try {
-      await addSpaceToPlayroom(playroom.id, boardId);
+      await addSpaceToPlayroom(playroom.id, spaceId, MAX_PLAYROOM_SPACES);
       setPlayroomSpaces(await getPlayroomSpaces(playroom.id));
       setShowAddSpacePicker(false);
       setSaved(true);
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add space');
     }
   };
 
-  const handleRemoveSpaceFromPlayroom = async (boardId: string, boardName: string) => {
-    const playroom = playrooms[0];
-    if (!playroom) return;
-    if (!window.confirm(`Remove "${boardName}" from this playroom? The space itself is kept.`)) return;
+  const handleRemoveSpaceFromPlayroom = async (spaceId: string) => {
     setError('');
+    setConfirmRemoveSpaceId(null);
+    if (editingPlayroom && !editingPlayroom.id) {
+      setPlayroomSpaces((prev) => prev.filter((b) => b.id !== spaceId));
+      return;
+    }
+    const playroom = (editingPlayroom?.id && playrooms.find((p) => p.id === editingPlayroom.id)) || playrooms[0];
+    if (!playroom) return;
     try {
-      await removeSpaceFromPlayroom(playroom.id, boardId);
-      setPlayroomSpaces((prev) => prev.filter((b) => b.id !== boardId));
+      await removeSpaceFromPlayroom(playroom.id, spaceId);
+      setPlayroomSpaces((prev) => prev.filter((b) => b.id !== spaceId));
       setSaved(true);
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove space');
+    }
+  };
+
+  const handleMovePlayroomSpace = async (spaceId: string, dir: -1 | 1) => {
+    const idx = playroomSpaces.findIndex((s) => s.id === spaceId);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= playroomSpaces.length) return;
+    const next = [...playroomSpaces];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    setPlayroomSpaces(next);
+    if (editingPlayroom && !editingPlayroom.id) {
+      return;
+    }
+    const playroom = (editingPlayroom?.id && playrooms.find((p) => p.id === editingPlayroom.id)) || playrooms[0];
+    if (!playroom) return;
+    try {
+      await reorderPlayroomSpaces(playroom.id, next.map((s) => s.id));
+      window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reorder spaces');
+      loadCollections({ silent: true });
     }
   };
 
@@ -778,6 +1160,258 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign out failed');
+    }
+  };
+
+  /**
+   * Saves all pending changes across Profile, Avatar, Theme, Interests,
+   * and any open Playroom or Space editor in a single action.
+   */
+  const handleSaveAll = async () => {
+    if (!user) return;
+    setError('');
+    setSaved(false);
+    setSaving(true);
+    try {
+      // 1. Validate handle if changed
+      if (username && username !== profile?.username) {
+        if (usernameStatus === 'taken') throw new Error('That handle is taken');
+        if (usernameStatus === 'invalid' || !/^[a-z0-9_]{3,30}$/.test(username)) {
+          throw new Error('Handle must be 3-30 chars: letters, numbers, underscores');
+        }
+      }
+
+      // 2. Validate active Space/Playroom editor if on the Playrooms tab
+      if (editingSpace && !editingSpace.name.trim() && tab === 'playrooms') {
+        throw new Error('Give your space a name');
+      }
+      if (editingPlayroom && !editingPlayroom.name.trim() && tab === 'playrooms') {
+        throw new Error('Give your playroom a name');
+      }
+
+      let nextPills = [...pills];
+      // If user typed a custom interest on the Interests tab without clicking Add yet, include it
+      if (tab === 'interests' && newPillLabel.trim()) {
+        const label = newPillLabel.trim();
+        const keywords = newPillKeywords.trim() || undefined;
+        const alreadyInPills = nextPills.some(
+          (p) => p.type === 'custom' && (p.label || '').trim().toLowerCase() === label.toLowerCase()
+        );
+        if (!alreadyInPills) {
+          nextPills.push({
+            id: `custom-${Date.now()}`,
+            type: 'custom',
+            label,
+            keywords,
+            icon: getClosestEmojiForText(label, keywords),
+          });
+        }
+        setNewPillLabel('');
+        setNewPillKeywords('');
+      }
+
+      // 3. Save open Space editor if it has a name
+      if (editingSpace && editingSpace.name.trim()) {
+        const spaceName = editingSpace.name.trim();
+        let spacePills = [...editingSpace.pills];
+        if (tab === 'playrooms' && newPillLabel.trim()) {
+          const label = newPillLabel.trim();
+          const keywords = newPillKeywords.trim() || undefined;
+          const alreadyExists = spacePills.some(
+            (p) => p.type === 'custom' && (p.label || '').trim().toLowerCase() === label.toLowerCase()
+          );
+          if (!alreadyExists) {
+            spacePills.push({
+              id: `custom-${Date.now()}`,
+              type: 'custom',
+              label,
+              keywords,
+              icon: getClosestEmojiForText(label, keywords),
+            });
+          }
+          setNewPillLabel('');
+          setNewPillKeywords('');
+        }
+
+        const slug = await ensureUniqueSlug(
+          user.id,
+          slugify(editingSpace.slug.trim() || spaceName),
+          editingSpace.id || undefined
+        );
+        let logoUrl = editingSpace.logoUrl;
+        const iconEmojiOverride = extractSingleEmoji(editingSpace.iconEmoji) || null;
+        const isNewSpace = !editingSpace.id;
+        let spaceId = editingSpace.id;
+        if (!spaceId) {
+          const created = await createSpace(user.id, {
+            name: spaceName,
+            slug,
+            description: editingSpace.description.trim() || null,
+            logo_url: null,
+            icon_emoji: iconEmojiOverride,
+            theme: null,
+            background_color: null,
+            pills: spacePills,
+            position: spaces.length,
+          });
+          spaceId = created.id;
+        }
+        if (editingSpace.logoFile && spaceId) {
+          logoUrl = await uploadSpaceLogo(user.id, spaceId, editingSpace.logoFile);
+        }
+        const updatedSpace = await updateSpace(spaceId, {
+          name: spaceName,
+          slug,
+          description: editingSpace.description.trim() || null,
+          logo_url: editingSpace.logoFile ? logoUrl : editingSpace.logoUrl,
+          icon_emoji: iconEmojiOverride,
+          theme: null,
+          background_color: null,
+          pills: spacePills,
+        });
+        if (editingSpace.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingSpace.logoUrl);
+        setSpaces((prev) => {
+          const exists = prev.some((s) => s.id === updatedSpace.id);
+          const next = exists
+            ? prev.map((s) => (s.id === updatedSpace.id ? updatedSpace : s))
+            : [...prev, updatedSpace];
+          return next.sort((a, b) => a.position - b.position);
+        });
+        const resolvedIcon = getSpaceEmoji(updatedSpace);
+        const updatedKeywords = spaceInterestKeywords(updatedSpace);
+        if (nextPills.some((p) => isPillForSpace(p, updatedSpace.id))) {
+          nextPills = nextPills.map((p) =>
+            isPillForSpace(p, updatedSpace.id)
+              ? {
+                  ...p,
+                  label: updatedSpace.name,
+                  keywords: updatedKeywords || undefined,
+                  icon: resolvedIcon,
+                }
+              : p
+          );
+        }
+        if (isNewSpace) {
+          const defaultPlayroom = playrooms[0];
+          if (defaultPlayroom && playroomSpaces.length < MAX_PLAYROOM_SPACES) {
+            try {
+              await addSpaceToPlayroom(defaultPlayroom.id, updatedSpace.id, MAX_PLAYROOM_SPACES);
+              setPlayroomSpaces((prev) =>
+                prev.some((s) => s.id === updatedSpace.id) ? prev : [...prev, updatedSpace]
+              );
+            } catch {
+              /* non-fatal if playroom is already at capacity */
+            }
+          }
+        } else {
+          setPlayroomSpaces((prev) =>
+            prev.map((s) => (s.id === updatedSpace.id ? updatedSpace : s))
+          );
+        }
+        setEditingSpace(null);
+        setShowSpaceEmojiPicker(false);
+        window.dispatchEvent(
+          new CustomEvent('littlables:spaces-changed', { detail: { space: updatedSpace } })
+        );
+        window.dispatchEvent(new CustomEvent('littlables:playrooms-changed'));
+      }
+
+      // 4. Save open Playroom editor if it has a name
+      if (editingPlayroom && editingPlayroom.name.trim()) {
+        const playroomName = editingPlayroom.name.trim();
+        const slug = await ensureUniquePlayroomSlug(
+          user.id,
+          slugify(editingPlayroom.slug.trim() || playroomName),
+          editingPlayroom.id || undefined
+        );
+        let logoUrl = editingPlayroom.logoUrl;
+        const isNewPlayroom = !editingPlayroom.id;
+        let playroomId = editingPlayroom.id;
+        if (!playroomId) {
+          const created = await createPlayroom(user.id, {
+            name: playroomName,
+            slug,
+            description: editingPlayroom.description.trim() || null,
+            logo_url: null,
+            theme: editingPlayroom.theme || null,
+            background_color: editingPlayroom.bgColor || null,
+            position: playrooms.length,
+          });
+          playroomId = created.id;
+        }
+        if (editingPlayroom.logoFile && playroomId) {
+          logoUrl = await uploadPlayroomLogo(user.id, playroomId, editingPlayroom.logoFile);
+        }
+        const updatedPlayroom = await updatePlayroom(playroomId, {
+          name: playroomName,
+          slug,
+          description: editingPlayroom.description.trim() || null,
+          logo_url: editingPlayroom.logoFile ? logoUrl : editingPlayroom.logoUrl,
+          theme: editingPlayroom.theme || null,
+          background_color: editingPlayroom.bgColor || null,
+        });
+        if (isNewPlayroom && playroomSpaces.length > 0) {
+          for (const s of playroomSpaces) {
+            await addSpaceToPlayroom(updatedPlayroom.id, s.id, MAX_PLAYROOM_SPACES);
+          }
+        }
+        if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
+        setPlayrooms((prev) => {
+          const exists = prev.some((p) => p.id === updatedPlayroom.id);
+          const next = exists
+            ? prev.map((p) => (p.id === updatedPlayroom.id ? updatedPlayroom : p))
+            : [...prev, updatedPlayroom];
+          return next.sort((a, b) => a.position - b.position);
+        });
+        setEditingPlayroom(null);
+        setShowAddSpacePicker(false);
+        window.dispatchEvent(
+          new CustomEvent('littlables:playrooms-changed', { detail: { playroom: updatedPlayroom } })
+        );
+      }
+
+      // 5. Upload pending avatar if selected
+      let avatarUpdates: Partial<Profile> = {};
+      if (pendingAvatar) {
+        let uploadedUrl = pendingAvatar.url;
+        if (pendingAvatar.file) {
+          uploadedUrl = await uploadAvatarFile(pendingAvatar.file);
+        }
+        avatarUpdates = {
+          avatar_type: pendingAvatar.type,
+          avatar_character: pendingAvatar.characterId,
+          avatar_url: uploadedUrl,
+        };
+      }
+
+      // 6. Save all profile, avatar, theme, and interest fields together
+      const normalizedSocials = Object.fromEntries(
+        Object.entries(socials).map(([k, v]) => [k, normalizeSocialLink(k, v || '')])
+      ) as SocialLinks;
+
+      setPills(nextPills);
+      await updateProfile({
+        display_name: displayName.trim() || null,
+        username: username.trim() || null,
+        bio: bio.trim() || null,
+        social_links: normalizedSocials,
+        theme: localTheme,
+        background_color: bgColor || null,
+        use_viewer_theme_for_boards: useViewerThemeForSpaces,
+        pills: nextPills,
+        ...avatarUpdates,
+      });
+
+      if (pendingAvatar) {
+        if (pendingAvatar.url?.startsWith('blob:')) URL.revokeObjectURL(pendingAvatar.url);
+        setPendingAvatar(null);
+      }
+
+      notify('All changes saved!', 'success');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save changes');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -805,7 +1439,7 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
     { id: 'avatar', label: 'Avatar' },
     { id: 'theme', label: 'Theme' },
     { id: 'interests', label: 'Interests' },
-    { id: 'boards', label: 'Playrooms' },
+    { id: 'playrooms', label: 'Playrooms' },
   ];
 
   return (
@@ -826,115 +1460,156 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
 
         {tab === 'profile' && (
           <div className="profile-tab-content">
-            <div className="profile-avatar-row">
-              {profile?.username ? (
-                <button
-                  type="button"
-                  className="profile-avatar-link"
-                  title="View your public profile"
-                  onClick={openPublicProfile}
-                >
-                  {renderAvatar('lg')}
-                </button>
-              ) : (
-                renderAvatar('lg')
-              )}
-              <div>
+            <div className="profile-avatar-row" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
                 {profile?.username ? (
                   <button
                     type="button"
-                    className="profile-email profile-email-link"
+                    className="profile-avatar-link"
                     title="View your public profile"
                     onClick={openPublicProfile}
                   >
-                    {user?.email}
+                    {renderAvatar('lg')}
                   </button>
                 ) : (
-                  <div className="profile-email">{user?.email}</div>
+                  renderAvatar('lg')
                 )}
-                {profile?.username && (
-                  <button
-                    type="button"
-                    className="profile-username profile-username-link"
-                    title="View your public profile"
-                    onClick={openPublicProfile}
-                  >
-                    @{profile.username}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="sign-in-form">
-              <label htmlFor="profile-display-name">Display name</label>
-              <input
-                id="profile-display-name"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="What should we call you?"
-                maxLength={50}
-              />
-
-              <label htmlFor="profile-username">Unique link</label>
-              <input
-                id="profile-username"
-                type="text"
-                value={username}
-                onChange={(e) => handleUsernameChange(e.target.value)}
-                placeholder="yourname"
-                maxLength={30}
-              />
-              {usernameStatus === 'checking' && <span className="username-hint">Checking…</span>}
-              {usernameStatus === 'available' && <span className="username-hint available">✓ Available</span>}
-              {usernameStatus === 'taken' && <span className="username-hint taken">✗ Taken</span>}
-              {usernameStatus === 'invalid' && <span className="username-hint taken">3-30 chars: a-z, 0-9, _</span>}
-
-              <label htmlFor="profile-bio">Bio</label>
-              <textarea
-                id="profile-bio"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="Tell us about yourself…"
-                maxLength={280}
-                rows={3}
-                className="profile-textarea"
-              />
-
-              <label>Social links</label>
-              <div className="profile-hint profile-hint-compact">Just your handle is fine — or paste the full link. Both work.</div>
-              {SOCIAL_FIELDS.map(({ key, label, placeholder }) => (
-                <div key={key} className="social-field">
-                  <span className="social-label">{label}</span>
-                  <input
-                    type="text"
-                    value={socials[key] || ''}
-                    onChange={(e) => setSocials((prev) => ({ ...prev, [key]: e.target.value }))}
-                    placeholder={placeholder}
-                  />
+                <div style={{ minWidth: 0 }}>
+                  {profile?.username ? (
+                    <button
+                      type="button"
+                      className="profile-email profile-email-link"
+                      title="View your public profile"
+                      onClick={openPublicProfile}
+                    >
+                      {user?.email}
+                    </button>
+                  ) : (
+                    <div className="profile-email">{user?.email}</div>
+                  )}
+                  {profile?.username && (
+                    <button
+                      type="button"
+                      className="profile-username profile-username-link"
+                      title="View your public profile"
+                      onClick={openPublicProfile}
+                    >
+                      @{profile.username}
+                    </button>
+                  )}
                 </div>
-              ))}
-
-              <button type="button" className="sign-in-button primary-button" onClick={handleSaveProfile} disabled={saving}>
-                {saving ? 'Saving…' : 'Save Profile'}
-              </button>
-
-              <button type="button" className="sign-in-button secondary-button profile-signout-btn" onClick={handleSignOut}>
+              </div>
+              <button
+                type="button"
+                className="sign-in-button secondary-button compact-inline-btn"
+                onClick={handleSignOut}
+              >
                 Sign out
               </button>
+            </div>
+
+            <div className="compact-form-stack">
+              <div className="compact-field-row">
+                <label className="compact-field-label" htmlFor="profile-display-name">Name</label>
+                <input
+                  id="profile-display-name"
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="What should we call you?"
+                  maxLength={50}
+                />
+              </div>
+
+              <div className="compact-field-row">
+                <label className="compact-field-label" htmlFor="profile-username">Handle</label>
+                <div className="compact-field-control">
+                  <div className="space-slug-row">
+                    <span className="space-slug-prefix">@</span>
+                    <input
+                      id="profile-username"
+                      className="space-slug-input"
+                      type="text"
+                      value={username}
+                      onChange={(e) => handleUsernameChange(e.target.value)}
+                      placeholder="handle"
+                      maxLength={30}
+                    />
+                  </div>
+                  {usernameStatus === 'checking' && <span className="username-hint">Checking…</span>}
+                  {usernameStatus === 'available' && <span className="username-hint available">✓ Available</span>}
+                  {usernameStatus === 'taken' && <span className="username-hint taken">✗ Taken</span>}
+                  {usernameStatus === 'invalid' && <span className="username-hint taken">3-30 chars</span>}
+                </div>
+              </div>
+
+              <div className="compact-field-row compact-field-row-top">
+                <label className="compact-field-label" htmlFor="profile-bio">Bio</label>
+                <textarea
+                  id="profile-bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="Tell us about yourself…"
+                  maxLength={280}
+                  rows={2}
+                  className="profile-textarea"
+                />
+              </div>
+
+              <div className="compact-section-header">
+                <label className="profile-section-label">Social links</label>
+                <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                  Handle or full link
+                </span>
+              </div>
+              <div className="social-fields-grid">
+                {SOCIAL_FIELDS.map(({ key, label, placeholder }) => (
+                  <div key={key} className="social-field">
+                    <span className="social-label">{label}</span>
+                    <input
+                      type="text"
+                      value={socials[key] || ''}
+                      onChange={(e) => setSocials((prev) => ({ ...prev, [key]: e.target.value }))}
+                      placeholder={placeholder}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-editor-actions">
+                <button type="button" className="sign-in-button primary-button" onClick={handleSaveProfile} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Profile'}
+                </button>
+              </div>
             </div>
           </div>
         )}
 
         {tab === 'avatar' && (
           <div className="profile-tab-content">
-            <div className="profile-avatar-row">
-              {renderAvatar('lg')}
-              <div>
-                <button type="button" className="sign-in-button secondary-button" onClick={() => fileRef.current?.click()}>
-                  Upload photo
+            <div className="profile-avatar-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {renderAvatar('lg')}
+                <div>
+                  <button
+                    type="button"
+                    className="sign-in-button secondary-button compact-inline-btn"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    Upload photo
+                  </button>
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
+                </div>
+              </div>
+              <div className="avatar-alt-options">
+                {googlePicUrl && (
+                  <button type="button" className="link-button" onClick={handleGoogleAvatar}>
+                    Use Google photo
+                  </button>
+                )}
+                <button type="button" className="link-button" onClick={handleInitialAvatar}>
+                  Use initial letter
                 </button>
-                <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
               </div>
             </div>
 
@@ -956,57 +1631,52 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               ))}
             </div>
 
-            <div className="avatar-alt-options">
-              {googlePicUrl && (
-                <button type="button" className="link-button" onClick={handleGoogleAvatar}>
-                  Use Google profile photo
-                </button>
-              )}
-              <button type="button" className="link-button" onClick={handleInitialAvatar}>
-                Use initial letter instead
+            <div className="space-editor-actions">
+              <button
+                type="button"
+                className="sign-in-button primary-button"
+                onClick={handleSaveAvatar}
+                disabled={saving || !pendingAvatar}
+              >
+                {saving ? 'Saving…' : 'Save Avatar'}
               </button>
             </div>
-
-            <button
-              type="button"
-              className="sign-in-button primary-button"
-              onClick={handleSaveAvatar}
-              disabled={saving || !pendingAvatar}
-              style={{ marginTop: '1rem' }}
-            >
-              {saving ? 'Saving…' : 'Save Avatar'}
-            </button>
           </div>
         )}
 
         {tab === 'interests' && (
           <div className="profile-tab-content">
-            <p className="profile-hint">Choose your interests — they shape what appears on your playroom.</p>
-
-            <label className="profile-section-label">Your interests (in order)</label>
+            <div className="compact-section-header" style={{ marginTop: 0 }}>
+              <label className="profile-section-label">Your interests (in order)</label>
+              <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                Shapes your playroom feed
+              </span>
+            </div>
             <div className="pill-list">
               {pills.map((pill, index) => {
                 const cat = CATEGORIES.find((c) => c.id === pill.id);
-                const board = pill.type === 'board' ? boards.find((b) => `board-${b.id}` === pill.id) : undefined;
-                const label = pill.type === 'custom' || pill.type === 'board'
-                  ? (pill.label || pill.id)
-                  : (cat ? t(cat.i18nKey as keyof TranslationStrings) || cat.id : pill.id);
-                const icon = pill.type === 'custom' ? '📌' : (cat?.icon || '');
+                const space =
+                  pill.type === 'space' || pill.type === 'board'
+                    ? spaces.find((s) => isPillForSpace(pill, s.id))
+                    : undefined;
+                const label =
+                  pill.type === 'custom' || pill.type === 'space' || pill.type === 'board'
+                    ? (pill.label || pill.id)
+                    : (cat ? t(cat.i18nKey as keyof TranslationStrings) || cat.id : pill.id);
+                const icon = cat ? cat.icon : getPillEmoji(pill, spaces);
                 return (
                   <div key={pill.id} className="pill-row">
                     <span className="pill-icon">
-                      {board?.logo_url ? (
-                        <img src={board.logo_url} alt="" className="pill-board-logo" />
-                      ) : board ? (
-                        (board.name || '?')[0].toUpperCase()
+                      {space?.logo_url ? (
+                        <img src={space.logo_url} alt="" className="pill-space-logo" />
+                      ) : space ? (
+                        getSpaceEmoji(space)
                       ) : (
                         icon
                       )}
                     </span>
                     <span className="pill-label">{label}</span>
-                    {(pill.type === 'custom' || pill.type === 'board') && (
-                      <button type="button" className="pill-remove" onClick={() => removeCustomPill(pill.id)} aria-label="Remove">×</button>
-                    )}
+                    <button type="button" className="pill-remove" onClick={() => removeCustomPill(pill.id)} aria-label="Remove">×</button>
                     <div className="pill-reorder">
                       <button type="button" onClick={() => movePill(index, -1)} disabled={index === 0} aria-label="Move up">↑</button>
                       <button type="button" onClick={() => movePill(index, 1)} disabled={index === pills.length - 1} aria-label="Move down">↓</button>
@@ -1034,26 +1704,25 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               })}
             </div>
 
-            {boards.length > 0 && (
+            {spaces.length > 0 && (
               <>
                 <label className="profile-section-label">Your spaces</label>
                 <div className="pill-toggle-grid">
-                  {boards.map((board) => {
-                    const pillId = `board-${board.id}`;
-                    const active = pills.some((p) => p.id === pillId);
+                  {spaces.map((space) => {
+                    const active = pills.some((p) => isPillForSpace(p, space.id));
                     return (
                       <button
-                        key={pillId}
+                        key={space.id}
                         type="button"
                         className={`pill-toggle ${active ? 'active' : ''}`}
-                        onClick={() => toggleBoardPill(board)}
+                        onClick={() => toggleSpacePill(space)}
                       >
-                        {board.logo_url ? (
-                          <img src={board.logo_url} alt="" className="pill-toggle-logo" />
+                        {space.logo_url ? (
+                          <img src={space.logo_url} alt="" className="pill-toggle-logo" />
                         ) : (
-                          <span>{(board.name || '?')[0].toUpperCase()}</span>
+                          <span>{getSpaceEmoji(space)}</span>
                         )}{' '}
-                        {board.name}
+                        {space.name}
                       </button>
                     );
                   })}
@@ -1061,33 +1730,35 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               </>
             )}
 
-            <label className="profile-section-label">Add a custom interest</label>
-            <div className="board-custom-pill-row">
-              <input
-                type="text"
-                className="board-input"
-                value={newPillLabel}
-                onChange={(e) => setNewPillLabel(e.target.value)}
-                placeholder="e.g. Baking, Dinosaurs…"
-                maxLength={40}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addCustomPill();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="sign-in-button secondary-button"
-                onClick={addCustomPill}
-                disabled={!newPillLabel.trim()}
-              >
-                Add
-              </button>
+            <div className="compact-field-row" style={{ marginTop: '0.2rem' }}>
+              <label className="compact-field-label">Custom</label>
+              <div className="space-custom-pill-row" style={{ marginBottom: 0 }}>
+                <input
+                  type="text"
+                  className="space-input"
+                  value={newPillLabel}
+                  onChange={(e) => setNewPillLabel(e.target.value)}
+                  placeholder="e.g. Baking, Dinosaurs…"
+                  maxLength={40}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCustomPill();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="sign-in-button secondary-button"
+                  onClick={addCustomPill}
+                  disabled={!newPillLabel.trim()}
+                >
+                  Add
+                </button>
+              </div>
             </div>
 
-            <div className="board-editor-actions">
+            <div className="space-editor-actions">
               <button
                 type="button"
                 className="sign-in-button primary-button"
@@ -1096,19 +1767,29 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               >
                 {saving ? 'Saving…' : 'Save interests'}
               </button>
+              <button
+                type="button"
+                className="sign-in-button secondary-button"
+                onClick={handleResetInterests}
+                disabled={saving}
+              >
+                Reset to default
+              </button>
             </div>
           </div>
         )}
 
         {tab === 'theme' && (
           <div className="profile-tab-content">
-            <label className="profile-section-label">Theme</label>
+            <label className="profile-section-label" style={{ marginTop: 0 }}>Theme</label>
             <div className="theme-grid">
               {THEMES.map((themeOption) => (
                 <button
                   key={themeOption.id}
                   type="button"
                   className={`theme-option ${localTheme === themeOption.id ? 'selected' : ''}`}
+                  data-umami-event="Select-Theme"
+                  data-umami-event-theme={themeOption.id}
                   onClick={() => handleThemeSelect(themeOption.id)}
                 >
                   <span className="theme-icon">{themeOption.icon}</span>
@@ -1117,571 +1798,994 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
               ))}
             </div>
 
-            <label className="profile-section-label">Background color (overrides theme)</label>
-            <div className="color-picker-row">
-              <input
-                type="color"
-                value={bgColor || themeBg || '#1e293b'}
-                onChange={(e) => handleBgColorChange(e.target.value)}
-                className="color-wheel"
-                aria-label="Pick background color"
-              />
-              <input
-                type="text"
-                value={bgHex}
-                onChange={(e) => handleBgHexChange(e.target.value)}
-                placeholder="#1e293b"
-                maxLength={7}
-                className="hex-input"
-                aria-label="Hex color code"
-              />
-              {(bgColor || profile?.background_color) && (
-                <button type="button" className="link-button" onClick={handleClearBg}>
-                  Clear
-                </button>
-              )}
+            <div className="compact-field-row" style={{ marginTop: '0.25rem' }}>
+              <label className="compact-field-label">Bg color</label>
+              <div className="color-picker-row">
+                <input
+                  type="color"
+                  value={bgColor || themeBg || '#0d051a'}
+                  onChange={(e) => handleBgColorChange(e.target.value)}
+                  className="color-wheel"
+                  aria-label="Pick background color"
+                />
+                <input
+                  type="text"
+                  value={bgHex}
+                  onChange={(e) => handleBgHexChange(e.target.value)}
+                  placeholder="#0d051a"
+                  maxLength={7}
+                  className="hex-input"
+                  aria-label="Hex color code"
+                />
+                <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                  Overrides theme
+                </span>
+                {(bgColor || profile?.background_color) && (
+                  <button type="button" className="link-button" onClick={handleClearBg}>
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
-            <button type="button" className="sign-in-button primary-button" onClick={handleSaveTheme} disabled={saving} style={{ marginTop: '1rem' }}>
-              {saving ? 'Saving…' : 'Save Theme'}
-            </button>
+            <div className="compact-prefs-group">
+              <div className="compact-pref-item">
+                <label className="compact-pref-toggle">
+                  <input
+                    type="checkbox"
+                    checked={useViewerThemeForSpaces}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setUseViewerThemeForSpaces(next);
+                      updateProfile({ use_viewer_theme_for_boards: next })
+                        .then(() => notify('Preference saved', 'success'))
+                        .catch((err) => notify(err instanceof Error ? err.message : 'Failed to save', 'error'));
+                    }}
+                  />
+                  <span>Always use my theme when viewing others' spaces</span>
+                </label>
+                <p className="profile-hint profile-hint-compact" style={{ margin: '0 0 0 1.4rem' }}>
+                  Visits to other playrooms and spaces appear in your theme instead of the owner's.
+                </p>
+              </div>
 
-            <label className="profile-section-label" style={{ marginTop: '1.5rem' }}>Viewing others' spaces</label>
-            <label className="board-pill-option" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={useViewerThemeForBoards}
-                onChange={(e) => {
-                  const next = e.target.checked;
-                  setUseViewerThemeForBoards(next);
-                  // Save immediately
-                  updateProfile({ use_viewer_theme_for_boards: next })
-                    .then(() => notify('Preference saved', 'success'))
-                    .catch((err) => notify(err instanceof Error ? err.message : 'Failed to save', 'error'));
-                }}
-              />
-              <span>Always use my theme when viewing others' spaces</span>
-            </label>
-            <p className="profile-hint profile-hint-compact">
-              Off by default. When on, boards you visit will appear in your theme instead of the owner's.
-            </p>
+              <div className="compact-pref-item">
+                <label className="compact-pref-toggle">
+                  <input
+                    type="checkbox"
+                    checked={systemFont}
+                    onChange={(e) => setSystemFont(e.target.checked)}
+                  />
+                  <span>Use system font</span>
+                </label>
+                <p className="profile-hint profile-hint-compact" style={{ margin: '0 0 0 1.4rem' }}>
+                  Uses your device's default font instead of Fredoka, Quicksand, and Varela Round.
+                </p>
+              </div>
+            </div>
 
-            <label className="profile-section-label" style={{ marginTop: '1.5rem' }}>Fonts</label>
-            <label className="board-pill-option" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={systemFont}
-                onChange={(e) => setSystemFont(e.target.checked)}
-              />
-              <span>Use system font</span>
-            </label>
-            <p className="profile-hint profile-hint-compact">
-              Off by default. When on, the site uses your device's system font instead of Fredoka, Quicksand, and Varela Round. This only affects your device.
-            </p>
+            <div className="space-editor-actions">
+              <button type="button" className="sign-in-button primary-button" onClick={handleSaveTheme} disabled={saving}>
+                {saving ? 'Saving…' : 'Save Theme'}
+              </button>
+            </div>
           </div>
         )}
 
-        {tab === 'boards' && (
+        {tab === 'playrooms' && (
           <div className="profile-tab-content">
-            {/* Playroom section (hidden while editing a space) */}
-            {!editingBoard && (
+            {collectionsLoading && !editingPlayroom && !editingSpace && playrooms.length === 0 && spaces.length === 0 ? (
+              <p className="profile-hint">Loading playrooms and spaces…</p>
+            ) : (
               <>
-                <label className="profile-section-label">🛝 Your playroom</label>
-                <p className="profile-hint profile-hint-compact">
-                  Your shareable homepage — a collection of your spaces at @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}.
-                </p>
-                {playroomsLoading ? (
-                  <p className="profile-hint">Loading playroom…</p>
-                ) : editingPlayroom ? (
+                {/* Playroom section (hidden while editing a space) */}
+                {!editingSpace && (
                   <>
-                    <label className="profile-field-label">Name</label>
-                    <input
-                      type="text"
-                      className="board-input"
-                      value={editingPlayroom.name}
-                      onChange={(e) => setEditingPlayroom({ ...editingPlayroom, name: e.target.value })}
-                      placeholder="My playroom"
-                      maxLength={60}
-                    />
-
-                    <label className="profile-field-label">URL</label>
-                    <div className="board-slug-row">
-                      <span className="board-slug-prefix">/</span>
-                      <input
-                        type="text"
-                        className="board-input board-slug-input"
-                        value={editingPlayroom.slug}
-                        onChange={(e) => setEditingPlayroom({ ...editingPlayroom, slug: sanitizeSlugInput(e.target.value) })}
-                        placeholder={slugify(editingPlayroom.name) || 'my-playroom'}
-                        maxLength={50}
-                      />
-                    </div>
-
-                    <label className="profile-field-label">Description (optional)</label>
-                    <textarea
-                      className="board-input board-description-input"
-                      value={editingPlayroom.description}
-                      onChange={(e) => setEditingPlayroom({ ...editingPlayroom, description: e.target.value })}
-                      placeholder="What is this playroom about?"
-                      maxLength={280}
-                      rows={2}
-                    />
-
-                    <label className="profile-field-label">Playroom logo (optional)</label>
-                    <div className="board-logo-row">
-                      {editingPlayroom.logoUrl ? (
-                        <img src={editingPlayroom.logoUrl} alt="Playroom logo preview" className="board-logo-preview" />
-                      ) : (
-                        <span className="board-row-logo-fallback board-logo-preview">
-                          {(editingPlayroom.name || '?')[0].toUpperCase()}
-                        </span>
-                      )}
-                      <div>
-                        <input
-                          ref={playroomLogoRef}
-                          type="file"
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={handlePlayroomLogoPick}
-                        />
-                        <button
-                          type="button"
-                          className="sign-in-button secondary-button"
-                          onClick={() => playroomLogoRef.current?.click()}
-                        >
-                          {editingPlayroom.logoUrl && !editingPlayroom.logoUrl.startsWith('blob:') ? 'Change logo' : 'Upload logo'}
-                        </button>
-                        {(editingPlayroom.logoUrl || editingPlayroom.logoFile) && (
-                          <button
-                            type="button"
-                            className="link-button"
-                            onClick={() => {
-                              if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
-                              setEditingPlayroom({ ...editingPlayroom, logoUrl: null, logoFile: null });
-                            }}
-                          >
-                            Remove
+                    {editingPlayroom ? (
+                      <>
+                        <div className="compact-editor-header">
+                          <label className="profile-section-label">
+                            {editingPlayroom.id ? 'Edit playroom' : 'New playroom'}
+                          </label>
+                          <button type="button" className="link-button" onClick={() => setEditingPlayroom(null)}>
+                            ← Back to playrooms
                           </button>
-                        )}
-                      </div>
-                    </div>
+                        </div>
 
-                    <label className="profile-field-label">Theme</label>
-                    <div className="board-theme-row">
-                      <button
-                        type="button"
-                        className={`theme-option ${editingPlayroom.theme === '' ? 'selected' : ''}`}
-                        onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: '' })}
-                      >
-                        <span className="theme-name">Use profile theme</span>
-                      </button>
-                      {THEMES.map((themeOption) => (
-                        <button
-                          key={themeOption.id}
-                          type="button"
-                          className={`theme-option ${editingPlayroom.theme === themeOption.id ? 'selected' : ''}`}
-                          onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: themeOption.id })}
-                        >
-                          <span className="theme-icon">{themeOption.icon}</span>
-                          <span className="theme-name">{themeOption.name}</span>
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        className={`theme-option ${editingPlayroom.theme === 'none' ? 'selected' : ''}`}
-                        onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: 'none' })}
-                      >
-                        <span className="theme-name">No theme</span>
-                      </button>
-                    </div>
+                        <div className="compact-form-stack">
+                          <div className="compact-field-row">
+                            <label className="compact-field-label">Name</label>
+                            <input
+                              type="text"
+                              className="space-input"
+                              value={editingPlayroom.name}
+                              onChange={(e) => setEditingPlayroom({ ...editingPlayroom, name: e.target.value })}
+                              placeholder="My playroom"
+                              maxLength={60}
+                            />
+                          </div>
 
-                    <label className="profile-field-label">Background color (optional)</label>
-                    <div className="color-picker-row">
-                      <input
-                        type="color"
-                        value={editingPlayroom.bgColor || themeBg || '#1e293b'}
-                        onChange={(e) => setEditingPlayroom({ ...editingPlayroom, bgColor: e.target.value })}
-                        className="color-wheel"
-                        aria-label="Pick playroom background color"
-                      />
-                      <input
-                        type="text"
-                        value={editingPlayroom.bgColor}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === '' || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
-                            setEditingPlayroom({ ...editingPlayroom, bgColor: v });
-                          }
-                        }}
-                        placeholder="Inherit"
-                        maxLength={7}
-                        className="hex-input"
-                        aria-label="Hex color code"
-                      />
-                      {editingPlayroom.bgColor && (
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => setEditingPlayroom(editingPlayroom ? { ...editingPlayroom, bgColor: '' } : editingPlayroom)}
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </div>
+                          <div className="compact-field-row">
+                            <label className="compact-field-label">URL</label>
+                            <div className="space-slug-row">
+                              <span className="space-slug-prefix">@{profile?.username || 'you'}/</span>
+                              <input
+                                type="text"
+                                className="space-input space-slug-input"
+                                value={editingPlayroom.slug}
+                                onChange={(e) => setEditingPlayroom({ ...editingPlayroom, slug: sanitizeSlugInput(e.target.value) })}
+                                placeholder={slugify(editingPlayroom.name) || 'my-playroom'}
+                                maxLength={50}
+                              />
+                            </div>
+                          </div>
 
-                    <div className="board-editor-actions">
-                      <button
-                        type="button"
-                        className="sign-in-button secondary-button"
-                        onClick={() => setEditingPlayroom(null)}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="sign-in-button primary-button"
-                        onClick={handleSavePlayroom}
-                        disabled={saving}
-                      >
-                        {saving ? 'Saving…' : 'Save playroom'}
-                      </button>
-                    </div>
-                  </>
-                ) : playrooms[0] ? (
-                  <>
-                    <div className="board-list">
-                      <div className="board-row">
-                        {playrooms[0].logo_url ? (
-                          <img src={playrooms[0].logo_url} alt="" className="board-row-logo" />
+                          <div className="compact-field-row compact-field-row-top">
+                            <label className="compact-field-label">Description</label>
+                            <textarea
+                              className="space-input space-description-input"
+                              value={editingPlayroom.description}
+                              onChange={(e) => setEditingPlayroom({ ...editingPlayroom, description: e.target.value })}
+                              placeholder="What is this playroom about? (optional)"
+                              maxLength={280}
+                              rows={2}
+                            />
+                          </div>
+
+                          <div className="compact-field-row">
+                            <label className="compact-field-label">Logo</label>
+                            <div className="space-logo-row">
+                              {editingPlayroom.logoUrl ? (
+                                <img src={editingPlayroom.logoUrl} alt="Playroom logo preview" className="space-logo-preview" />
+                              ) : (
+                                <span className="space-row-logo-fallback space-logo-preview">
+                                  {(editingPlayroom.name || '?')[0].toUpperCase()}
+                                </span>
+                              )}
+                              <input
+                                ref={playroomLogoRef}
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={handlePlayroomLogoPick}
+                              />
+                              <button
+                                type="button"
+                                className="sign-in-button secondary-button compact-inline-btn"
+                                onClick={() => playroomLogoRef.current?.click()}
+                              >
+                                {editingPlayroom.logoUrl && !editingPlayroom.logoUrl.startsWith('blob:') ? 'Change logo' : 'Upload logo'}
+                              </button>
+                              {(editingPlayroom.logoUrl || editingPlayroom.logoFile) && (
+                                <button
+                                  type="button"
+                                  className="link-button"
+                                  onClick={() => {
+                                    if (editingPlayroom.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingPlayroom.logoUrl);
+                                    setEditingPlayroom({ ...editingPlayroom, logoUrl: null, logoFile: null });
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="compact-field-row compact-field-row-top">
+                            <label className="compact-field-label">Theme</label>
+                            <div className="space-theme-row">
+                              <button
+                                type="button"
+                                className={`theme-option ${editingPlayroom.theme === '' ? 'selected' : ''}`}
+                                onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: '' })}
+                              >
+                                <span className="theme-name">Profile theme</span>
+                              </button>
+                              {THEMES.map((themeOption) => (
+                                <button
+                                  key={themeOption.id}
+                                  type="button"
+                                  className={`theme-option ${editingPlayroom.theme === themeOption.id ? 'selected' : ''}`}
+                                  onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: themeOption.id })}
+                                >
+                                  <span className="theme-icon">{themeOption.icon}</span>
+                                  <span className="theme-name">{themeOption.name}</span>
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                className={`theme-option ${editingPlayroom.theme === 'none' ? 'selected' : ''}`}
+                                onClick={() => setEditingPlayroom({ ...editingPlayroom, theme: 'none' })}
+                              >
+                                <span className="theme-name">None</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="compact-field-row">
+                            <label className="compact-field-label">Bg color</label>
+                            <div className="color-picker-row">
+                              <input
+                                type="color"
+                                value={editingPlayroom.bgColor || themeBg || '#0d051a'}
+                                onChange={(e) => setEditingPlayroom({ ...editingPlayroom, bgColor: e.target.value })}
+                                className="color-wheel"
+                                aria-label="Pick playroom background color"
+                              />
+                              <input
+                                type="text"
+                                value={editingPlayroom.bgColor}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === '' || /^#[0-9a-fA-F]{0,6}$/.test(v)) {
+                                    setEditingPlayroom({ ...editingPlayroom, bgColor: v });
+                                  }
+                                }}
+                                placeholder="Inherit"
+                                maxLength={7}
+                                className="hex-input"
+                                aria-label="Hex color code"
+                              />
+                              {editingPlayroom.bgColor && (
+                                <button
+                                  type="button"
+                                  className="link-button"
+                                  onClick={() => setEditingPlayroom(editingPlayroom ? { ...editingPlayroom, bgColor: '' } : editingPlayroom)}
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="compact-section-header">
+                          <label className="profile-field-label">
+                            Spaces in this playroom ({playroomSpaces.length} of {MAX_PLAYROOM_SPACES})
+                          </label>
+                          {!showAddSpacePicker && (
+                            <button
+                              type="button"
+                              className="sign-in-button secondary-button compact-inline-btn"
+                              onClick={() => setShowAddSpacePicker(true)}
+                              disabled={playroomSpaces.length >= MAX_PLAYROOM_SPACES}
+                            >
+                              + Add space
+                            </button>
+                          )}
+                        </div>
+                        {playroomSpaces.length === 0 ? (
+                          <p className="profile-hint profile-hint-compact">
+                            No spaces yet — click "+ Add space" to build the feed.
+                          </p>
                         ) : (
-                          <span className="board-row-logo-fallback">
-                            {(playrooms[0].name || '?')[0].toUpperCase()}
-                          </span>
+                          <div className="space-list">
+                            {playroomSpaces.map((space, i) => (
+                              <div key={space.id} className="space-row">
+                                {space.logo_url ? (
+                                  <img src={space.logo_url} alt="" className="space-row-logo" />
+                                ) : (
+                                  <span className="space-row-logo-fallback">
+                                    {(space.name || '?')[0].toUpperCase()}
+                                  </span>
+                                )}
+                                <div className="space-row-info">
+                                  <div className="space-row-name">{space.name}</div>
+                                  <div className="space-row-slug">
+                                    @{profile?.username}/{editingPlayroom.slug || slugify(editingPlayroom.name) || 'my-playroom'}/{space.slug}
+                                  </div>
+                                </div>
+                                <div className="space-row-actions">
+                                  {confirmRemoveSpaceId === space.id ? (
+                                    <div className="space-confirm-actions">
+                                      <span className="space-confirm-label">Remove?</span>
+                                      <button
+                                        type="button"
+                                        className="space-confirm-btn space-confirm-danger"
+                                        onClick={() => handleRemoveSpaceFromPlayroom(space.id)}
+                                      >
+                                        Remove
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-confirm-btn"
+                                        onClick={() => setConfirmRemoveSpaceId(null)}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button"
+                                        title="Move up"
+                                        disabled={i === 0}
+                                        onClick={() => handleMovePlayroomSpace(space.id, -1)}
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button"
+                                        title="Move down"
+                                        disabled={i === playroomSpaces.length - 1}
+                                        onClick={() => handleMovePlayroomSpace(space.id, 1)}
+                                      >
+                                        ↓
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button space-delete"
+                                        title="Remove from playroom"
+                                        onClick={() => setConfirmRemoveSpaceId(space.id)}
+                                      >
+                                        ×
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         )}
-                        <div className="board-row-info">
-                          <div className="board-row-name">🛝 {playrooms[0].name}</div>
-                          <div className="board-row-slug">@{profile?.username}/{playrooms[0].slug}</div>
-                        </div>
-                        <div className="board-row-actions">
+                        {showAddSpacePicker && (
+                          <div className="playroom-add-space-picker">
+                            {spaces.filter((s) => !playroomSpaces.some((ps) => ps.id === s.id)).length === 0 ? (
+                              <p className="profile-hint profile-hint-compact">
+                                All your spaces are already in this playroom.
+                              </p>
+                            ) : (
+                              spaces
+                                .filter((s) => !playroomSpaces.some((ps) => ps.id === s.id))
+                                .map((s) => (
+                                  <div key={s.id} className="space-row">
+                                    <div className="space-row-info">
+                                      <div className="space-row-name">{s.name}</div>
+                                    </div>
+                                    <div className="space-row-actions">
+                                      <button
+                                        type="button"
+                                        className="sign-in-button secondary-button compact-inline-btn"
+                                        onClick={() => handleAddSpaceToPlayroom(s.id)}
+                                      >
+                                        Add
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))
+                            )}
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => setShowAddSpacePicker(false)}
+                              style={{ marginTop: '0.35rem' }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="space-editor-actions">
                           <button
                             type="button"
-                            className="board-icon-button"
-                            title="Edit playroom"
-                            onClick={() => handleEditPlayroom(playrooms[0])}
+                            className="sign-in-button secondary-button"
+                            onClick={() => setEditingPlayroom(null)}
                           >
-                            ✏️
+                            Cancel
                           </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <label className="profile-field-label" style={{ marginTop: '1rem' }}>
-                      Spaces in this playroom ({playroomSpaces.length} of {MAX_PLAYROOM_SPACES})
-                    </label>
-                    {playroomSpaces.length === 0 ? (
-                      <p className="profile-hint profile-hint-compact">
-                        No spaces yet — add your spaces below to build the feed.
-                      </p>
-                    ) : (
-                      <div className="board-list">
-                        {playroomSpaces.map((space) => (
-                          <div key={space.id} className="board-row">
-                            {space.logo_url ? (
-                              <img src={space.logo_url} alt="" className="board-row-logo" />
+                          <button
+                            type="button"
+                            className="sign-in-button primary-button"
+                            onClick={handleSavePlayroom}
+                            disabled={saving}
+                          >
+                            {saving ? 'Saving…' : editingPlayroom.id ? 'Save' : 'Create playroom'}
+                          </button>
+                          {editingPlayroom.id && (
+                            confirmDeletePlayroomId === editingPlayroom.id ? (
+                              <div className="space-confirm-actions">
+                                <span className="space-confirm-label">Delete "{editingPlayroom.name}"?</span>
+                                <button
+                                  type="button"
+                                  className="space-confirm-btn space-confirm-danger"
+                                  onClick={() => handleDeletePlayroom(editingPlayroom.id as string)}
+                                >
+                                  Confirm delete
+                                </button>
+                                <button
+                                  type="button"
+                                  className="space-confirm-btn"
+                                  onClick={() => setConfirmDeletePlayroomId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             ) : (
-                              <span className="board-row-logo-fallback">
+                              <button
+                                type="button"
+                                className="sign-in-button secondary-button space-delete-button"
+                                onClick={() => setConfirmDeletePlayroomId(editingPlayroom.id as string)}
+                              >
+                                Delete
+                              </button>
+                            )
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="compact-section-header" style={{ marginTop: 0 }}>
+                          <label className="profile-section-label">Your playroom</label>
+                          <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                            @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}
+                          </span>
+                        </div>
+                        {playrooms.length === 0 ? (
+                          <p className="profile-hint">No playrooms yet — create your first one below.</p>
+                        ) : (
+                          <div className="space-list">
+                            {playrooms.map((pr, i) => (
+                              <div key={pr.id} className="space-row">
+                                {pr.logo_url ? (
+                                  <img src={pr.logo_url} alt="" className="space-row-logo" />
+                                ) : (
+                                  <span className="space-row-logo-fallback">
+                                    {(pr.name || '?')[0].toUpperCase()}
+                                  </span>
+                                )}
+                                <div className="space-row-info">
+                                  <div className="space-row-name">{pr.name}</div>
+                                  <div className="space-row-slug">@{profile?.username}/{pr.slug}</div>
+                                </div>
+                                <div className="space-row-actions">
+                                  {confirmDeletePlayroomId === pr.id ? (
+                                    <div className="space-confirm-actions">
+                                      <span className="space-confirm-label">Delete?</span>
+                                      <button
+                                        type="button"
+                                        className="space-confirm-btn space-confirm-danger"
+                                        onClick={() => handleDeletePlayroom(pr.id)}
+                                      >
+                                        Delete
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-confirm-btn"
+                                        onClick={() => setConfirmDeletePlayroomId(null)}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button"
+                                        title="Move up"
+                                        disabled={i === 0}
+                                        onClick={() => handleMovePlayroom(pr.id, -1)}
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button"
+                                        title="Move down"
+                                        disabled={i === playrooms.length - 1}
+                                        onClick={() => handleMovePlayroom(pr.id, 1)}
+                                      >
+                                        ↓
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button"
+                                        title="Edit playroom"
+                                        onClick={() => {
+                                          setConfirmDeletePlayroomId(null);
+                                          handleEditPlayroom(pr);
+                                        }}
+                                      >
+                                        ✏️
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="space-icon-button space-delete"
+                                        title="Delete playroom"
+                                        onClick={() => setConfirmDeletePlayroomId(pr.id)}
+                                      >
+                                        🗑️
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className="sign-in-button primary-button"
+                          onClick={handleNewPlayroom}
+                          disabled={playrooms.length >= MAX_PLAYROOMS}
+                          style={{ marginTop: '0.35rem', padding: '0.5rem 0.9rem' }}
+                        >
+                          + New playroom
+                        </button>
+                        {playrooms.length >= MAX_PLAYROOMS && (
+                          <p className="profile-hint profile-hint-compact" style={{ marginTop: '0.15rem' }}>
+                            {isFreeMembership
+                              ? 'Free membership includes 1 playroom — upgrade your membership to create more playrooms.'
+                              : `You've used all ${MAX_PLAYROOMS} playrooms included in your membership.`}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                {!editingSpace && !editingPlayroom ? (
+                  <>
+                    <div className="compact-section-header">
+                      <label className="profile-section-label">Your spaces</label>
+                      <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                        {spaces.length >= MAX_SPACES
+                          ? `All ${MAX_SPACES} spaces used`
+                          : `${MAX_SPACES - spaces.length} of ${MAX_SPACES} remaining`}
+                      </span>
+                    </div>
+                    {spaces.length === 0 ? (
+                      <p className="profile-hint">No spaces yet — create your first one below.</p>
+                    ) : (
+                      <div className="space-list">
+                        {spaces.map((space, i) => (
+                          <div key={space.id} className="space-row">
+                            {space.logo_url ? (
+                              <img src={space.logo_url} alt="" className="space-row-logo" />
+                            ) : (
+                              <span className="space-row-logo-fallback">
                                 {(space.name || '?')[0].toUpperCase()}
                               </span>
                             )}
-                            <div className="board-row-info">
-                              <div className="board-row-name">{space.name}</div>
-                              <div className="board-row-slug">@{profile?.username}/{playrooms[0].slug}/{space.slug}</div>
+                            <div className="space-row-info">
+                              <div className="space-row-name">{space.name}</div>
+                              <div className="space-row-slug">@{profile?.username}/spaces/{space.slug}</div>
                             </div>
-                            <div className="board-row-actions">
-                              <button
-                                type="button"
-                                className="board-icon-button board-delete"
-                                title="Remove from playroom"
-                                onClick={() => handleRemoveSpaceFromPlayroom(space.id, space.name)}
-                              >
-                                ×
-                              </button>
+                            <div className="space-row-actions">
+                              {confirmDeleteSpaceId === space.id ? (
+                                <div className="space-confirm-actions">
+                                  <span className="space-confirm-label">Delete?</span>
+                                  <button
+                                    type="button"
+                                    className="space-confirm-btn space-confirm-danger"
+                                    onClick={() => handleDeleteSpace(space.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="space-confirm-btn"
+                                    onClick={() => setConfirmDeleteSpaceId(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="space-icon-button"
+                                    title="Move up"
+                                    disabled={i === 0}
+                                    onClick={() => handleMoveSpace(space.id, -1)}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="space-icon-button"
+                                    title="Move down"
+                                    disabled={i === spaces.length - 1}
+                                    onClick={() => handleMoveSpace(space.id, 1)}
+                                  >
+                                    ↓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="space-icon-button"
+                                    title="Edit space"
+                                    onClick={() => {
+                                      setConfirmDeleteSpaceId(null);
+                                      handleEditSpace(space);
+                                    }}
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="space-icon-button space-delete"
+                                    title="Delete space"
+                                    onClick={() => setConfirmDeleteSpaceId(space.id)}
+                                  >
+                                    🗑️
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
-                    {showAddSpacePicker ? (
-                      <div className="playroom-add-space-picker">
-                        {boards.filter((b) => !playroomSpaces.some((s) => s.id === b.id)).length === 0 ? (
-                          <p className="profile-hint profile-hint-compact">
-                            All your spaces are already in this playroom.
-                          </p>
-                        ) : (
-                          boards
-                            .filter((b) => !playroomSpaces.some((s) => s.id === b.id))
-                            .map((b) => (
-                              <div key={b.id} className="board-row">
-                                <div className="board-row-info">
-                                  <div className="board-row-name">{b.name}</div>
-                                </div>
-                                <div className="board-row-actions">
-                                  <button
-                                    type="button"
-                                    className="sign-in-button secondary-button"
-                                    onClick={() => handleAddSpaceToPlayroom(b.id)}
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-                              </div>
-                            ))
-                        )}
+                    <button
+                      type="button"
+                      className="sign-in-button primary-button"
+                      onClick={handleNewSpace}
+                      disabled={spaces.length >= MAX_SPACES}
+                      style={{ marginTop: '0.35rem', padding: '0.5rem 0.9rem' }}
+                    >
+                      + New space
+                    </button>
+                  </>
+                ) : editingSpace ? (
+              <>
+                <div className="compact-editor-header">
+                  <label className="profile-section-label">
+                    {editingSpace.id ? 'Edit space' : 'New space'}
+                  </label>
+                  <button type="button" className="link-button" onClick={() => setEditingSpace(null)}>
+                    ← Back to spaces
+                  </button>
+                </div>
+
+                <div className="compact-form-stack">
+                  <div className="compact-field-row">
+                    <label className="compact-field-label">Name</label>
+                    <input
+                      type="text"
+                      className="space-input"
+                      value={editingSpace.name}
+                      onChange={(e) => setEditingSpace({ ...editingSpace, name: e.target.value })}
+                      placeholder="Cozy reads"
+                      maxLength={60}
+                    />
+                  </div>
+
+                  <div className="compact-field-row">
+                    <label className="compact-field-label">URL</label>
+                    <div className="space-slug-row">
+                      <span className="space-slug-prefix">@{profile?.username}/spaces/</span>
+                      <input
+                        type="text"
+                        className="space-input space-slug-input"
+                        value={editingSpace.slug}
+                        onChange={(e) => setEditingSpace({ ...editingSpace, slug: sanitizeSlugInput(e.target.value) })}
+                        placeholder={slugify(editingSpace.name) || 'space-name'}
+                        maxLength={50}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="compact-field-row compact-field-row-top">
+                    <label className="compact-field-label">Description</label>
+                    <textarea
+                      className="space-input space-description-input"
+                      value={editingSpace.description}
+                      onChange={(e) => setEditingSpace({ ...editingSpace, description: e.target.value })}
+                      placeholder="What is this space about? (optional)"
+                      maxLength={280}
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="compact-field-row">
+                    <label className="compact-field-label">Logo</label>
+                    <div className="space-logo-row">
+                      {editingSpace.logoUrl ? (
+                        <img src={editingSpace.logoUrl} alt="Space logo preview" className="space-logo-preview" />
+                      ) : (
+                        <span className="space-row-logo-fallback space-logo-preview">
+                          {(editingSpace.name || '?')[0].toUpperCase()}
+                        </span>
+                      )}
+                      <input
+                        ref={spaceLogoRef}
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={handleSpaceLogoPick}
+                      />
+                      <button
+                        type="button"
+                        className="sign-in-button secondary-button compact-inline-btn"
+                        onClick={() => spaceLogoRef.current?.click()}
+                      >
+                        {editingSpace.logoUrl && !editingSpace.logoUrl.startsWith('blob:') ? 'Change logo' : 'Upload logo'}
+                      </button>
+                      {(editingSpace.logoUrl || editingSpace.logoFile) && (
                         <button
                           type="button"
                           className="link-button"
-                          onClick={() => setShowAddSpacePicker(false)}
-                          style={{ marginTop: '0.5rem' }}
+                          onClick={() => {
+                            if (editingSpace.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingSpace.logoUrl);
+                            setEditingSpace({ ...editingSpace, logoUrl: null, logoFile: null });
+                          }}
                         >
-                          Cancel
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {(() => {
+                  const emojiInput = {
+                    id: editingSpace.id,
+                    name: editingSpace.name,
+                    slug: editingSpace.slug,
+                    description: editingSpace.description,
+                    pills: editingSpace.pills,
+                  };
+                  const localMatches = getRankedSpaceEmojis(emojiInput, 10);
+                  const rankedMatches =
+                    workerEmojiMatches && workerEmojiMatches.length > 0
+                      ? workerEmojiMatches
+                      : localMatches;
+                  const autoEmoji = rankedMatches[0]?.emoji || getAutoSpaceEmoji(emojiInput);
+                  const autoLabel = rankedMatches[0]?.label || '';
+                  const effectiveEmoji = (editingSpace.iconEmoji || '').trim() || autoEmoji;
+                  const isOverridden = !!(editingSpace.iconEmoji && editingSpace.iconEmoji.trim());
+
+                  const pickerGroups = getEmojiPickerGroups();
+                  const q = emojiSearchQuery.trim().toLowerCase();
+                  const filteredGroups = q
+                    ? pickerGroups
+                        .map((g) => ({
+                          group: g.group,
+                          items: g.items.filter(
+                            (it) =>
+                              it.label.toLowerCase().includes(q) ||
+                              it.id.toLowerCase().includes(q) ||
+                              g.group.toLowerCase().includes(q)
+                          ),
+                        }))
+                        .filter((g) => g.items.length > 0)
+                    : pickerGroups;
+
+                  return (
+                    <div className="space-emoji-section">
+                      <div className="compact-field-row" style={{ marginBottom: '0.35rem' }}>
+                        <label className="compact-field-label">Pin icon</label>
+                        <div className="space-emoji-header-row" style={{ marginBottom: 0 }}>
+                          <span className="cat-pill active space-emoji-pill-preview" aria-hidden="true">
+                            <span>{effectiveEmoji}</span>
+                            <span className="cat-text">{editingSpace.name.trim() || 'Your space'}</span>
+                          </span>
+                          <div className="space-emoji-status">
+                            <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                              {isOverridden
+                                ? 'Custom pin emoji'
+                                : `Auto match${autoLabel ? `: ${autoLabel}` : ''}`}
+                            </span>
+                            {isOverridden && (
+                              <button
+                                type="button"
+                                className="link-button"
+                                onClick={() => setEditingSpace({ ...editingSpace, iconEmoji: null })}
+                              >
+                                Reset ({autoEmoji})
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-emoji-suggestions" role="group" aria-label="Suggested closest emojis">
+                        {rankedMatches.slice(0, 8).map((match) => {
+                          const selected = effectiveEmoji === match.emoji;
+                          const isAutoTop = match.emoji === autoEmoji && !isOverridden;
+                          return (
+                            <button
+                              key={match.emoji}
+                              type="button"
+                              className={`space-emoji-chip ${selected ? 'active' : ''}`}
+                              title={`${match.label}${isAutoTop ? ' (Auto closest match)' : ''}`}
+                              onClick={() =>
+                                setEditingSpace({
+                                  ...editingSpace,
+                                  iconEmoji: match.emoji === autoEmoji ? null : match.emoji,
+                                })
+                              }
+                            >
+                              <span className="space-emoji-chip-glyph">{match.emoji}</span>
+                              <span className="space-emoji-chip-label">{match.label}</span>
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          className="space-emoji-more-btn"
+                          onClick={() => setShowSpaceEmojiPicker((prev) => !prev)}
+                        >
+                          {showSpaceEmojiPicker ? 'Hide picker ▲' : 'More emojis… ▼'}
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="sign-in-button secondary-button"
-                        onClick={() => setShowAddSpacePicker(true)}
-                        disabled={playroomSpaces.length >= MAX_PLAYROOM_SPACES}
-                        style={{ marginTop: '0.5rem' }}
-                      >
-                        + Add space
-                      </button>
-                    )}
-                  </>
-                ) : null}
-              </>
-            )}
-            {!editingBoard ? (
-              <>
-                <label className="profile-section-label">Your spaces</label>
-                <p className="profile-hint profile-hint-compact">
-                  Spaces group your interests into their own playrooms at @{profile?.username || 'you'}/{playrooms[0]?.slug || 'my-playroom'}.
-                </p>
-                {!boardsLoading && (
-                  <p className="profile-hint profile-hint-compact">
-                    {boards.length >= MAX_SPACES
-                      ? `You've used all ${MAX_SPACES} spaces.`
-                      : `${MAX_SPACES - boards.length} of ${MAX_SPACES} spaces remaining.`}
-                  </p>
-                )}
-                {boardsLoading ? (
-                  <p className="profile-hint">Loading spaces…</p>
-                ) : boards.length === 0 ? (
-                  <p className="profile-hint">No spaces yet — create your first one below.</p>
-                ) : (
-                  <div className="board-list">
-                    {boards.map((board, i) => (
-                      <div key={board.id} className="board-row">
-                        {board.logo_url ? (
-                          <img src={board.logo_url} alt="" className="board-row-logo" />
-                        ) : (
-                          <span className="board-row-logo-fallback">
-                            {(board.name || '?')[0].toUpperCase()}
-                          </span>
-                        )}
-                        <div className="board-row-info">
-                          <div className="board-row-name">{board.name}</div>
-                          <div className="board-row-slug">@{profile?.username}/spaces/{board.slug}</div>
+
+                      {showSpaceEmojiPicker && (
+                        <div className="space-emoji-picker-drawer">
+                          <div className="space-emoji-picker-controls">
+                            <input
+                              type="text"
+                              className="space-input"
+                              value={emojiSearchQuery}
+                              onChange={(e) => setEmojiSearchQuery(e.target.value)}
+                              placeholder="Search emojis (e.g. dinosaur, baking, ocean…)"
+                            />
+                            <div className="space-emoji-custom-row">
+                              <input
+                                type="text"
+                                className="space-input space-emoji-custom-input"
+                                value={customEmojiInput}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const validEmoji = extractSingleEmoji(raw, customEmojiInput);
+                                  setCustomEmojiRejected(hasNonEmojiCharacters(raw));
+                                  setCustomEmojiInput(validEmoji);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const validEmoji = extractSingleEmoji(customEmojiInput);
+                                    if (!validEmoji) return;
+                                    setEditingSpace({
+                                      ...editingSpace,
+                                      iconEmoji: validEmoji === autoEmoji ? null : validEmoji,
+                                    });
+                                    setCustomEmojiInput('');
+                                    setCustomEmojiRejected(false);
+                                  }
+                                }}
+                                placeholder="Or paste/type an emoji (e.g. 🦊)…"
+                                aria-label="Custom emoji"
+                              />
+                              <button
+                                type="button"
+                                className="sign-in-button secondary-button"
+                                disabled={!extractSingleEmoji(customEmojiInput)}
+                                onClick={() => {
+                                  const validEmoji = extractSingleEmoji(customEmojiInput);
+                                  if (!validEmoji) return;
+                                  setEditingSpace({
+                                    ...editingSpace,
+                                    iconEmoji: validEmoji === autoEmoji ? null : validEmoji,
+                                  });
+                                  setCustomEmojiInput('');
+                                  setCustomEmojiRejected(false);
+                                }}
+                              >
+                                Use {extractSingleEmoji(customEmojiInput) || 'emoji'}
+                              </button>
+                            </div>
+                            {customEmojiRejected && (
+                              <p className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                                Emojis only — plain text isn't allowed for pin icons.
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-emoji-groups-scroll">
+                            {filteredGroups.map((group) => (
+                              <div key={group.group} className="space-emoji-group">
+                                <div className="space-emoji-group-title">{group.group}</div>
+                                <div className="space-emoji-grid">
+                                  {group.items.map((item) => {
+                                    const selected = effectiveEmoji === item.emoji;
+                                    return (
+                                      <button
+                                        key={`${group.group}-${item.emoji}`}
+                                        type="button"
+                                        className={`space-emoji-grid-btn ${selected ? 'active' : ''}`}
+                                        title={item.label}
+                                        onClick={() =>
+                                          setEditingSpace({
+                                            ...editingSpace,
+                                            iconEmoji: item.emoji === autoEmoji ? null : item.emoji,
+                                          })
+                                        }
+                                      >
+                                        {item.emoji}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                            {filteredGroups.length === 0 && (
+                              <p className="profile-hint profile-hint-compact">
+                                No matching emojis found — try pasting any emoji above!
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="board-row-actions">
-                          <button
-                            type="button"
-                            className="board-icon-button"
-                            title="Move up"
-                            disabled={i === 0}
-                            onClick={() => handleMoveBoard(board.id, -1)}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            className="board-icon-button"
-                            title="Move down"
-                            disabled={i === boards.length - 1}
-                            onClick={() => handleMoveBoard(board.id, 1)}
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            className="board-icon-button"
-                            title="Edit space"
-                            onClick={() => handleEditBoard(board)}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            className="board-icon-button board-delete"
-                            title="Delete space"
-                            onClick={() => handleDeleteBoard(board.id, board.name)}
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="sign-in-button primary-button"
-                  onClick={handleNewBoard}
-                  disabled={boards.length >= MAX_SPACES}
-                  style={{ marginTop: '1rem' }}
-                >
-                  + New space
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" className="link-button" onClick={() => setEditingBoard(null)}>
-                  ← Back to spaces
-                </button>
-                <label className="profile-section-label">
-                  {editingBoard.id ? 'Edit space' : 'New space'}
-                </label>
+                      )}
+                    </div>
+                  );
+                })()}
 
-                <label className="profile-field-label">Name</label>
-                <input
-                  type="text"
-                  className="board-input"
-                  value={editingBoard.name}
-                  onChange={(e) => setEditingBoard({ ...editingBoard, name: e.target.value })}
-                  placeholder="Cozy reads"
-                  maxLength={60}
-                />
-
-                <label className="profile-field-label">URL</label>
-                <div className="board-slug-row">
-                  <span className="board-slug-prefix">@{profile?.username}/spaces/</span>
-                  <input
-                    type="text"
-                    className="board-input board-slug-input"
-                    value={editingBoard.slug}
-                    onChange={(e) => setEditingBoard({ ...editingBoard, slug: sanitizeSlugInput(e.target.value) })}
-                    placeholder={slugify(editingBoard.name) || 'space-name'}
-                    maxLength={50}
-                  />
+                <div className="compact-section-header" style={{ marginTop: '0.2rem' }}>
+                  <label className="profile-field-label">Interests in this space</label>
+                  <span className="profile-hint profile-hint-compact" style={{ margin: 0 }}>
+                    {editingSpace.pills.length} selected
+                  </span>
                 </div>
-
-                <label className="profile-field-label">Description (optional)</label>
-                <textarea
-                  className="board-input board-description-input"
-                  value={editingBoard.description}
-                  onChange={(e) => setEditingBoard({ ...editingBoard, description: e.target.value })}
-                  placeholder="What is this space about?"
-                  maxLength={280}
-                  rows={2}
-                />
-
-                <label className="profile-field-label">Space logo (optional)</label>
-                <div className="board-logo-row">
-                  {editingBoard.logoUrl ? (
-                    <img src={editingBoard.logoUrl} alt="Board logo preview" className="board-logo-preview" />
-                  ) : (
-                    <span className="board-row-logo-fallback board-logo-preview">
-                      {(editingBoard.name || '?')[0].toUpperCase()}
-                    </span>
-                  )}
-                  <div>
-                    <input
-                      ref={boardLogoRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={handleBoardLogoPick}
-                    />
-                    <button
-                      type="button"
-                      className="sign-in-button secondary-button"
-                      onClick={() => boardLogoRef.current?.click()}
-                    >
-                      {editingBoard.logoUrl && !editingBoard.logoUrl.startsWith('blob:') ? 'Change logo' : 'Upload logo'}
-                    </button>
-                    {(editingBoard.logoUrl || editingBoard.logoFile) && (
-                      <button
-                        type="button"
-                        className="link-button"
-                        onClick={() => {
-                          if (editingBoard.logoUrl?.startsWith('blob:')) URL.revokeObjectURL(editingBoard.logoUrl);
-                          setEditingBoard({ ...editingBoard, logoUrl: null, logoFile: null });
-                        }}
-                      >
-                        Remove
-                      </button>
-                    )}
+                <div className="space-interests-panel">
+                  <div className="space-pill-picker" style={{ margin: 0 }}>
+                    {CATEGORIES.map((cat) => {
+                      const pill: PillConfig = { id: cat.id, type: 'category' };
+                      const checked = editingSpace.pills.some(
+                        (p) => p.type === 'category' && p.id === cat.id
+                      );
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          className={`pill-toggle ${checked ? 'active' : ''}`}
+                          onClick={() => handleSpacePillToggle(pill)}
+                        >
+                          <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
+                        </button>
+                      );
+                    })}
                   </div>
-                </div>
-
-                <label className="profile-field-label">Interests in this space</label>
-                <p className="profile-hint profile-hint-compact">
-                  Pick littlables' interests or add your own.
-                </p>
-                <div className="board-pill-picker">
-                  {CATEGORIES.map((cat) => {
-                    const pill: PillConfig = { id: cat.id, type: 'category' };
-                    const checked = editingBoard.pills.some(
-                      (p) => p.type === 'category' && p.id === cat.id
-                    );
+                  {INTEREST_KEYWORD_GROUPS.map((group: string) => {
+                    const groupKeywords = INTEREST_KEYWORDS.filter((kw) => kw.group === group);
+                    const selectedInGroup = groupKeywords.filter((kw) =>
+                      editingSpace.pills.some((p) => p.type === 'keyword' && p.id === kw.id)
+                    ).length;
                     return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        className={`pill-toggle ${checked ? 'active' : ''}`}
-                        onClick={() => handleBoardPillToggle(pill)}
+                      <details
+                        key={group}
+                        className="space-interest-group"
                       >
-                        <span>{cat.icon}</span> {t(cat.i18nKey as keyof TranslationStrings) || cat.id}
-                      </button>
+                        <summary className="space-interest-group-summary">
+                          <span>{group}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                            {selectedInGroup > 0 && (
+                              <span className="space-interest-group-badge">{selectedInGroup}</span>
+                            )}
+                            <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>▾</span>
+                          </span>
+                        </summary>
+                        <div className="space-pill-picker">
+                          {groupKeywords.map((kw) => {
+                            const pill: PillConfig = { id: kw.id, type: 'keyword' };
+                            const checked = editingSpace.pills.some(
+                              (p) => p.type === 'keyword' && p.id === kw.id
+                            );
+                            return (
+                              <button
+                                key={kw.id}
+                                type="button"
+                                className={`pill-toggle ${checked ? 'active' : ''}`}
+                                onClick={() => handleSpacePillToggle(pill)}
+                              >
+                                <span>{kw.icon}</span> {kw.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </details>
                     );
                   })}
                 </div>
-                {INTEREST_KEYWORD_GROUPS.map((group: string) => (
-                  <div key={group} style={{ marginBottom: '0.5rem' }}>
-                    <div className="profile-hint profile-hint-compact" style={{ fontWeight: 600, marginBottom: '0.25rem' }}>
-                      {group}
-                    </div>
-                    <div className="board-pill-picker">
-                      {INTEREST_KEYWORDS.filter((kw) => kw.group === group).map((kw) => {
-                        const pill: PillConfig = { id: kw.id, type: 'keyword' };
-                        const checked = editingBoard.pills.some(
-                          (p) => p.type === 'keyword' && p.id === kw.id
-                        );
-                        return (
-                          <button
-                            key={kw.id}
-                            type="button"
-                            className={`pill-toggle ${checked ? 'active' : ''}`}
-                            onClick={() => handleBoardPillToggle(pill)}
-                          >
-                            <span>{kw.icon}</span> {kw.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-                {editingBoard.pills.filter((p) => p.type === 'custom').length > 0 && (
-                  <div className="board-custom-pills">
-                    {editingBoard.pills
+                {editingSpace.pills.filter((p) => p.type === 'custom').length > 0 && (
+                  <div className="space-custom-pills">
+                    {editingSpace.pills
                       .filter((p) => p.type === 'custom')
                       .map((pill) => (
-                        <span key={pill.id} className="board-custom-pill">
-                          📌 {pill.label || pill.id}
+                        <span key={pill.id} className="space-custom-pill">
+                          {getPillEmoji(pill)} {pill.label || pill.id}
                           <button
                             type="button"
                             className="pill-remove"
-                            onClick={() => handleBoardPillToggle(pill)}
+                            onClick={() => handleSpacePillToggle(pill)}
                             aria-label="Remove"
                           >
                             ×
@@ -1690,57 +2794,101 @@ export function ProfileDialog({ isOpen, onClose, notify }: ProfileDialogProps) {
                       ))}
                   </div>
                 )}
-                <div className="board-custom-pill-row">
-                  <input
-                    type="text"
-                    className="board-input"
-                    value={newPillLabel}
-                    onChange={(e) => setNewPillLabel(e.target.value)}
-                    placeholder="Add a custom interest…"
-                    maxLength={40}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addCustomBoardPill();
-                      }
-                    }}
-                  />
+                <div className="compact-field-row">
+                  <label className="compact-field-label">Custom</label>
+                  <div className="space-custom-pill-row" style={{ marginBottom: 0 }}>
+                    <input
+                      type="text"
+                      className="space-input"
+                      value={newPillLabel}
+                      onChange={(e) => setNewPillLabel(e.target.value)}
+                      placeholder="Add a custom interest…"
+                      maxLength={40}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addCustomSpacePill();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="sign-in-button secondary-button"
+                      onClick={addCustomSpacePill}
+                      disabled={!newPillLabel.trim()}
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-editor-actions">
                   <button
                     type="button"
                     className="sign-in-button secondary-button"
-                    onClick={addCustomBoardPill}
-                    disabled={!newPillLabel.trim()}
+                    onClick={() => setEditingSpace(null)}
                   >
-                    Add
+                    Cancel
                   </button>
-                </div>
-
-                <div className="board-editor-actions">
                   <button
                     type="button"
                     className="sign-in-button primary-button"
-                    onClick={handleSaveBoard}
+                    onClick={handleSaveSpace}
                     disabled={saving}
                   >
-                    {saving ? 'Saving…' : editingBoard.id ? 'Save space' : 'Create space'}
+                    {saving ? 'Saving…' : editingSpace.id ? 'Save' : 'Create space'}
                   </button>
-                  {editingBoard.id && (
-                    <button
-                      type="button"
-                      className="sign-in-button secondary-button board-delete-button"
-                      onClick={() => handleDeleteBoard(editingBoard.id as string, editingBoard.name)}
-                    >
-                      Delete
-                    </button>
+                  {editingSpace.id && (
+                    confirmDeleteSpaceId === editingSpace.id ? (
+                      <div className="space-confirm-actions">
+                        <span className="space-confirm-label">Delete "{editingSpace.name}"?</span>
+                        <button
+                          type="button"
+                          className="space-confirm-btn space-confirm-danger"
+                          onClick={() => handleDeleteSpace(editingSpace.id as string)}
+                        >
+                          Confirm delete
+                        </button>
+                        <button
+                          type="button"
+                          className="space-confirm-btn"
+                          onClick={() => setConfirmDeleteSpaceId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="sign-in-button secondary-button space-delete-button"
+                        onClick={() => setConfirmDeleteSpaceId(editingSpace.id as string)}
+                      >
+                        Delete
+                      </button>
+                    )
                   )}
                 </div>
+              </>
+            ) : null}
               </>
             )}
           </div>
         )}
 
         <div className="profile-footer">
-          <button type="button" className="sign-in-button secondary-button" onClick={onClose}>
+          <button
+            type="button"
+            className="sign-in-button primary-button"
+            onClick={handleSaveAll}
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save all'}
+          </button>
+          <button
+            type="button"
+            className="sign-in-button secondary-button"
+            onClick={onClose}
+          >
             Close
           </button>
         </div>

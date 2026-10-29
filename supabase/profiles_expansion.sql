@@ -58,6 +58,56 @@ BEGIN
   END IF;
 END $$;
 
+-- Membership tier ('free' by default; paid tiers unlock higher space & playroom limits)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS membership TEXT NOT NULL DEFAULT 'free';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'profiles_membership_check'
+  ) THEN
+    ALTER TABLE public.profiles ADD CONSTRAINT profiles_membership_check
+      CHECK (membership IN ('free', 'member', 'plus', 'premium'));
+  END IF;
+END $$;
+
+-- Prevent regular authenticated users from changing their own membership column from the browser;
+-- only service_role / postgres (e.g. billing webhooks or SQL admin) can update membership.
+CREATE OR REPLACE FUNCTION public.protect_profile_membership()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.membership IS DISTINCT FROM OLD.membership
+     AND COALESCE(auth.role(), '') = 'authenticated'
+     AND current_user NOT IN ('postgres', 'service_role', 'supabase_admin') THEN
+    NEW.membership := OLD.membership;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS protect_profile_membership_trigger ON public.profiles;
+CREATE TRIGGER protect_profile_membership_trigger
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.protect_profile_membership();
+
+-- Centralized membership limits lookup used by boards & playrooms triggers
+CREATE OR REPLACE FUNCTION public.get_membership_limits(target_user_id UUID)
+RETURNS TABLE(max_spaces INT, max_playrooms INT, max_spaces_per_playroom INT) AS $$
+DECLARE
+  user_membership TEXT;
+BEGIN
+  SELECT COALESCE(membership, 'free') INTO user_membership
+  FROM public.profiles
+  WHERE id = target_user_id;
+
+  IF user_membership IN ('member', 'plus', 'premium') THEN
+    RETURN QUERY SELECT 25, 10, 15;
+  ELSE
+    RETURN QUERY SELECT 5, 1, 5;
+  END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
 -- Storage bucket for avatar uploads
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('avatars', 'avatars', true)
@@ -83,3 +133,4 @@ DROP POLICY IF EXISTS "Users can delete their own avatar" ON storage.objects;
 CREATE POLICY "Users can delete their own avatar"
   ON storage.objects FOR DELETE
   USING (bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]);
+

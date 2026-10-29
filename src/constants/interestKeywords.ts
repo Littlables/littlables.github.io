@@ -3,10 +3,10 @@
  *
  * A cross-cutting keyword layer SEPARATE from display categories. Keywords are
  * never shown as categories in the nav or homepage sections — they exist for
- * classification and custom boards.
+ * classification and custom spaces.
  *
  * Keywords flagged excluded:true are hidden from front-page category feeds
- * (including "all") but remain available for custom boards.
+ * (including "all") but remain available for custom spaces.
  *
  * GENERATED from cloudflare-worker/src/interest-keywords.mjs — do not edit by hand.
  */

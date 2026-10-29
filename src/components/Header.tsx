@@ -2,6 +2,10 @@ import React from 'react';
 import { t } from '../constants/translations';
 import { useAuth } from '../contexts/AuthContext';
 import { CHARACTER_AVATARS } from '../constants/avatars';
+import { trackHomeLogoRefresh, track3DPlayroomClick } from '../services/trackingService';
+import { WORKSHEETS, toggleWorksheetsPanel } from './WorksheetsPanel';
+
+const PLAYGROUND_3D_URL = 'https://playground.google/g/viMkwl';
 
 interface HeaderProps {
   onHomeClick: () => void;
@@ -14,6 +18,15 @@ interface HeaderProps {
   brandLogoUrl?: string | null;
   /** True when the GitHub admin session is active (enables long-press story editing) */
   isAdmin?: boolean;
+  worksheetsCount?: number;
+  /** Points earned by collecting falling emojis */
+  emojiPoints?: number;
+  /** Last collected emoji icon */
+  lastCollectedEmoji?: string;
+  /** Whether the falling emoji game is enabled */
+  gameEnabled?: boolean;
+  /** Callback to toggle the game on/off */
+  onToggleGame?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,9 +37,26 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading,
   brandName,
   brandLogoUrl,
-  isAdmin
+  isAdmin,
+  worksheetsCount = WORKSHEETS.length,
+  emojiPoints = 0,
+  lastCollectedEmoji = '🎃',
+  gameEnabled = true,
+  onToggleGame,
 }) => {
   const { user, profile } = useAuth();
+  const [isBumping, setIsBumping] = React.useState(false);
+  const prevPointsRef = React.useRef(emojiPoints);
+
+  React.useEffect(() => {
+    if (emojiPoints > prevPointsRef.current) {
+      setIsBumping(true);
+      const timer = window.setTimeout(() => setIsBumping(false), 260);
+      prevPointsRef.current = emojiPoints;
+      return () => window.clearTimeout(timer);
+    }
+    prevPointsRef.current = emojiPoints;
+  }, [emojiPoints]);
 
   const character =
     profile?.avatar_type === 'character'
@@ -35,61 +65,116 @@ export const Header: React.FC<HeaderProps> = ({
 
   const handleBrandClick = () => {
     if (isLoading) return;
-    try {
-      if (typeof window !== 'undefined' && window.umami && typeof window.umami.track === 'function') {
-        window.umami.track('Home-Logo-Refresh');
-      }
-    } catch {}
+    trackHomeLogoRefresh();
     onHomeClick();
+  };
+
+  const handle3DClick = () => {
+    track3DPlayroomClick(PLAYGROUND_3D_URL);
+    window.open(PLAYGROUND_3D_URL, '_blank', 'noopener,noreferrer');
   };
 
   return (
     <header className="news-widget-header">
-      <button
-        type="button"
-        className="news-widget-title"
-        id="widget-main-title"
-        title="Refresh Stories"
-        aria-label={`${brandName || t('headerTitle') || 'littlables'} — Refresh Stories`}
-        onClick={handleBrandClick}
-      >
-        {brandLogoUrl ? (
-          <img
-            className="widget-brand-icon board-brand-logo"
-            src={brandLogoUrl}
-            width="28"
-            height="28"
-            alt={`${brandName || 'Space'} logo`}
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        ) : (
-          <img
-            className="widget-brand-icon"
-            src="/favicon-48x48.png"
-            width="28"
-            height="28"
-            alt="Littlables logo"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-        )}
-        <span id="widget-title-text">{brandName || t('headerTitle') || 'littlables'}</span>
-      </button>
+      <div className="news-header-brand-group">
+        <button
+          type="button"
+          className="news-widget-title"
+          id="widget-main-title"
+          title="Refresh Stories"
+          aria-label={`${brandName || t('headerTitle') || 'littlables'} — Refresh Stories`}
+          data-umami-event="Home-Logo-Refresh"
+          onClick={handleBrandClick}
+        >
+          {brandLogoUrl ? (
+            <img
+              className="widget-brand-icon board-brand-logo"
+              src={brandLogoUrl}
+              width="28"
+              height="28"
+              alt={`${brandName || 'Space'} logo`}
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <img
+              className="widget-brand-icon"
+              src="/favicon-48x48.png"
+              width="28"
+              height="28"
+              alt="Littlables logo"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          )}
+          <span id="widget-title-text">{brandName || t('headerTitle') || 'littlables'}</span>
+        </button>
+
+        <div className="header-points-group">
+          <div
+            id="header-emoji-points"
+            className={`header-points-badge${isBumping ? ' is-bumping' : ''}${!gameEnabled ? ' is-inactive' : ''}`}
+            title={gameEnabled ? `Collected treats: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'}` : `Game paused (${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'})`}
+            aria-label={`Collected treats: ${emojiPoints} ${emojiPoints === 1 ? 'point' : 'points'}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="header-points-emoji" aria-hidden="true">
+              {lastCollectedEmoji || '🎃'}
+            </span>
+            <span className="header-points-count">{emojiPoints.toLocaleString()}</span>
+          </div>
+
+          {onToggleGame && (
+            <button
+              type="button"
+              className={`header-game-toggle${gameEnabled ? ' is-active' : ''}`}
+              role="switch"
+              aria-checked={gameEnabled}
+              aria-label={gameEnabled ? 'Turn off falling emoji game' : 'Turn on falling emoji game'}
+              title={gameEnabled ? 'Turn game off' : 'Turn game on'}
+              onClick={onToggleGame}
+            >
+              <span className="header-game-toggle-track">
+                <span className="header-game-toggle-thumb" />
+              </span>
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="news-header-controls">
+        <button
+          id="worksheets-btn"
+          type="button"
+          className="header-icon-button header-worksheets-button"
+          title={`Printable Worksheets & Coloring Pages (${worksheetsCount})`}
+          aria-label={`Printable Worksheets & Coloring Pages (${worksheetsCount} items)`}
+          data-umami-event="Toggle-Worksheets"
+          onClick={toggleWorksheetsPanel}
+        >
+          <span className="avatar-emoji-glyph" aria-hidden="true">📕</span>
+          {worksheetsCount > 0 && (
+            <span className="header-worksheets-count-badge" aria-hidden="true">
+              {worksheetsCount}
+            </span>
+          )}
+        </button>
+
         <button
           id="playground-3d-btn"
           type="button"
           className="header-icon-button header-3d-button"
-          title="3D"
-          aria-label="Open 3D playground"
-          data-umami-event="Open-3D-Playground"
-          onClick={() => window.open('https://playground.google/g/viMkwl', '_blank', 'noopener,noreferrer')}
+          title="3D (Beta)"
+          aria-label="Open 3D playroom (Beta)"
+          data-umami-event="Open-3D-Playroom"
+          data-umami-event-url={PLAYGROUND_3D_URL}
+          onClick={handle3DClick}
         >
-          3D
+          <span>3D</span>
+          <span className="header-3d-beta-stamp" aria-hidden="true">BETA</span>
         </button>
 
         {!user && (
@@ -148,6 +233,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="header-auth-button header-avatar-button"
             title="Your profile"
             aria-label="Open your profile"
+            data-umami-event="Open-Profile"
             onClick={onOpenProfile}
           >
             {profile?.avatar_url ? (
@@ -169,6 +255,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             className="header-auth-button header-signin-button"
+            data-umami-event="Open-Sign-In"
             onClick={onOpenSignIn}
           >
             Sign in

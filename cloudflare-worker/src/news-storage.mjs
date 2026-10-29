@@ -302,7 +302,7 @@ async function getBalancedAllFeed(env) {
 async function getLegacyCategoryFeed(env, category) {
   // Stories tagged with an excluded ("Flagged") keyword never appear in
   // front-page category feeds (including "all"). They are still classifiable,
-  // visible in the admin panel, and available via keyword feeds for boards.
+  // visible in the admin panel, and available via keyword feeds for spaces.
   // NULL interest_keywords must pass explicitly: NOT (NULL ov x) is NULL,
   // which would wrongly filter out untagged stories.
   // PostgREST does not allow `not.` inside an or=(...) logic tree, so we use
@@ -487,7 +487,7 @@ export function clearKeywordVectorCache() {
 }
 
 /**
- * Feed of stories tagged with an interest keyword (for custom boards).
+ * Feed of stories tagged with an interest keyword (for custom spaces).
  * Interest keywords never appear as categories; this is the only public
  * read path for them.
  */
@@ -2649,8 +2649,8 @@ export async function recordSearchQuery(env, { query, resultCount, country_code 
   }
 }
 
-// ── Board creation analytics ──
-// Anonymous: pills only, no user_id, no board name.
+// ── Space creation analytics ──
+// Anonymous: pills only, no user_id, no space name.
 
 export async function recordBoardEvent(env, { sessionId, keywordIds, categoryIds, country_code }) {
   if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) return { ok: false, reason: 'no-supabase' };
@@ -3006,7 +3006,7 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
       id: `eq.${playroomId}`, limit: '1'
     })), { headers: supabaseHeaders(env) }),
     fetch(supabaseUrl(env, 'playroom_spaces', new URLSearchParams({
-      select: 'position,boards(id,name,slug,logo_url,pills)',
+      select: 'position,boards(*)',
       playroom_id: `eq.${playroomId}`, order: 'position.asc'
     })), { headers: supabaseHeaders(env) })
   ]);

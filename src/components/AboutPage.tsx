@@ -91,12 +91,20 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onExplore, onSignIn, signe
         </p>
         <div className="about-hero-ctas">
           {onExplore && (
-            <button className="primary-button about-cta" onClick={onExplore}>
+            <button
+              className="primary-button about-cta"
+              data-umami-event="About-Start-Exploring"
+              onClick={onExplore}
+            >
               Start exploring
             </button>
           )}
           {onSignIn && (
-            <button className="sign-in-button secondary-button about-cta" onClick={onSignIn}>
+            <button
+              className="sign-in-button secondary-button about-cta"
+              data-umami-event={signedIn ? 'About-Go-To-Space' : 'About-Create-Space'}
+              onClick={onSignIn}
+            >
               {signedIn ? 'Go to your space' : 'Create your space'}
             </button>
           )}

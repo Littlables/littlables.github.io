@@ -1600,7 +1600,7 @@ export function getAdminPage() {
           <button type="button" class="analytics-tab sign-in-button" data-analytics-tab="search" style="width: auto; padding: 0.5rem 1rem;">Searches</button>
           <button type="button" class="analytics-tab" data-analytics-tab="search_gaps" style="width: auto; padding: 0.5rem 1rem;">Content gaps</button>
           <button type="button" class="analytics-tab" data-analytics-tab="keywords" style="width: auto; padding: 0.5rem 1rem;">Keyword CTR</button>
-          <button type="button" class="analytics-tab" data-analytics-tab="boards" style="width: auto; padding: 0.5rem 1rem;">Boards</button>
+          <button type="button" class="analytics-tab" data-analytics-tab="boards" style="width: auto; padding: 0.5rem 1rem;">Spaces</button>
           <button type="button" class="analytics-tab" data-analytics-tab="acquisition" style="width: auto; padding: 0.5rem 1rem;">Traffic</button>
           <button type="button" class="analytics-tab" data-analytics-tab="dwell" style="width: auto; padding: 0.5rem 1rem;">Dwell time</button>
           <button type="button" class="analytics-tab" data-analytics-tab="ads" style="width: auto; padding: 0.5rem 1rem;">Ad CTR</button>
@@ -2335,8 +2335,8 @@ export function getAdminPage() {
     }
     function getFrontpageStoryUrl(story) {
       const category = story.category || 'all';
-      return FRONTPAGE_ORIGIN + '/?topic=' + encodeURIComponent(category) +
-        '&story=' + encodeURIComponent(getFrontpageStorySlug(story));
+      return FRONTPAGE_ORIGIN + '/?interest=' + encodeURIComponent(category) +
+        '&balloon=' + encodeURIComponent(getFrontpageStorySlug(story));
     }
     async function copyFrontpageStoryLink(button, story) {
       const url = getFrontpageStoryUrl(story);
@@ -6772,10 +6772,10 @@ export function getAdminPage() {
           ],
         },
         boards: {
-          label: 'Board topics built',
+          label: 'Space topics built',
           cols: [
             { key: 'keyword', label: 'Keyword' },
-            { key: 'boards_built', label: 'Boards built', format: 'num' },
+            { key: 'boards_built', label: 'Spaces built', format: 'num' },
             { key: 'country_code', label: 'Country' },
             { key: 'region', label: 'Region' },
           ],

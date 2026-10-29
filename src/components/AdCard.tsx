@@ -121,17 +121,9 @@ export const AdCard: React.FC<AdCardProps> = ({ ad, category }) => {
           <span className="ad-network-label">Featured Partner</span>
         </div>
 
-        <a
-          href={ad.url || '#'}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="news-card-title ad-card-title"
-          data-umami-event={umamiEvent}
-          data-umami-event-url={ad.url || ''}
-          data-umami-event-title={ad.title}
-        >
+        <div className="news-card-title ad-card-title">
           {ad.title}
-        </a>
+        </div>
 
         <p className="news-card-desc ad-card-description">
           {ad.desc.length > 750 ? ad.desc.slice(0, 750) + "..." : ad.desc}

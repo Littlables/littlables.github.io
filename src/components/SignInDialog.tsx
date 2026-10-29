@@ -1,6 +1,42 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
+export const PENDING_OTP_STORAGE_KEY = 'littlables_pending_otp';
+const PENDING_OTP_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+export function getSavedPendingOtpEmail(): string | null {
+  try {
+    const raw = localStorage.getItem(PENDING_OTP_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { email?: string; timestamp?: number };
+    if (
+      typeof parsed?.email === 'string' &&
+      parsed.email.trim() &&
+      typeof parsed?.timestamp === 'number' &&
+      Date.now() - parsed.timestamp < PENDING_OTP_TTL_MS
+    ) {
+      return parsed.email.trim();
+    }
+    localStorage.removeItem(PENDING_OTP_STORAGE_KEY);
+  } catch {}
+  return null;
+}
+
+function savePendingOtpEmail(email: string) {
+  try {
+    localStorage.setItem(
+      PENDING_OTP_STORAGE_KEY,
+      JSON.stringify({ email: email.trim(), timestamp: Date.now() })
+    );
+  } catch {}
+}
+
+export function clearPendingOtpEmail() {
+  try {
+    localStorage.removeItem(PENDING_OTP_STORAGE_KEY);
+  } catch {}
+}
+
 interface SignInDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -10,8 +46,8 @@ type Step = 'choose' | 'email' | 'code';
 
 export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
   const { signInWithGoogle, signInWithEmail, verifyEmailOtp } = useAuth();
-  const [step, setStep] = useState<Step>('choose');
-  const [email, setEmail] = useState('');
+  const [step, setStep] = useState<Step>(() => (getSavedPendingOtpEmail() ? 'code' : 'choose'));
+  const [email, setEmail] = useState(() => getSavedPendingOtpEmail() || '');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -19,6 +55,7 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
   if (!isOpen) return null;
 
   const reset = () => {
+    clearPendingOtpEmail();
     setStep('choose');
     setEmail('');
     setCode('');
@@ -43,11 +80,13 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    const trimmed = email.trim();
+    if (!trimmed) return;
     setError('');
     setSending(true);
     try {
-      await signInWithEmail(email.trim());
+      await signInWithEmail(trimmed);
+      savePendingOtpEmail(trimmed);
       setStep('code');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send code');
@@ -63,6 +102,7 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
     setSending(true);
     try {
       await verifyEmailOtp(email.trim(), code.trim());
+      clearPendingOtpEmail();
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid code, try again');
@@ -78,7 +118,7 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
           ×
         </button>
 
-        <h2 className="dialog-title">Sign in to Littlables</h2>
+        <h2 className="dialog-title">Sign in to littlables</h2>
         <p className="dialog-subtitle">Create custom playrooms with content based around your favorite special interests.</p>
 
         {error && <div className="dialog-error">{error}</div>}
@@ -88,6 +128,7 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
             <button
               type="button"
               className="sign-in-button google-button"
+              data-umami-event="SignIn-Google"
               onClick={handleGoogle}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
@@ -106,6 +147,7 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
             <button
               type="button"
               className="sign-in-button email-button"
+              data-umami-event="SignIn-Email"
               onClick={() => setStep('email')}
             >
               Continue with Email
@@ -128,6 +170,18 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
             <button type="submit" className="sign-in-button primary-button" disabled={sending}>
               {sending ? 'Sending…' : 'Send me a code'}
             </button>
+            {email.trim() && (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  savePendingOtpEmail(email.trim());
+                  setStep('code');
+                }}
+              >
+                I already have a code →
+              </button>
+            )}
             <button type="button" className="link-button" onClick={() => setStep('choose')}>
               ← Back
             </button>
@@ -152,7 +206,14 @@ export function SignInDialog({ isOpen, onClose }: SignInDialogProps) {
             <button type="submit" className="sign-in-button primary-button" disabled={sending || code.length < 6}>
               {sending ? 'Verifying…' : 'Sign in'}
             </button>
-            <button type="button" className="link-button" onClick={() => setStep('email')}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                clearPendingOtpEmail();
+                setStep('email');
+              }}
+            >
               ← Use a different email
             </button>
           </form>

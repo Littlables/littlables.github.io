@@ -1,17 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
-import { Profile } from '../contexts/AuthContext';
-import { Board, getUserBoards } from '../services/boardService';
-import { Playroom, getUserPlayrooms, getPlayroomSpaces } from '../services/playroomService';
+import { Profile, useAuth } from '../contexts/AuthContext';
+import { Space, getUserSpaces } from '../services/spaceService';
+import { Playroom, getUserPlayrooms, getPlayroomSpacesMap } from '../services/playroomService';
 import { getCharacterAvatar } from '../constants/avatars';
 import { SITE_TITLE_BASE } from '../constants/config';
+import { trackExitPage } from '../services/trackingService';
+import type { OpenProfileTarget } from './PlayroomPage';
 
 interface PublicProfilePageProps {
   username: string;
   onHome: () => void;
+  onOpenProfile?: (target?: OpenProfileTarget) => void;
 }
 
-const VALID_THEMES = ['dark', 'dark-purple', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
+const VALID_THEMES = ['dark-purple', 'dark', 'light', 'rainbow', 'pastel-rainbow', 'pink'];
 
 const SOCIAL_META: { key: keyof Profile['social_links']; label: string; icon: string }[] = [
   { key: 'twitter', label: 'Twitter / X', icon: '𝕏' },
@@ -29,40 +32,32 @@ function normalizeUrl(url: string): string {
 export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
   username,
   onHome,
+  onOpenProfile,
 }) => {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [boards, setBoards] = useState<Board[]>([]);
+  const { user, profile: viewerProfile } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(() =>
+    viewerProfile?.username?.toLowerCase() === username.toLowerCase() ? viewerProfile : null
+  );
+  const [spaces, setSpaces] = useState<Space[]>([]);
   const [playrooms, setPlayrooms] = useState<Playroom[]>([]);
+  const [playroomSpacesMap, setPlayroomSpacesMap] = useState<Record<string, Space[]>>({});
   const [playroomSpaceCounts, setPlayroomSpaceCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Fetch the public profile by username
-  // Refetch playrooms + space counts (used on mount and when the dialog saves changes)
-  const loadPlayrooms = useCallback(async (profileId: string, isCancelled: () => boolean) => {
-    try {
-      const rooms = await getUserPlayrooms(profileId);
-      if (isCancelled()) return;
-      setPlayrooms(rooms);
-      const counts: Record<string, number> = {};
-      await Promise.all(
-        rooms.map(async (r) => {
-          try {
-            counts[r.id] = (await getPlayroomSpaces(r.id)).length;
-          } catch {
-            counts[r.id] = 0;
-          }
-        })
-      );
-      if (!isCancelled()) setPlayroomSpaceCounts(counts);
-    } catch {
-      /* keep existing */
+  const fetchPlayroomsBundle = useCallback(async (profileId: string) => {
+    const rooms = await getUserPlayrooms(profileId);
+    const spacesMap = await getPlayroomSpacesMap(rooms.map((r) => r.id));
+    const counts: Record<string, number> = {};
+    for (const r of rooms) {
+      counts[r.id] = (spacesMap[r.id] || []).length;
     }
+    return { rooms, spacesMap, counts };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const fetchProfile = async () => {
+    const fetchProfileAndCollections = async () => {
       setLoading(true);
       setNotFound(false);
       try {
@@ -71,6 +66,36 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
           if (!cancelled) setNotFound(true);
           return;
         }
+
+        const isViewingOwnCachedProfile =
+          !!viewerProfile && viewerProfile.username?.toLowerCase() === username.toLowerCase();
+
+        if (isViewingOwnCachedProfile && viewerProfile) {
+          // Fast path: we already know the profile ID, so fetch profile refresh, spaces,
+          // and playrooms + space counts in parallel without a waterfall!
+          const [freshProfileRes, loadedSpaces, playroomsBundle] = await Promise.all([
+            client
+              .from('profiles')
+              .select('*')
+              .eq('id', viewerProfile.id)
+              .maybeSingle(),
+            getUserSpaces(viewerProfile.id).catch(() => [] as Space[]),
+            fetchPlayroomsBundle(viewerProfile.id).catch(() => ({
+              rooms: [] as Playroom[],
+              spacesMap: {} as Record<string, Space[]>,
+              counts: {} as Record<string, number>,
+            })),
+          ]);
+          if (cancelled) return;
+          const resolvedProfile = (freshProfileRes.data as Profile | null) || viewerProfile;
+          setProfile(resolvedProfile);
+          setSpaces(loadedSpaces);
+          setPlayrooms(playroomsBundle.rooms);
+          setPlayroomSpacesMap(playroomsBundle.spacesMap);
+          setPlayroomSpaceCounts(playroomsBundle.counts);
+          return;
+        }
+
         const { data, error } = await client
           .from('profiles')
           .select('*')
@@ -79,37 +104,72 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
         if (cancelled) return;
         if (error || !data) {
           setNotFound(true);
-        } else {
-          setProfile(data as Profile);
-          // Load the user's boards (public, in display order)
-          getUserBoards((data as Profile).id)
-            .then((b) => {
-              if (!cancelled) setBoards(b);
-            })
-            .catch(() => {});
-          // Load the user's playrooms + space counts (public)
-          loadPlayrooms((data as Profile).id, () => cancelled);
+          return;
         }
+
+        const loadedProfile = data as Profile;
+        // Fetch spaces and playrooms + space counts in parallel before releasing loading
+        // so the entire profile page renders in one frame without sections popping in.
+        const [loadedSpaces, playroomsBundle] = await Promise.all([
+          getUserSpaces(loadedProfile.id).catch(() => [] as Space[]),
+          fetchPlayroomsBundle(loadedProfile.id).catch(() => ({
+            rooms: [] as Playroom[],
+            spacesMap: {} as Record<string, Space[]>,
+            counts: {} as Record<string, number>,
+          })),
+        ]);
+        if (cancelled) return;
+
+        setProfile(loadedProfile);
+        setSpaces(loadedSpaces);
+        setPlayrooms(playroomsBundle.rooms);
+        setPlayroomSpacesMap(playroomsBundle.spacesMap);
+        setPlayroomSpaceCounts(playroomsBundle.counts);
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
-    fetchProfile();
+    fetchProfileAndCollections();
     return () => {
       cancelled = true;
     };
-  }, [username, loadPlayrooms]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username, fetchPlayroomsBundle]);
 
-  // Refresh playrooms when the profile dialog saves playroom changes
+  // Keep own profile in sync when edited in ProfileDialog
+  useEffect(() => {
+    if (viewerProfile && profile && viewerProfile.id === profile.id) {
+      setProfile(viewerProfile);
+    }
+  }, [viewerProfile, profile]);
+
+  // Refresh playrooms and spaces when the profile dialog saves changes
   useEffect(() => {
     const onPlayroomsChanged = () => {
-      if (profile) loadPlayrooms(profile.id, () => false);
+      if (!profile) return;
+      fetchPlayroomsBundle(profile.id)
+        .then((bundle) => {
+          setPlayrooms(bundle.rooms);
+          setPlayroomSpacesMap(bundle.spacesMap);
+          setPlayroomSpaceCounts(bundle.counts);
+        })
+        .catch(() => {});
+    };
+    const onSpacesChanged = () => {
+      if (!profile) return;
+      getUserSpaces(profile.id)
+        .then((s) => setSpaces(s))
+        .catch(() => {});
     };
     window.addEventListener('littlables:playrooms-changed', onPlayroomsChanged);
-    return () => window.removeEventListener('littlables:playrooms-changed', onPlayroomsChanged);
-  }, [profile, loadPlayrooms]);
+    window.addEventListener('littlables:spaces-changed', onSpacesChanged);
+    return () => {
+      window.removeEventListener('littlables:playrooms-changed', onPlayroomsChanged);
+      window.removeEventListener('littlables:spaces-changed', onSpacesChanged);
+    };
+  }, [profile, fetchPlayroomsBundle]);
 
   // Browser tab title: base + display name (or @username) once the profile loads
   useEffect(() => {
@@ -146,6 +206,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
   const socials = SOCIAL_META.filter(
     (s) => profile?.social_links?.[s.key]?.trim()
   );
+  const isOwner = !!user && !!profile && user.id === profile.id;
 
   const renderAvatar = (size: number) => {
     if (profile?.avatar_url) {
@@ -212,91 +273,156 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({
             {profile.bio && <p className="space-bio">{profile.bio}</p>}
             {socials.length > 0 && (
               <div className="space-socials">
-                {socials.map((s) => (
-                  <a
-                    key={s.key}
-                    href={normalizeUrl(profile.social_links[s.key]!)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="space-social-link"
-                    title={s.label}
-                  >
-                    <span aria-hidden="true">{s.icon}</span> {s.label}
-                  </a>
-                ))}
+                {socials.map((s) => {
+                  const href = normalizeUrl(profile.social_links[s.key]!);
+                  return (
+                    <a
+                      key={s.key}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="space-social-link"
+                      title={s.label}
+                      data-umami-event="Clicked-Social-Link"
+                      data-umami-event-platform={s.key}
+                      onClick={() => trackExitPage(href, `${s.label} | @${profile.username}`)}
+                    >
+                      <span aria-hidden="true">{s.icon}</span> {s.label}
+                    </a>
+                  );
+                })}
               </div>
             )}
           </div>
 
           {playrooms.length > 0 && (
-            <div className="space-boards-section">
-              <h2 className="space-section-title">🛝 Playrooms</h2>
-              <div className="space-boards">
+            <div className="space-collections-section">
+              <h2 className="space-section-title">Playrooms</h2>
+              <div className="space-collections">
                 {playrooms.map((playroom) => (
-                  <button
+                  <div
                     key={playroom.id}
-                    type="button"
-                    className="space-board-card"
+                    role="button"
+                    tabIndex={0}
+                    className="space-collection-card"
+                    data-umami-event="Open-Playroom"
+                    data-umami-event-playroom={`@${profile.username}/${playroom.slug}`}
                     onClick={() => {
                       window.history.pushState({}, '', `/@${profile.username}/${playroom.slug}`);
                       window.dispatchEvent(new PopStateEvent('popstate'));
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        window.history.pushState({}, '', `/@${profile.username}/${playroom.slug}`);
+                        window.dispatchEvent(new PopStateEvent('popstate'));
+                      }
+                    }}
                   >
                     {playroom.logo_url ? (
-                      <img src={playroom.logo_url} alt="" className="space-board-logo" />
+                      <img src={playroom.logo_url} alt="" className="space-collection-logo" />
                     ) : (
-                      <span className="space-board-logo-fallback">
+                      <span className="space-collection-logo-fallback">
                         {(playroom.name || '?')[0].toUpperCase()}
                       </span>
                     )}
-                    <span className="space-board-info">
-                      <span className="space-board-name">{playroom.name}</span>
+                    <span className="space-collection-info">
+                      <span className="space-collection-name">{playroom.name}</span>
                       {playroom.description && (
-                        <span className="space-board-description">{playroom.description}</span>
+                        <span className="space-collection-description">{playroom.description}</span>
                       )}
-                      <span className="space-board-meta">
+                      <span className="space-collection-meta">
                         {playroomSpaceCounts[playroom.id] ?? 0} spaces · /{playroom.slug}
                       </span>
                     </span>
-                    <span className="space-board-arrow" aria-hidden="true">→</span>
-                  </button>
+                    {isOwner && onOpenProfile && (
+                      <button
+                        type="button"
+                        className="space-icon-button space-collection-edit-btn"
+                        title="Edit playroom"
+                        aria-label={`Edit ${playroom.name}`}
+                        data-umami-event="Edit-Playroom"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenProfile({
+                            tab: 'playrooms',
+                            playroomId: playroom.id,
+                            playroom,
+                            playroomSpaces: playroomSpacesMap[playroom.id] || [],
+                          });
+                        }}
+                      >
+                        ✏️
+                      </button>
+                    )}
+                    <span className="space-collection-arrow" aria-hidden="true">→</span>
+                  </div>
                 ))}
               </div>
             </div>
           )}
 
-          {boards.length > 0 && (
-            <div className="space-boards-section">
-              <h2 className="space-section-title">🏖️ Spaces</h2>
-              <div className="space-boards">
-                {boards.map((board) => (
-                  <button
-                    key={board.id}
-                    type="button"
-                    className="space-board-card"
+          {spaces.length > 0 && (
+            <div className="space-collections-section">
+              <h2 className="space-section-title">Spaces</h2>
+              <div className="space-collections">
+                {spaces.map((space) => (
+                  <div
+                    key={space.id}
+                    role="button"
+                    tabIndex={0}
+                    className="space-collection-card"
+                    data-umami-event="Open-Space"
+                    data-umami-event-space={`@${profile.username}/spaces/${space.slug}`}
                     onClick={() => {
-                      window.history.pushState({}, '', `/@${profile.username}/spaces/${board.slug}`);
+                      window.history.pushState({}, '', `/@${profile.username}/spaces/${space.slug}`);
                       window.dispatchEvent(new PopStateEvent('popstate'));
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        window.history.pushState({}, '', `/@${profile.username}/spaces/${space.slug}`);
+                        window.dispatchEvent(new PopStateEvent('popstate'));
+                      }
+                    }}
                   >
-                    {board.logo_url ? (
-                      <img src={board.logo_url} alt="" className="space-board-logo" />
+                    {space.logo_url ? (
+                      <img src={space.logo_url} alt="" className="space-collection-logo" />
                     ) : (
-                      <span className="space-board-logo-fallback">
-                        {(board.name || '?')[0].toUpperCase()}
+                      <span className="space-collection-logo-fallback">
+                        {(space.name || '?')[0].toUpperCase()}
                       </span>
                     )}
-                    <span className="space-board-info">
-                      <span className="space-board-name">{board.name}</span>
-                      {board.description && (
-                        <span className="space-board-description">{board.description}</span>
+                    <span className="space-collection-info">
+                      <span className="space-collection-name">{space.name}</span>
+                      {space.description && (
+                        <span className="space-collection-description">{space.description}</span>
                       )}
-                      <span className="space-board-meta">
-                        {board.pills?.length || 0} topics · /spaces/{board.slug}
+                      <span className="space-collection-meta">
+                        {space.pills?.length || 0} topics · /spaces/{space.slug}
                       </span>
                     </span>
-                    <span className="space-board-arrow" aria-hidden="true">→</span>
-                  </button>
+                    {isOwner && onOpenProfile && (
+                      <button
+                        type="button"
+                        className="space-icon-button space-collection-edit-btn"
+                        title="Edit space"
+                        aria-label={`Edit ${space.name}`}
+                        data-umami-event="Edit-Space"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenProfile({
+                            tab: 'playrooms',
+                            spaceId: space.id,
+                            space,
+                          });
+                        }}
+                      >
+                        ✏️
+                      </button>
+                    )}
+                    <span className="space-collection-arrow" aria-hidden="true">→</span>
+                  </div>
                 ))}
               </div>
             </div>

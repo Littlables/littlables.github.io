@@ -5,11 +5,12 @@ import { getStoryId, hasUserReacted } from '../services/supabaseService';
 import {
   getStoryShareUrl,
   getTopicHref,
-  getStoryProviderName,
+  getStoryGivenPubName,
+  getStoryTopLevelDomain,
   shareStoryWithImage,
   updateStoryOpenGraphTags
 } from '../services/urlService';
-import { trackStoryClick } from '../services/trackingService';
+import { trackStoryClick, trackStoryEngagementClick } from '../services/trackingService';
 import { t } from '../constants/translations';
 
 interface StoryModalProps {
@@ -91,7 +92,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
   const storyId = getStoryId(story.title, story.link);
   const imageUrl = resolveImageUrl(story, index, category);
   const effectiveCategory = story.category || category;
-  const providerName = getStoryProviderName(story);
+  const givenPubName = getStoryGivenPubName(story);
+  const topLevelDomain = getStoryTopLevelDomain(story);
 
   const isVotedLove = hasUserReacted(storyId, 'love');
   const isVotedMind = hasUserReacted(storyId, 'mind');
@@ -199,13 +201,12 @@ export const StoryModal: React.FC<StoryModalProps> = ({
         </div>
 
         <div className="story-modal-content">
-          <div className="news-card-meta story-modal-meta">
-            <span>🕒 {pubDate}</span>
-            {providerName && (
-              <span className="story-provider-badge">🌐 {providerName}</span>
-            )}
+          <div className="news-card-meta story-meta-grid story-modal-meta">
+            <span className="story-meta-cell story-provider-badge" title={givenPubName}>📰 {givenPubName}</span>
+            <span className="story-meta-cell story-date-badge" title={pubDate}>🕒 {pubDate}</span>
+            <span className="story-meta-cell story-domain-badge" title={topLevelDomain}>🌐 {topLevelDomain}</span>
             {story.approved === true && (
-              <span className="story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
+              <span className="story-meta-cell story-scoop-badge">{t('verifiedWire') || "🧸 Littlables' Little Scoop"}</span>
             )}
           </div>
 
@@ -233,7 +234,10 @@ export const StoryModal: React.FC<StoryModalProps> = ({
               data-umami-event="Clicked-Story"
               data-umami-event-url={story.link || ''}
               data-umami-event-title={story.title}
-              onClick={() => trackStoryClick(story)}
+              onClick={() => {
+                trackStoryClick(story);
+                trackStoryEngagementClick(story, effectiveCategory);
+              }}
             >
               {t('readMore') || 'Read Full Story →'}
             </a>
@@ -281,6 +285,8 @@ export const StoryModal: React.FC<StoryModalProps> = ({
                 onClick={handleShareClick}
                 title="Share story link & image"
                 aria-label="Share story"
+                data-umami-event="Share-Story"
+                data-umami-event-story={story.title}
               >
                 <span>{copied ? '✓' : '🔗'}</span>
                 <span>{copied ? 'Copied' : 'Share'}</span>
