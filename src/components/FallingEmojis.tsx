@@ -65,6 +65,11 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
 
   const activeRef = useRef<ActiveEmoji[]>([]);
   const nodeMapRef = useRef<Map<number, HTMLSpanElement>>(new Map());
+  // Positions of just-collected emojis, kept briefly so a tap's follow-up
+  // click can still be recognised as "on an emoji" after the span is gone.
+  const recentCollectsRef = useRef<
+    Array<{ x: number; y: number; radius: number; until: number }>
+  >([]);
   const nextIdRef = useRef(1);
   const emojiCursorIndexRef = useRef(0);
   const onCollectRef = useRef(onCollect);
@@ -84,6 +89,17 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
     activeRef.current = activeRef.current.filter((e) => e.id !== item.id);
     nodeMapRef.current.delete(item.id);
     setRenderTick((t) => t + 1);
+
+    // Remember where this emoji was, so the tap's click event — which the
+    // browser may retarget to the card underneath once this span is gone —
+    // can still be recognised and swallowed (see the capture-phase click
+    // guard below). 500ms covers the tap-to-click delay with room to spare.
+    recentCollectsRef.current.push({
+      x: item.x,
+      y: item.y,
+      radius: Math.max(HIT_RADIUS_PX, item.size * 0.95),
+      until: Date.now() + 500,
+    });
 
     onCollectRef.current(popEmoji);
 
@@ -207,11 +223,40 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
       pointerRef.current.active = false;
     };
 
+    // Capture-phase click guard: a tap that collects an emoji removes its
+    // span mid-gesture, and the browser then retargets the tap's click to
+    // whatever is underneath (the story card) — which is what opened the
+    // story. Window capture runs before any card handler, so a click whose
+    // coordinates land on a live emoji (or on a just-collected one's ghost)
+    // is swallowed here and never reaches the page.
+    const handleClickCapture = (e: MouseEvent) => {
+      const now = Date.now();
+      const ghosts = recentCollectsRef.current.filter((g) => g.until > now);
+      recentCollectsRef.current = ghosts;
+      const hit = (x: number, y: number, radius: number) => {
+        const dx = e.clientX - x;
+        const dy = e.clientY - y;
+        return dx * dx + dy * dy <= radius * radius;
+      };
+      const onEmoji =
+        activeRef.current.some(
+          (item) =>
+            !item.collected &&
+            item.y >= -10 &&
+            hit(item.x, item.y, Math.max(HIT_RADIUS_PX, item.size * 0.95)),
+        ) || ghosts.some((g) => hit(g.x, g.y, g.radius));
+      if (onEmoji) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
     window.addEventListener('pointermove', handlePointerMove, { passive: true });
     window.addEventListener('pointerdown', handlePointerDown, { passive: true });
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('click', handleClickCapture, true);
     document.addEventListener('mouseleave', handleMouseLeave);
 
     // Periodic spawner
@@ -292,6 +337,7 @@ export const FallingEmojis: React.FC<FallingEmojisProps> = ({ onCollect, enabled
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('touchstart', handleTouchStart);
       window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('click', handleClickCapture, true);
       document.removeEventListener('mouseleave', handleMouseLeave);
     };
   }, [enabled]);
