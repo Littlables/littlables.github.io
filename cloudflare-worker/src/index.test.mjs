@@ -1775,6 +1775,84 @@ test('admin unstick-all resets running providers and closes open runs', async ()
   }
 });
 
+test('hourly sweep never reports a claim-collided provider as currently fetching', async () => {
+  const originalFetch = globalThis.fetch;
+  const runPatches = [];
+  const rss = `<rss><channel><item><title>Hourly Story</title><link>https://publisher.example/hourly</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    const method = options?.method || 'GET';
+    if (url.hostname === 'gnews.io') {
+      return Response.json({ articles: [{
+        title: 'G story',
+        url: 'https://publisher.example/g',
+        image: '',
+        description: 'd',
+        content: 'c',
+        publishedAt: new Date().toISOString(),
+        source: { name: 'GNews Source' }
+      }] });
+    }
+    if (url.hostname === 'www.bing.com') return new Response(rss);
+    if (url.hostname === 'www.reddit.com') return new Response('not an atom feed');
+    if (url.hostname === 'supabase.example') {
+      if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) {
+        // GNews collides (another run holds its lock); the others claim fine.
+        const body = JSON.parse(options.body || '{}');
+        return Response.json(body.p_provider !== 'gnews');
+      }
+      if (url.pathname.endsWith('/news_provider_sync')) {
+        return method === 'GET' ? Response.json([]) : new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/provider_sync_runs')) {
+        if (method === 'POST') return Response.json([{ id: 'run-1' }]);
+        runPatches.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/news_stories')) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith('/news_provider_logs')) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith('/provider_retry_queue')) return Response.json([]);
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const cronEnv = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      GNEWS_API_KEY: 'test-key'
+    };
+    const enableRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: cookie,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: true })
+      }),
+      cronEnv
+    );
+    assert.equal(enableRes.status, 200);
+    for (const provider of ['gnews', 'bing', 'reddit']) clearProviderCooldownState(provider);
+    updateAiCurationConfig({ enabled: false });
+
+    await worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
+
+    // The fetching chains report themselves; the collided chain never
+    // reaches the fetch, so no heartbeat may name it as current.
+    const reported = runPatches.filter(p => p.current_provider != null);
+    assert.ok(reported.length > 0);
+    assert.ok(reported.every(p => p.current_provider !== 'gnews'));
+  } finally {
+    updateAiCurationConfig({ enabled: true });
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('admin ai-usage endpoint works without an Origin header (same-origin GET)', async () => {
   // Regression test: browsers send no Origin header on same-origin GET
   // fetches, so the endpoint must not require one — otherwise the dashboard

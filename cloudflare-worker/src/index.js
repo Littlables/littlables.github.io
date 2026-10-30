@@ -875,7 +875,6 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     const config = getNewsProviderConfig(providerId);
     const st = getState(providerId);
   for (const category of Object.keys(config?.categories || {})) {
-    await maybeHeartbeat(providerId, category);
     if (st.done) break;
 
     // Skip providers in an active cooldown (state was refreshed from the
@@ -978,6 +977,10 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
       if (pacing.delayMs > 0) await new Promise(resolve => setTimeout(resolve, pacing.delayMs));
     }
 
+    // Report the current pair only once the chain is actually about to
+    // fetch it: heartbeating earlier let cooldown-skipped or
+    // claim-collided providers show as "Fetching:" without fetching.
+    await maybeHeartbeat(providerId, category);
     let lastTelemetry = null;
     try {
       const feed = await getNewsFeed(providerId, category, ADMIN_MARKET, {
