@@ -1,22 +1,26 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { runTasteReader, TasteReaderRunResult } from '../services/tasteReaderService';
+import { TasteReaderReader } from './TasteReaderReader';
 
 interface TasteReaderPageProps {
   onSignIn?: () => void;
 }
 
 /**
- * Taste Reader shell: route + admin gate + manual Run button + first
- * page of content balloons. The word-by-word reader, paging, filters,
- * and the weighted-keyword summary come in later steps; this page
- * deliberately shows only what step 2 already returns.
+ * Taste Reader page: route + admin gate + manual Run button + first
+ * page of content balloons, each with a Read button opening the
+ * word-by-word reader. Paging, filters, and the weighted-keyword
+ * summary come in later steps; this page still shows the first page
+ * only for now.
  */
 export const TasteReaderPage: React.FC<TasteReaderPageProps> = ({ onSignIn }) => {
   const { session, profile, loading } = useAuth();
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [run, setRun] = useState<TasteReaderRunResult | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [endOfPage, setEndOfPage] = useState(false);
 
   if (loading) {
     return (
@@ -70,6 +74,8 @@ export const TasteReaderPage: React.FC<TasteReaderPageProps> = ({ onSignIn }) =>
     }
     setRunning(true);
     setError(null);
+    setSelectedIndex(null);
+    setEndOfPage(false);
     try {
       const result = await runTasteReader(accessToken);
       setRun(result);
@@ -85,8 +91,8 @@ export const TasteReaderPage: React.FC<TasteReaderPageProps> = ({ onSignIn }) =>
       <h2>The Reading Room (Taste Reader)</h2>
       <p>
         Start a manual run to pick the next 10 balloons from the past 24 hours,
-        scored against your taste profile. The reader comes next; this page
-        shows the first page only for now.
+        scored against your taste profile. Tap Read on any balloon to open
+        the word-by-word reader. Paging to the next 10 comes next.
       </p>
       <button
         className="refresh-news-button"
@@ -112,9 +118,14 @@ export const TasteReaderPage: React.FC<TasteReaderPageProps> = ({ onSignIn }) =>
           <p>No balloons matched in the past 24 hours. Try again later.</p>
         </div>
       )}
+      {endOfPage && (
+        <div className="news-feed-error" role="status">
+          <p>You reached the end of this page. Paging to the next 10 comes next.</p>
+        </div>
+      )}
       {run && run.items.length > 0 && (
         <div>
-          {run.items.map((item) => (
+          {run.items.map((item, index) => (
             <article key={item.contentId} className="news-card">
               {item.image && (
                 <div className="news-card-image-wrap is-loaded">
@@ -133,10 +144,35 @@ export const TasteReaderPage: React.FC<TasteReaderPageProps> = ({ onSignIn }) =>
                   <span>{item.source}</span>
                   <span>Score {item.score}</span>
                 </div>
+                <button
+                  className="refresh-news-button"
+                  type="button"
+                  onClick={() => { setSelectedIndex(index); setEndOfPage(false); }}
+                  style={{ marginTop: '0.5rem' }}
+                >
+                  Read
+                </button>
               </div>
             </article>
           ))}
         </div>
+      )}
+      {run && selectedIndex !== null && run.items[selectedIndex] && (
+        <TasteReaderReader
+          key={run.items[selectedIndex].contentId}
+          item={run.items[selectedIndex]}
+          runId={run.runId}
+          accessToken={session.access_token}
+          onClose={() => setSelectedIndex(null)}
+          onAdvanceBalloon={() => {
+            if (selectedIndex < run.items.length - 1) {
+              setSelectedIndex(selectedIndex + 1);
+            } else {
+              setSelectedIndex(null);
+              setEndOfPage(true);
+            }
+          }}
+        />
       )}
     </div>
   );

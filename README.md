@@ -47,6 +47,13 @@ All AI model calls go through Cloudflare Workers AI (`env.AI.run`). The site mak
 - **Trigger:** On-demand from the admin panel when creating ad creatives (`POST /admin/api/image`); rendered images are also served publicly via `GET /ai-image?prompt&seed` (IP-rate-limited, edge- and memory-cached, so repeat loads cost no calls)
 - **What it does:** Generates a scene description from the story/article text, then renders an AI image for use as ad creative. FLUX runs at `num_steps: 8`; the fallback model runs only when FLUX fails.
 
+### 4. Taste Reader AI reason
+- **Model:** `@cf/meta/llama-3.2-3b-instruct`
+- **Location:** `cloudflare-worker/src/index.js` → `POST /api/taste-reader/reason`
+- **Trigger:** On-demand from the Taste Reader page (admin only, rate-limited via `SUMMARY_RATE_LIMITER`)
+- **What it does:** Given a balloon's title + description, generates one short sentence for why an editor might not like it. The text fills the reader's notes field for editing — it is only saved if the admin saves it (as kind `ai_reason`).
+- **Config:** `max_tokens: 120`, `temperature: 0.3`
+
 > **Note for contributors:** If you add a new LLM call, document it in this section (model, location, trigger, purpose).
 
 ### 4. Embedding-based category validation

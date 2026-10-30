@@ -60,6 +60,9 @@ import {
   getAiCurationState,
   createTasteReaderRun,
   verifyTasteReaderAdmin,
+  recordTasteReaderWordScore,
+  saveTasteReaderNote,
+  extractAiText,
   updateAiCurationConfig,
   runAiStoryCuration,
   bulkDecideNewsStories,
@@ -3322,6 +3325,110 @@ export default {
         return jsonResponse({
           error: err instanceof Error ? err.message : 'Could not run Taste Reader'
         }, 502);
+      }
+    }
+
+    // Taste Reader reader actions: word scores + notes + AI reason.
+    // Same site auth as /api/taste-reader/run (Supabase token +
+    // profiles.is_admin), same rate limiter, no GitHub session.
+    if (request.method === 'POST' && pathname === '/api/taste-reader/score') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        const payload = await request.json().catch(() => ({}));
+        const result = await recordTasteReaderWordScore(env, {
+          userId: auth.userId,
+          contentId: payload.contentId,
+          runId: payload.runId,
+          wordDisplay: payload.wordDisplay,
+          source: payload.source,
+          wordPosition: payload.wordPosition,
+          action: payload.action
+        });
+        if (result.error) return jsonResponse({ error: result.error }, 400);
+        return jsonResponse(result);
+      } catch (err) {
+        console.error('Taste Reader score failed:', err);
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Could not save the word score' }, 502);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/taste-reader/note') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        const payload = await request.json().catch(() => ({}));
+        const result = await saveTasteReaderNote(env, {
+          userId: auth.userId,
+          contentId: payload.contentId,
+          runId: payload.runId,
+          kind: payload.kind,
+          body: payload.body,
+          actionContext: payload.actionContext,
+          stoppedWordNormalized: payload.stoppedWordNormalized,
+          stoppedPosition: payload.stoppedPosition,
+          aiModel: payload.aiModel
+        });
+        if (result.error) return jsonResponse({ error: result.error }, 400);
+        return jsonResponse(result);
+      } catch (err) {
+        console.error('Taste Reader note failed:', err);
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Could not save the note' }, 502);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/taste-reader/reason') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        if (!env.AI) return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+        const payload = await request.json().catch(() => ({}));
+        const title = typeof payload.title === 'string' ? payload.title : '';
+        const description = typeof payload.description === 'string' ? payload.description : '';
+        if (!title && !description) return jsonResponse({ error: 'A title or description is required' }, 400);
+        const usage = createAiUsageCounter();
+        const model = '@cf/meta/llama-3.2-3b-instruct';
+        let aiRes;
+        try {
+          aiRes = await env.AI.run(model, {
+            messages: [
+              { role: 'system', content: 'You write short reasons a careful editor of a family-friendly news site might NOT like a story. Be specific to this story, one sentence, plain language, no preamble, no quotes.' },
+              { role: 'user', content: `Title: ${title}\nDescription: ${description.slice(0, 1200)}` }
+            ],
+            max_tokens: 120,
+            temperature: 0.3
+          });
+          usage.add(AI_USAGE_MODEL_LLAMA, 'taste-reader-reason', 1);
+          await usage.flush(env);
+        } catch (err) {
+          usage.add(AI_USAGE_MODEL_LLAMA, 'taste-reader-reason', 0, 1);
+          await usage.flush(env);
+          throw err;
+        }
+        const reason = extractAiText(aiRes).trim();
+        if (!reason) return jsonResponse({ error: 'The AI came back empty; try again' }, 502);
+        return jsonResponse({ ok: true, reason, model });
+      } catch (err) {
+        console.error('Taste Reader reason failed:', err);
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Could not generate a reason' }, 502);
       }
     }
 

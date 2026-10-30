@@ -3565,3 +3565,109 @@ export async function createTasteReaderRun(env, { userId, interestFilter = null,
     items: firstPage
   };
 };
+
+// Taste Reader reader actions: word scores + notes. Append-only tables, so
+// every click is a record, not an overwrite — the weighted list (step 5)
+// sums these rows per user + word.
+
+export const TASTE_READER_WORD_SCORE_DELTAS = Object.freeze({
+  up: 1,
+  down: -1,
+  next: -1,
+  ignore: -3,
+  ban: -5
+});
+
+// Aggregation key: lowercase, punctuation trimmed from both ends (the same
+// rule the frontend uses, so a marked word and its stored key always
+// match). Punctuation-only tokens normalize to '' and are unscoreable.
+export function normalizeTasteReaderWord(word) {
+  if (typeof word !== 'string') return '';
+  return word.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+const TASTE_READER_NOTE_KINDS = new Set(['user_note', 'ai_reason']);
+const TASTE_READER_NOTE_CONTEXTS = new Set(['viewed', 'skipped', 'ignored', 'banned', 'next']);
+
+export async function recordTasteReaderWordScore(env, {
+  userId, contentId, runId = null, wordDisplay, source, wordPosition, action
+} = {}) {
+  if (!userId || !Number.isFinite(Number(contentId))) {
+    return { error: 'A content balloon and a signed-in admin are required' };
+  }
+  const delta = TASTE_READER_WORD_SCORE_DELTAS[action];
+  if (delta === undefined) return { error: 'Unknown word action' };
+  if (source !== 'title' && source !== 'description') {
+    return { error: 'Word source must be title or description' };
+  }
+  if (!Number.isInteger(wordPosition) || wordPosition < 0) {
+    return { error: 'Word position must be a non-negative integer' };
+  }
+  const wordNormalized = normalizeTasteReaderWord(wordDisplay);
+  if (!wordNormalized) return { error: 'That word has no letters or digits to score' };
+  const row = {
+    user_id: userId,
+    content_id: Number(contentId),
+    run_id: typeof runId === 'string' && runId ? runId : null,
+    word_display: String(wordDisplay),
+    word_normalized: wordNormalized,
+    source,
+    word_position: wordPosition,
+    action,
+    score_delta: delta
+  };
+  const res = await fetch(supabaseUrl(env, 'taste_reader_word_scores', new URLSearchParams({ select: 'id' })), {
+    method: 'POST',
+    headers: { ...supabaseHeaders(env), Prefer: 'return=representation' },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) throw new Error(`Word score insert failed (HTTP ${res.status})`);
+  // next / ignore / ban move past a balloon: its run item is skipped.
+  // Status is secondary — a failed status update never fails the score.
+  if (row.run_id && ['next', 'ignore', 'ban'].includes(action)) {
+    try {
+      const params = new URLSearchParams({
+        run_id: `eq.${row.run_id}`,
+        content_id: `eq.${row.content_id}`
+      });
+      await fetch(supabaseUrl(env, 'taste_reader_run_items', params), {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders(env), Prefer: 'return=minimal' },
+        body: JSON.stringify({ status: 'skipped' })
+      });
+    } catch { /* score already saved; status can be fixed in step 4 */ }
+  }
+  return { ok: true, scoreDelta: delta, wordNormalized };
+}
+
+export async function saveTasteReaderNote(env, {
+  userId, contentId, runId = null, kind = 'user_note', body,
+  actionContext = null, stoppedWordNormalized = null, stoppedPosition = null, aiModel = null
+} = {}) {
+  if (!userId || !Number.isFinite(Number(contentId))) {
+    return { error: 'A content balloon and a signed-in admin are required' };
+  }
+  if (!TASTE_READER_NOTE_KINDS.has(kind)) return { error: 'Unknown note kind' };
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (!text) return { error: 'A note needs some text' };
+  if (text.length > 2000) return { error: 'Note is too long (max 2000 characters)' };
+  const row = {
+    user_id: userId,
+    content_id: Number(contentId),
+    run_id: typeof runId === 'string' && runId ? runId : null,
+    kind,
+    body: text,
+    action_context: TASTE_READER_NOTE_CONTEXTS.has(actionContext) ? actionContext : null,
+    stopped_word_normalized: typeof stoppedWordNormalized === 'string' && stoppedWordNormalized ? stoppedWordNormalized : null,
+    stopped_position: Number.isInteger(stoppedPosition) && stoppedPosition >= 0 ? stoppedPosition : null,
+    ai_model: typeof aiModel === 'string' && aiModel ? aiModel : null
+  };
+  const res = await fetch(supabaseUrl(env, 'taste_reader_notes', new URLSearchParams({ select: 'id' })), {
+    method: 'POST',
+    headers: { ...supabaseHeaders(env), Prefer: 'return=representation' },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) throw new Error(`Note insert failed (HTTP ${res.status})`);
+  return { ok: true };
+}
+

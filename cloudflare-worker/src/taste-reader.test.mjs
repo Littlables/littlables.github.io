@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import worker from './index.js';
-import { createTasteReaderRun, verifyTasteReaderAdmin } from './news-storage.mjs';
+import { createTasteReaderRun, verifyTasteReaderAdmin, recordTasteReaderWordScore, saveTasteReaderNote, normalizeTasteReaderWord } from './news-storage.mjs';
 
 const env = {
   SUPABASE_URL: 'https://supabase.example',
@@ -117,6 +117,15 @@ function installMock({ admin = true, token = 'good-token' } = {}) {
     }
     if (requestUrl.pathname === '/rest/v1/taste_reader_run_items' && options.method === 'POST') {
       return new Response('', { status: 201 });
+    }
+    if (requestUrl.pathname === '/rest/v1/taste_reader_word_scores' && options.method === 'POST') {
+      return Response.json([{ id: 'score-1' }], { status: 201 });
+    }
+    if (requestUrl.pathname === '/rest/v1/taste_reader_notes' && options.method === 'POST') {
+      return Response.json([{ id: 'note-1' }], { status: 201 });
+    }
+    if (requestUrl.pathname === '/rest/v1/taste_reader_run_items' && options.method === 'PATCH') {
+      return new Response('', { status: 204 });
     }
     if (requestUrl.pathname === '/rest/v1/taste_reader_runs' && options.method === 'DELETE') {
       return new Response('', { status: 204 });
@@ -266,6 +275,116 @@ test('POST /api/taste-reader/run gates on site auth and returns the first page',
     assert.equal(body.runId, 'run-1');
     assert.equal(body.totalCount, 4);
     assert.equal(body.items.length, 4);
+  } finally {
+    mock.restore();
+  }
+});
+
+test('normalizeTasteReaderWord lowercases and trims punctuation', () => {
+  assert.equal(normalizeTasteReaderWord('Dinosaurs,'), 'dinosaurs');
+  assert.equal(normalizeTasteReaderWord('"Hello!"'), 'hello');
+  assert.equal(normalizeTasteReaderWord('---'), '');
+});
+
+test('recordTasteReaderWordScore applies the locked deltas and skips the balloon on next/ignore/ban', async () => {
+  const mock = installMock();
+  try {
+    const up = await recordTasteReaderWordScore(env, {
+      userId: 'user-1', contentId: 10, runId: 'run-1',
+      wordDisplay: 'Dinosaurs,', source: 'title', wordPosition: 0, action: 'up'
+    });
+    assert.deepEqual(up, { ok: true, scoreDelta: 1, wordNormalized: 'dinosaurs' });
+
+    const ignore = await recordTasteReaderWordScore(env, {
+      userId: 'user-1', contentId: 10, runId: 'run-1',
+      wordDisplay: 'boring', source: 'description', wordPosition: 3, action: 'ignore'
+    });
+    assert.equal(ignore.scoreDelta, -3);
+
+    const scoreInserts = mock.captured.filter(({ requestUrl, options }) =>
+      requestUrl.pathname === '/rest/v1/taste_reader_word_scores' && options.method === 'POST');
+    assert.equal(scoreInserts.length, 2);
+    const firstBody = JSON.parse(scoreInserts[0].options.body);
+    assert.equal(firstBody.word_display, 'Dinosaurs,');
+    assert.equal(firstBody.word_normalized, 'dinosaurs');
+    assert.equal(firstBody.source, 'title');
+
+    // Up leaves the run item alone; ignore marks it skipped.
+    const patches = mock.captured.filter(({ requestUrl, options }) =>
+      requestUrl.pathname === '/rest/v1/taste_reader_run_items' && options.method === 'PATCH');
+    assert.equal(patches.length, 1);
+    assert.equal(JSON.parse(patches[0].options.body).status, 'skipped');
+    assert.equal(patches[0].requestUrl.searchParams.get('content_id'), 'eq.10');
+
+    assert.deepEqual(
+      await recordTasteReaderWordScore(env, {
+        userId: 'user-1', contentId: 10, runId: null,
+        wordDisplay: 'word', source: 'title', wordPosition: 0, action: 'maybe'
+      }),
+      { error: 'Unknown word action' }
+    );
+    assert.deepEqual(
+      await recordTasteReaderWordScore(env, {
+        userId: 'user-1', contentId: 10, runId: null,
+        wordDisplay: '---', source: 'title', wordPosition: 0, action: 'up'
+      }),
+      { error: 'That word has no letters or digits to score' }
+    );
+  } finally {
+    mock.restore();
+  }
+});
+
+test('saveTasteReaderNote validates kind and body, then inserts', async () => {
+  const mock = installMock();
+  try {
+    assert.deepEqual(await saveTasteReaderNote(env, {
+      userId: 'user-1', contentId: 10, runId: 'run-1',
+      kind: 'user_note', body: '  too grim for toddlers  ',
+      actionContext: 'viewed', stoppedWordNormalized: 'grim', stoppedPosition: 2, aiModel: null
+    }), { ok: true });
+    const insert = mock.captured.find(({ requestUrl, options }) =>
+      requestUrl.pathname === '/rest/v1/taste_reader_notes' && options.method === 'POST');
+    assert.equal(JSON.parse(insert.options.body).body, 'too grim for toddlers');
+    assert.deepEqual(await saveTasteReaderNote(env, {
+      userId: 'user-1', contentId: 10, kind: 'user_note', body: '   '
+    }), { error: 'A note needs some text' });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('POST /api/taste-reader/score and /note gate on site auth; /reason uses Workers AI', async () => {
+  const mock = installMock();
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => ({ choices: [{ message: { content: 'It is too grim for young readers.' } }] }) }
+  };
+  try {
+    const noToken = await worker.fetch(new Request('https://worker.example/api/taste-reader/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contentId: 10, wordDisplay: 'grim', source: 'title', wordPosition: 0, action: 'down' })
+    }), env, {});
+    assert.equal(noToken.status, 401);
+
+    const scored = await worker.fetch(new Request('https://worker.example/api/taste-reader/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer good-token' },
+      body: JSON.stringify({ contentId: 10, runId: 'run-1', wordDisplay: 'grim', source: 'title', wordPosition: 0, action: 'down' })
+    }), env, {});
+    assert.equal(scored.status, 200);
+    assert.deepEqual(await scored.json(), { ok: true, scoreDelta: -1, wordNormalized: 'grim' });
+
+    const reasoned = await worker.fetch(new Request('https://worker.example/api/taste-reader/reason', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer good-token' },
+      body: JSON.stringify({ title: 'A grim story', description: 'Something sad happened.' })
+    }), aiEnv, {});
+    assert.equal(reasoned.status, 200);
+    const reasonBody = await reasoned.json();
+    assert.equal(reasonBody.reason, 'It is too grim for young readers.');
+    assert.equal(reasonBody.model, '@cf/meta/llama-3.2-3b-instruct');
   } finally {
     mock.restore();
   }
