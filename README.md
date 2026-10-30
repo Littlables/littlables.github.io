@@ -25,7 +25,7 @@ The dev server runs at `http://0.0.0.0:3000`.
 
 ## AI / LLM usage (Cloudflare Workers AI)
 
-All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three distinct uses:
+All AI model calls go through Cloudflare Workers AI (`env.AI.run`). The site makes the following AI model calls:
 
 ### 1. Story curation (editorial picks)
 - **Model:** `@cf/meta/llama-3.2-3b-instruct`
@@ -44,8 +44,8 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 ### 3. Ad image generation
 - **Models:** `@cf/meta/llama-3.2-3b-instruct` (scene description) → `@cf/black-forest-labs/flux-1-schnell` (image, fallback: `@cf/bytedance/stable-diffusion-xl-lightning`)
 - **Location:** `cloudflare-worker/src/index.js` (admin image generation endpoint)
-- **Trigger:** On-demand from the admin panel when creating ad creatives
-- **What it does:** Generates a scene description from the story/article text, then renders an AI image for use as ad creative.
+- **Trigger:** On-demand from the admin panel when creating ad creatives (`POST /admin/api/image`); rendered images are also served publicly via `GET /ai-image?prompt&seed` (IP-rate-limited, edge- and memory-cached, so repeat loads cost no calls)
+- **What it does:** Generates a scene description from the story/article text, then renders an AI image for use as ad creative. FLUX runs at `num_steps: 8`; the fallback model runs only when FLUX fails.
 
 > **Note for contributors:** If you add a new LLM call, document it in this section (model, location, trigger, purpose).
 
@@ -57,17 +57,35 @@ All LLM calls go through Cloudflare Workers AI (`env.AI.run`). There are three d
 
 ### 5. Interest keyword tagging
 - **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
-- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs` (140 keywords in 16 groups)
+- **Location:** `cloudflare-worker/src/embedding-classifier.mjs` → `classifyStoryKeywords()`; keyword list in `cloudflare-worker/src/interest-keywords.mjs` (156 keywords in 16 groups)
 - **Trigger:** Same validation run as #4 (no extra AI calls per story — the story embedding is reused)
 - **What it does:** Tags stories with up to 3 interest keywords at cosine similarity ≥ 0.45. Keywords are a cross-cutting layer — never shown as categories. Stored in the `interest_keywords` column; served via `GET /feed?keyword=` for custom boards and hand-editable in the admin panel (grouped picker).
-- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled 25/run as a standalone warmup step. Tagging is all-or-nothing — it waits until all 140 vectors exist. Vectors are keyed by `KEYWORD_DESCRIPTIONS_VERSION`; bumping it recomputes them when descriptions are sharpened.
-- **Flagged (excluded) keywords:** Keywords with `excluded: true` (currently `stocks`, `cryptocurrency`, `business-news` in the "Flagged" group) label content we don't want on the front page. They classify normally and show with 🚫 styling in the admin panel, but `getStoredNewsFeed()` filters out any story carrying one from all category feeds including "all" (`not.ov` + explicit NULL pass-through). They remain available via `GET /feed?keyword=` so custom boards can still use them. No auto-ban — flagging is labeling only.
+- **Vector persistence:** Keyword description vectors are embedded once and stored in the `keyword_embeddings` Supabase table (`getPersistedKeywordEmbeddings()` in `news-storage.mjs`), backfilled 25/run as a standalone warmup step. Tagging is all-or-nothing — it waits until all 156 vectors exist. Vectors are keyed by `KEYWORD_DESCRIPTIONS_VERSION`; bumping it recomputes them when descriptions are sharpened.
+- **Flagged (excluded) keywords:** Keywords with `excluded: true` (currently 8: `stocks`, `cryptocurrency`, `business-news`, `clickbait`, `death` in the "Flagged" group, plus `politics`, `elections`, `government` in the "Politics" group) label content we don't want on the front page. They classify normally and show with 🚫 styling in the admin panel, but `getStoredNewsFeed()` filters out any story carrying one from all category feeds including "all" (`not.ov` + explicit NULL pass-through). They remain available via `GET /feed?keyword=` so custom boards can still use them. No auto-ban — flagging is labeling only.
 
 ### 6. LLM keyword correction
 - **Model:** `@cf/meta/llama-3.2-3b-instruct`
 - **Location:** `cloudflare-worker/src/index.js` → `POST /admin/api/stories/:id/llm-keywords`
 - **Trigger:** Manual via the "🤖 AI tags" button on each validation-list row
-- **What it does:** Reads the story's title + description and picks up to 3 keywords from the 140-keyword list by meaning (not word association — e.g. a Musk/Starlink story gets satellite/geopolitics-appropriate tags, not electric cars). Corrects embedding misfires; the row updates in place. Budget: 1 story fetch + 1 LLM call + 1 PATCH per click.
+- **What it does:** Reads the story's title + description and picks up to 3 keywords from the 156-keyword list by meaning (not word association — e.g. a Musk/Starlink story gets satellite/geopolitics-appropriate tags, not electric cars). Corrects embedding misfires; the row updates in place. Budget: 1 story fetch + 1 LLM call + 1 PATCH per click.
+
+### 7. Ad auto-tag
+- **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
+- **Location:** `cloudflare-worker/src/index.js` → `POST /admin/api/ads/auto-tag`
+- **Trigger:** Manual via the admin panel ("Auto-tag new" and rerun buttons)
+- **What it does:** Tags ads with interest keywords so they can match stories. Processes 15 ads per invocation; the client loops with an offset until done.
+
+### 8. Ad matching on the public site
+- **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
+- **Location:** `cloudflare-worker/src/index.js` → `POST /ads/match`
+- **Trigger:** Visitor feed loads — the frontend sends untagged stories from the current feed and gets ranked ad IDs back
+- **What it does:** Embeds up to 20 untagged stories per feed load, queries the ad keyword tags, and returns ranked ad matches per story. This is the only embedding use triggered by visitors rather than the admin panel (besides #9).
+
+### 9. Playroom description fallback
+- **Model:** `@cf/baai/bge-base-en-v1.5` (768-dim text embeddings)
+- **Location:** `cloudflare-worker/src/news-storage.mjs` (playroom feed)
+- **Trigger:** Visitor playroom/space pages with no pills selected
+- **What it does:** Embeds the playroom description (plus space names) and finds the most similar interests (cosine similarity ≥ 0.35, top 5) so the page still shows relevant stories instead of an empty feed.
 
 ## Cloudflare Worker news providers
 
