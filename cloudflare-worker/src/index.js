@@ -1866,9 +1866,10 @@ async function serveAdmin(request, env) {
   }
 
   if (url.pathname === '/admin/api/ai-usage' && request.method === 'GET') {
-    if (!isSameOrigin(request)) {
-      return jsonResponse({ error: 'AI usage must be requested from the admin origin' }, 403);
-    }
+    // No isSameOrigin check here, matching /admin/api/analytics: the admin
+    // session gate is the authorization, and browsers send no Origin header
+    // on same-origin GET fetches, so the check would 403 every dashboard
+    // load and hide the counts.
     try {
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days')) || 30));
       const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);

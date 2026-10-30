@@ -1621,3 +1621,29 @@ test('hourly sweep fetches providers interleaved with batched writes', async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('admin ai-usage endpoint works without an Origin header (same-origin GET)', async () => {
+  // Regression test: browsers send no Origin header on same-origin GET
+  // fetches, so the endpoint must not require one — otherwise the dashboard
+  // counts fetch 403s on every load and the counts stay hidden.
+  const originalFetch = globalThis.fetch;
+  const cookie = await adminCookie();
+  const env = { ...authEnv, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'test-key' };
+  const rows = [
+    { usage_date: '2026-10-30', model: 'llama', usage_key: 'curation', calls: 2, errors: 0 }
+  ];
+  globalThis.fetch = async () => ({ ok: true, json: async () => rows });
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/ai-usage?days=30', {
+        headers: { Cookie: cookie.split(';')[0] }
+      }),
+      env
+    );
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.deepEqual(data.rows, rows);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
