@@ -7,12 +7,13 @@ import {
   shareWorksheetWithImage,
 } from '../services/urlService';
 
-type WorksheetType = 'coloring-page' | 'hidden-puzzle';
+type WorksheetType = 'coloring-page' | 'hidden-puzzle' | 'word-search';
 type WorksheetFilter = 'all' | WorksheetType;
 
 const WORKSHEET_TYPES: { id: WorksheetType; label: string }[] = [
   { id: 'coloring-page', label: 'Coloring Pages' },
   { id: 'hidden-puzzle', label: 'Hidden Puzzles' },
+  { id: 'word-search', label: 'Word Searches' },
 ];
 
 export interface WorksheetItem {
@@ -60,6 +61,22 @@ export const WORKSHEETS: WorksheetItem[] = [
     jpgFilename: 'littlables-halloween-2026-hidden-objects-coloring-page.jpg',
     description:
       'Can you find all 10 hidden objects — pizza, banana, star, heart, key, moon, crown, fish, pencil, and bone — and color the scene?',
+    pubName: 'littlables',
+    domain: 'littlables.com',
+    dateLabel: 'Oct 2026',
+  },
+  {
+    id: 'halloween-2026-word-search',
+    title: 'Halloween Word Search & Coloring Page',
+    types: ['coloring-page', 'word-search'],
+    badge: '🔤 Word Search',
+    previewImg: '/img/worksheets/preview/littlables-halloween-word-search-preview.jpg',
+    pdfUrl: '/img/worksheets/littlables-halloween-2026-word-search.pdf',
+    pdfFilename: 'littlables-halloween-2026-word-search.pdf',
+    jpgUrl: '/img/worksheets/littlables-halloween-2026-word-search.jpg',
+    jpgFilename: 'littlables-halloween-2026-word-search.jpg',
+    description:
+      'Can you find all 10 spooky Halloween words — pumpkin, ghost, bat, candy, witch, spider, littlables, treat, costume, and cauldron — in any direction and color the cute Halloween characters?',
     pubName: 'littlables',
     domain: 'littlables.com',
     dateLabel: 'Oct 2026',
