@@ -1488,7 +1488,7 @@ test('admin ai-usage endpoint returns daily counter rows', async () => {
   }
 });
 
-test('hourly sweep fetches providers interleaved with batched writes', async () => {
+test('hourly sweep fetches providers concurrently with batched writes', async () => {
   const originalFetch = globalThis.fetch;
   const providerFetchOrder = [];
   const gnewsCategories = [];
@@ -1585,13 +1585,13 @@ test('hourly sweep fetches providers interleaved with batched writes', async () 
 
     await worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
 
-    // Category-major interleave: the three providers cycle per category,
-    // never one provider's whole sweep before the next provider starts.
-    const expectedOrder = [];
-    for (let i = 0; i < NEWS_CATEGORIES.length; i++) {
-      expectedOrder.push('gnews.io', 'www.bing.com', 'www.reddit.com');
+    // Concurrent chains: all three providers start together (the first
+    // three fetch starts cover all three hosts), each completes its own
+    // categories in order, and no provider waits on another's pacing.
+    assert.deepEqual(providerFetchOrder.slice(0, 3), ['gnews.io', 'www.bing.com', 'www.reddit.com']);
+    for (const host of ['gnews.io', 'www.bing.com', 'www.reddit.com']) {
+      assert.equal(providerFetchOrder.filter(h => h === host).length, NEWS_CATEGORIES.length);
     }
-    assert.deepEqual(providerFetchOrder, expectedOrder);
     assert.deepEqual(gnewsCategories, NEWS_CATEGORIES);
 
     // One batched upsert per successful provider, covering all 7 categories.
@@ -1618,6 +1618,95 @@ test('hourly sweep fetches providers interleaved with batched writes', async () 
 
     // No 429s, no 5xx: nothing may be queued for retry.
     assert.equal(retryQueuePosts.length, 0);
+  } finally {
+    updateAiCurationConfig({ enabled: true });
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('hourly sweep runs provider chains concurrently so a slow provider does not block others', async () => {
+  const originalFetch = globalThis.fetch;
+  let bingFetches = 0;
+  let gnewsAllReleased = false;
+  let releaseGnewsAll;
+  const gnewsAllGate = new Promise(resolve => { releaseGnewsAll = resolve; });
+  const rss = `<rss><channel><item><title>Hourly Story</title><link>https://publisher.example/hourly</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+  const gnewsArticles = () => Response.json({ articles: [{
+    title: 'G story',
+    url: 'https://publisher.example/g',
+    image: '',
+    description: 'd',
+    content: 'c',
+    publishedAt: new Date().toISOString(),
+    source: { name: 'GNews Source' }
+  }] });
+
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    const method = options?.method || 'GET';
+    if (url.hostname === 'gnews.io') {
+      // GNews 'all' (top-headlines, no world category) stalls behind a
+      // gate: its chain cannot advance until the test releases it.
+      if (url.pathname.includes('top-headlines') && url.searchParams.get('category') !== 'world') {
+        await gnewsAllGate;
+        gnewsAllReleased = true;
+      }
+      return gnewsArticles();
+    }
+    if (url.hostname === 'www.bing.com') {
+      bingFetches++;
+      return new Response(rss);
+    }
+    if (url.hostname === 'www.reddit.com') return new Response('not an atom feed');
+    if (url.hostname === 'supabase.example') {
+      if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+      if (url.pathname.endsWith('/news_stories')) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith('/news_provider_logs')) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith('/news_provider_sync')) {
+        return method === 'GET' ? Response.json([]) : new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/provider_retry_queue')) return Response.json([]);
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const cronEnv = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      GNEWS_API_KEY: 'test-key'
+    };
+    const enableRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: cookie,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: true })
+      }),
+      cronEnv
+    );
+    assert.equal(enableRes.status, 200);
+    for (const provider of ['gnews', 'bing', 'reddit']) clearProviderCooldownState(provider);
+    updateAiCurationConfig({ enabled: false });
+
+    const sweepPromise = worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
+    // Bing's second fetch (~2s pacing pause after its first) must start
+    // while GNews 'all' is still gated — under the old sequential loop
+    // bing could not start its second pair until gnews/all resolved.
+    for (let i = 0; i < 100 && bingFetches < 2; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    assert.ok(bingFetches >= 2, 'bing advanced past its first pair while gnews was gated');
+    assert.equal(gnewsAllReleased, false);
+    releaseGnewsAll();
+    await sweepPromise;
+    assert.equal(gnewsAllReleased, true);
   } finally {
     updateAiCurationConfig({ enabled: true });
     globalThis.fetch = originalFetch;

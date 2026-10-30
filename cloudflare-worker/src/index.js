@@ -76,7 +76,7 @@ import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEm
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 import { computeAdaptiveDelayMs } from './feed-utils.mjs';
-import { startSyncRun, updateSyncRun, finishSyncRun, isSyncRunHeartbeatDue, summarizeProviderProgress } from './provider-sync-runs.mjs';
+import { startSyncRun, updateSyncRun, finishSyncRun, isSyncRunHeartbeatDue, summarizeProviderProgress, SYNC_RUN_HEARTBEAT_MIN_MS } from './provider-sync-runs.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_FLUX, AI_USAGE_MODEL_SDXL, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
@@ -797,18 +797,16 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
   let totalStoriesSaved = 0;
   let rateLimitedCount = 0;
 
-  // Phase 1: category-major interleave. All providers' childcare runs before
-  // all providers' animals, so each provider gets the other providers'
-  // fetches as breathing room between its own calls instead of 7
-  // back-to-back hits. Bulk sync always respects cooldowns (the old code
-  // hardcoded force: false here even for admin sync-all); only the
-  // single-provider manual path accepts force.
+  // Concurrent chains: one async chain per provider, each iterating its
+  // own categories sequentially with its own pacing. A stalled provider
+  // stalls only its own chain; the others finish, flush, and report.
+  // (Previously a single category-major interleaved loop, where one hang
+  // blocked every provider behind it.) Bulk sync always respects
+  // cooldowns (the old code hardcoded force: false here even for admin
+  // sync-all); only the single-provider manual path accepts force.
   const pairs = buildInterleavedPairs(providers.map(p => p.id));
   if (runId) await updateSyncRun(env, runId, { pairs_total: pairs.length });
-  let runPairsDone = 0;
-  let runLastHeartbeatMs = 0;
-  let runLastHeartbeatProvider = null;
-  let runLastPairTelemetry = null;
+  const runProgress = { pairsDone: 0, lastHeartbeatMs: 0, lastPairTelemetry: null };
   const providerState = new Map();
   const getState = (providerId) => {
     if (!providerState.has(providerId)) {
@@ -846,32 +844,38 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     return queuedCount;
   };
 
-  // Safety net (see the final pass below): if anything escapes the pair
-  // loop, claimed providers must still reach the flush + final pass
-  // instead of dying mid-sweep with their lock rows stuck on 'running'.
+  // Throttled run heartbeat: the first call fires immediately, then at
+  // most one PATCH per 30 seconds no matter how many chains are running.
+  const maybeHeartbeat = async (providerId, category) => {
+    if (!runId) return;
+    const nowMs = Date.now();
+    if (runProgress.lastHeartbeatMs !== 0 && nowMs - runProgress.lastHeartbeatMs < SYNC_RUN_HEARTBEAT_MIN_MS) return;
+    await updateSyncRun(env, runId, {
+      pairs_done: runProgress.pairsDone,
+      current_provider: providerId,
+      current_category: category,
+      last_telemetry: runProgress.lastPairTelemetry,
+      summary: {
+        inProgress: true,
+        providers: providers.map(p => {
+          const pst = getState(p.id);
+          return summarizeProviderProgress(p.id, pst.attempted.size, pst.pendingLogs);
+        })
+      }
+    });
+    runProgress.lastHeartbeatMs = Date.now();
+  };
+
+  // Safety net (see the final pass below): if anything escapes a chain,
+  // claimed providers must still reach the flush + final pass instead
+  // of dying mid-sweep with their lock rows stuck on 'running'.
   let sweepError = null;
-  try {
-  for (const { provider: providerId, category } of pairs) {
+  const runProviderChain = async (providerId) => {
     const config = getNewsProviderConfig(providerId);
     const st = getState(providerId);
-    if (runId && isSyncRunHeartbeatDue({ lastHeartbeatMs: runLastHeartbeatMs, lastProvider: runLastHeartbeatProvider, provider: providerId })) {
-      await updateSyncRun(env, runId, {
-        pairs_done: runPairsDone,
-        current_provider: providerId,
-        current_category: category,
-        last_telemetry: runLastPairTelemetry,
-        summary: {
-          inProgress: true,
-          providers: providers.map(p => {
-            const pst = getState(p.id);
-            return summarizeProviderProgress(p.id, pst.attempted.size, pst.pendingLogs);
-          })
-        }
-      });
-      runLastHeartbeatMs = Date.now();
-      runLastHeartbeatProvider = providerId;
-    }
-    if (st.done) continue;
+  for (const category of Object.keys(config?.categories || {})) {
+    await maybeHeartbeat(providerId, category);
+    if (st.done) break;
 
     // Skip providers in an active cooldown (state was refreshed from the
     // DB at the start of this run). Only one log entry per provider: the
@@ -1088,17 +1092,24 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
       }
     }
     st.attempted.add(category);
-    runPairsDone++;
-    runLastPairTelemetry = lastTelemetry ? {
+    runProgress.pairsDone++;
+    runProgress.lastPairTelemetry = lastTelemetry ? {
       httpStatus: lastTelemetry.httpStatus ?? null,
       durationMs: lastTelemetry.durationMs ?? null,
       rateLimitRemaining: lastTelemetry.rateLimitRemaining ?? null,
       rateLimitReset: lastTelemetry.rateLimitReset ?? null
     } : null;
   }
-  } catch (err) {
-    sweepError = err;
-    console.error('Auto-sync sweep pair loop failed:', err);
+  };
+  const chainResults = await Promise.allSettled(providers.map(p => runProviderChain(p.id)));
+  for (const [index, result] of chainResults.entries()) {
+    if (result.status === 'rejected') {
+      if (!sweepError) sweepError = result.reason;
+      const failedProvider = providers[index];
+      const fst = getState(failedProvider.id);
+      fst.errors.push(`${failedProvider.id}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      console.error(`Auto-sync provider chain failed for ${failedProvider.id}:`, result.reason);
+    }
   }
 
   // Flush per provider: one batch upsert (per-category fallback), one bulk
