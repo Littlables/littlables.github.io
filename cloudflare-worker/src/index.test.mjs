@@ -1647,3 +1647,168 @@ test('admin ai-usage endpoint works without an Origin header (same-origin GET)',
     globalThis.fetch = originalFetch;
   }
 });
+
+test('hourly sweep finishes every provider when a pacing deferral cannot queue retries', async () => {
+  const originalFetch = globalThis.fetch;
+  const finishPatches = [];
+  const storyPosts = [];
+  const rss = `<rss><channel><item><title>Hourly Story</title><link>https://publisher.example/hourly</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+  // GNews reports an exhausted quota, so the second GNews pair takes the
+  // pacing-deferral branch — whose retry-queue write is rigged to fail.
+  // enqueue swallows queue failures (returns false), so the deferral must
+  // complete with 0 queued and the sweep must finish every provider anyway,
+  // not wedge or abort.
+  const resetEpoch = Math.floor(Date.now() / 1000) + 3600;
+
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    const method = options?.method || 'GET';
+    if (url.hostname === 'gnews.io') {
+      return new Response(JSON.stringify({ articles: [{
+        title: 'G story',
+        url: 'https://publisher.example/g',
+        image: '',
+        description: 'd',
+        content: 'c',
+        publishedAt: new Date().toISOString(),
+        source: { name: 'GNews Source' }
+      }] }), { headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': String(resetEpoch) } });
+    }
+    if (url.hostname === 'www.bing.com') return new Response(rss);
+    if (url.hostname === 'www.reddit.com') return new Response('not an atom feed');
+    if (url.hostname === 'supabase.example') {
+      if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+      if (url.pathname.endsWith('/news_stories')) {
+        storyPosts.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/news_provider_logs')) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith('/news_provider_sync')) {
+        if (method === 'GET') return Response.json([]);
+        // Only PATCH is a finish write; persistProviderCooldown upserts
+        // via POST and must not be counted as one.
+        if (method === 'PATCH') finishPatches.push({ provider: url.searchParams.get('provider'), body: JSON.parse(options.body) });
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/provider_retry_queue')) {
+        if (method === 'GET') return Response.json([]);
+        throw new Error('queue down');
+      }
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const cronEnv = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      GNEWS_API_KEY: 'test-key'
+    };
+    const enableRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true })
+      }),
+      cronEnv
+    );
+    assert.equal(enableRes.status, 200);
+    for (const provider of ['gnews', 'bing', 'reddit']) clearProviderCooldownState(provider);
+    updateAiCurationConfig({ enabled: false });
+
+    await worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
+
+    // Every provider got a finish write despite the failed queue write, and
+    // the pairs completed before the deferral still saved their stories.
+    const finishedByProvider = {};
+    for (const p of finishPatches) finishedByProvider[p.provider.replace('eq.', '')] = p.body.status;
+    assert.deepEqual(Object.keys(finishedByProvider).sort(), ['bing', 'gnews', 'reddit']);
+    assert.equal(finishedByProvider.gnews, 'partial');
+    assert.equal(finishedByProvider.bing, 'succeeded');
+    assert.equal(finishedByProvider.reddit, 'failed');
+    assert.equal(storyPosts.length, 2);
+    assert.equal(storyPosts.find(rows => rows[0].provider === 'gnews').length, 1);
+    assert.equal(storyPosts.find(rows => rows[0].provider === 'bing').length, 7);
+  } finally {
+    updateAiCurationConfig({ enabled: true });
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('hourly sweep still saves stories when finish calls fail', async () => {
+  const originalFetch = globalThis.fetch;
+  const storyPosts = [];
+  let finishAttempts = 0;
+  const rss = `<rss><channel><item><title>Hourly Story</title><link>https://publisher.example/hourly</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    const method = options?.method || 'GET';
+    if (url.hostname === 'gnews.io') {
+      return Response.json({ articles: [{
+        title: 'G story',
+        url: 'https://publisher.example/g',
+        image: '',
+        description: 'd',
+        content: 'c',
+        publishedAt: new Date().toISOString(),
+        source: { name: 'GNews Source' }
+      }] });
+    }
+    if (url.hostname === 'www.bing.com') return new Response(rss);
+    if (url.hostname === 'www.reddit.com') return new Response('not an atom feed');
+    if (url.hostname === 'supabase.example') {
+      if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+      if (url.pathname.endsWith('/news_stories')) {
+        storyPosts.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/news_provider_logs')) return new Response(null, { status: 204 });
+      if (url.pathname.endsWith('/news_provider_sync')) {
+        if (method === 'GET') return Response.json([]);
+        finishAttempts++;
+        return new Response(null, { status: 500 });
+      }
+      if (url.pathname.endsWith('/provider_retry_queue')) return Response.json([]);
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const cronEnv = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      GNEWS_API_KEY: 'test-key'
+    };
+    const enableRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true })
+      }),
+      cronEnv
+    );
+    assert.equal(enableRes.status, 200);
+    for (const provider of ['gnews', 'bing', 'reddit']) clearProviderCooldownState(provider);
+    updateAiCurationConfig({ enabled: false });
+
+    await worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
+
+    // Stories still saved for both successful providers, and the sweep
+    // completed instead of dying: each provider's finish was attempted in
+    // the flush, retried in the flush catch, and retried by the safety net.
+    assert.equal(storyPosts.length, 2);
+    assert.equal(storyPosts.find(rows => rows[0].provider === 'gnews').length, 7);
+    assert.equal(storyPosts.find(rows => rows[0].provider === 'bing').length, 7);
+    assert.equal(finishAttempts, 9);
+  } finally {
+    updateAiCurationConfig({ enabled: true });
+    globalThis.fetch = originalFetch;
+  }
+});

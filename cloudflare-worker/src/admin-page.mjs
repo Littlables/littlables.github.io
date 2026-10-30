@@ -2688,6 +2688,25 @@ export function getAdminPage() {
         statusValue.className = 'status status-' + String(provider.status).toLowerCase();
         statusValue.textContent = text(provider.status);
         status.append(statusValue);
+        // A stuck run and a healthy in-progress run used to look identical
+        // (both just "running"). Surface when the run started and the last
+        // recorded error so a wedged provider is visible, not silent.
+        const statusExtras = [];
+        if (provider.status === 'running' && provider.started_at) {
+          const startedMs = Date.parse(provider.started_at);
+          const runningSince = document.createElement('p');
+          runningSince.className = 'provider-running-since muted';
+          runningSince.textContent = 'Running since: ' + (Number.isFinite(startedMs)
+            ? formatDateTime(new Date(startedMs)) + '; ' + formatElapsed(startedMs)
+            : provider.started_at);
+          statusExtras.push(runningSince);
+        }
+        if (provider.last_error) {
+          const lastError = document.createElement('p');
+          lastError.className = 'provider-last-error muted';
+          lastError.textContent = 'Last error: ' + provider.last_error;
+          statusExtras.push(lastError);
+        }
         const updated = document.createElement('p');
         updated.className = 'provider-updated';
         updated.dataset.updatedPrefix = 'Last updated: ';
@@ -2697,6 +2716,7 @@ export function getAdminPage() {
         const totalSaved = document.createElement('p');
         totalSaved.textContent = 'Total stories saved: ' + text(provider.total_stories_saved);
         card.append(head, description, coverage, setup, status, updated, saved, totalSaved);
+        if (statusExtras.length) status.after(...statusExtras);
 
         if (provider.cooldown_until && Date.parse(provider.cooldown_until) > Date.now()) {
           const cooldownBox = document.createElement('div');

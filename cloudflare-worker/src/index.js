@@ -786,7 +786,8 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
         pendingLogs: [],
         storiesSaved: 0,
         errors: [],
-        rateLimited: false
+        rateLimited: false,
+        finished: false
       });
     }
     return providerState.get(providerId);
@@ -808,6 +809,11 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     return queuedCount;
   };
 
+  // Safety net (see the final pass below): if anything escapes the pair
+  // loop, claimed providers must still reach the flush + final pass
+  // instead of dying mid-sweep with their lock rows stuck on 'running'.
+  let sweepError = null;
+  try {
   for (const { provider: providerId, category } of pairs) {
     const config = getNewsProviderConfig(providerId);
     const st = getState(providerId);
@@ -1029,6 +1035,10 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     }
     st.attempted.add(category);
   }
+  } catch (err) {
+    sweepError = err;
+    console.error('Auto-sync sweep pair loop failed:', err);
+  }
 
   // Flush per provider: one batch upsert (per-category fallback), one bulk
   // log insert, then the provider's final sync status.
@@ -1107,6 +1117,7 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
           : 'failed';
       const errorMessage = st.errors.length ? st.errors.join('; ').slice(0, 2000) : null;
       await finishNewsProviderSync(env, provider.id, { status, storiesSaved: st.storiesSaved, error: errorMessage });
+      st.finished = true;
       if (st.errors.length === 0) clearProviderCooldownState(provider.id);
       totalStoriesSaved += st.storiesSaved;
       if (st.rateLimited) rateLimitedCount++;
@@ -1120,11 +1131,40 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
       });
     } catch (err) {
       console.error(`Auto-sync flush failed for provider ${provider.id}:`, err);
+      const flushMessage = err instanceof Error ? err.message : String(err);
+      try {
+        await finishNewsProviderSync(env, provider.id, { status: 'failed', storiesSaved: st.storiesSaved, error: flushMessage });
+        st.finished = true;
+      } catch (finishErr) {
+        console.error(`Auto-sync could not save failed status for provider ${provider.id}:`, finishErr);
+      }
       results.push({
         provider: provider.id,
         status: 'failed',
-        error: err instanceof Error ? err.message : String(err)
+        error: flushMessage
       });
+    }
+  }
+
+  // Final safety net: any provider this run claimed but never finished
+  // (pair-loop escape, flush failure, or a finish that itself threw) must
+  // not stay 'running' — that wedges the panel until the 20-minute
+  // re-claim window. Unclaimed providers are never touched: their row may
+  // belong to another concurrent run.
+  for (const provider of providers) {
+    const st = getState(provider.id);
+    if (!st.claimed || st.finished) continue;
+    const safetyMessage = sweepError
+      ? `Auto-sync did not complete: ${sweepError instanceof Error ? sweepError.message : String(sweepError)}`
+      : 'Auto-sync did not finish this provider';
+    try {
+      await finishNewsProviderSync(env, provider.id, { status: 'failed', storiesSaved: st.storiesSaved, error: safetyMessage });
+      st.finished = true;
+    } catch (finishErr) {
+      console.error(`Auto-sync safety net could not save failed status for provider ${provider.id}:`, finishErr);
+    }
+    if (!results.some(r => r.provider === provider.id)) {
+      results.push({ provider: provider.id, httpStatus: 200, status: 'failed', storiesSaved: st.storiesSaved, errors: [safetyMessage] });
     }
   }
 
