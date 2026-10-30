@@ -1461,7 +1461,7 @@ export function getAdminPage() {
     <section aria-labelledby="providers-title" class="admin-card-section" data-section-id="providers">
       <div class="section-header">
         <h2 id="providers-title">
-          <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers" data-section-toggle="providers">
+          <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers-body" data-section-toggle="providers">
             <span id="providers-arrow" class="section-arrow" aria-hidden="true">▼</span>
             <span>News providers</span>
           </button>
@@ -1471,44 +1471,35 @@ export function getAdminPage() {
           <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
         </div>
       </div>
-      <div id="providers" class="providers" aria-live="polite" hidden style="margin-top: .85rem;"></div>
-    </section>
-
-    <!-- 6B. PROVIDER FETCH & RATE-LIMIT LOGS SECTION -->
-    <section aria-labelledby="logs-title" class="admin-card-section" data-section-id="logs">
-      <div class="section-header">
-        <h2 id="logs-title">
-          <button id="logs-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="logs-body" data-section-toggle="logs">
-            <span id="logs-arrow" class="section-arrow" aria-hidden="true">▼</span>
-            <span>Provider Fetch &amp; Rate-Limit Logs <span id="logs-count"></span></span>
-          </button>
-        </h2>
-        <div class="section-controls">
-          <button id="refresh-logs-btn" type="button" class="secondary small-btn">Refresh logs</button>
-          <button id="clear-logs-btn" type="button" class="secondary small-btn">Clear logs</button>
-          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
-          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+      <div id="providers-body" hidden>
+        <div id="providers" class="providers" aria-live="polite" style="margin-top: .85rem;"></div>
+        <div class="logs-nested" style="margin-top: 1rem;">
+          <div style="display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;">
+            <button id="logs-nested-toggle" type="button" class="secondary small-btn" aria-expanded="false" aria-controls="logs-body">Provider fetch logs <span id="logs-count"></span></button>
+            <button id="refresh-logs-btn" type="button" class="secondary small-btn">Refresh logs</button>
+            <button id="clear-logs-btn" type="button" class="secondary small-btn">Clear logs</button>
+          </div>
+          <div id="logs-body" class="section-body" hidden>
+            <div id="logs-summary" class="log-summary-strip"></div>
+            <div class="filter-bar">
+              <nav id="logs-status-tabs" class="category-tabs" aria-label="Filter fetch logs by status" style="margin: 0;"></nav>
+              <label class="provider-toolbar" for="logs-provider-filter">
+                Provider
+                <select id="logs-provider-filter" class="provider-filter">
+                  <option value="all">All providers</option>
+                </select>
+              </label>
+              <label class="provider-toolbar" for="logs-category-filter">
+                Topic
+                <select id="logs-category-filter" class="provider-filter">
+                  <option value="all">All topics</option>
+                </select>
+              </label>
+            </div>
+            <div id="provider-logs-list" class="log-list" aria-live="polite"></div>
+            <div id="logs-pagination" class="pagination-bar"></div>
+          </div>
         </div>
-      </div>
-      <div id="logs-body" class="section-body" hidden>
-        <div id="logs-summary" class="log-summary-strip"></div>
-        <div class="filter-bar">
-          <nav id="logs-status-tabs" class="category-tabs" aria-label="Filter fetch logs by status" style="margin: 0;"></nav>
-          <label class="provider-toolbar" for="logs-provider-filter">
-            Provider
-            <select id="logs-provider-filter" class="provider-filter">
-              <option value="all">All providers</option>
-            </select>
-          </label>
-          <label class="provider-toolbar" for="logs-category-filter">
-            Topic
-            <select id="logs-category-filter" class="provider-filter">
-              <option value="all">All topics</option>
-            </select>
-          </label>
-        </div>
-        <div id="provider-logs-list" class="log-list" aria-live="polite"></div>
-        <div id="logs-pagination" class="pagination-bar"></div>
       </div>
     </section>
 
@@ -1634,6 +1625,46 @@ export function getAdminPage() {
         <div id="check-images-results" aria-live="polite"></div>
       </div>
     </section>
+    <!-- AI USAGE SECTION -->
+    <section aria-labelledby="ai-usage-title" class="admin-card-section" data-section-id="ai-usage">
+      <div class="section-header">
+        <h2 id="ai-usage-title">
+          <button id="ai-usage-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="ai-usage-body" data-section-toggle="ai-usage">
+            <span id="ai-usage-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>🤖 AI usage <span id="ai-usage-count"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="ai-usage-body" class="section-body" hidden>
+        <p class="admin-hint">Every AI model call the site makes, all through Cloudflare Workers AI. Use the filters to narrow by model or by what triggers the call. Live call counts are not tracked yet — this is the catalog of what runs and why.</p>
+        <div class="filter-bar">
+          <label class="provider-toolbar" for="ai-usage-model-filter">
+            Model
+            <select id="ai-usage-model-filter" class="provider-filter">
+              <option value="all">All models</option>
+              <option value="llama">llama-3.2-3b-instruct</option>
+              <option value="flux">flux-1-schnell</option>
+              <option value="sdxl">stable-diffusion-xl-lightning</option>
+              <option value="bge">bge-base-en-v1.5</option>
+            </select>
+          </label>
+          <label class="provider-toolbar" for="ai-usage-trigger-filter">
+            Trigger
+            <select id="ai-usage-trigger-filter" class="provider-filter">
+              <option value="all">All triggers</option>
+              <option value="admin">Admin panel</option>
+              <option value="auto">Automatic / scheduled</option>
+              <option value="visitor">Visitor pages</option>
+            </select>
+          </label>
+        </div>
+        <div id="ai-usage-rows" aria-live="polite"></div>
+      </div>
+    </section>
   </main>
 
   <!-- UNIFIED PREVIEW DIALOG (Single Close Button inside Preview Actions) -->
@@ -1678,6 +1709,9 @@ export function getAdminPage() {
     const state = {
       busy: new Set(),
       syncingAll: false,
+      unstickingAll: false,
+      syncPollActive: false,
+      runs: [],
       togglingAutoSync: false,
       curatingAi: false,
       togglingAiSchedule: false,
@@ -1838,12 +1872,12 @@ export function getAdminPage() {
       { id: 'search', label: 'Search', body: 'search-body', defaultOpen: true },
       { id: 'ads', label: 'Ads', body: 'ads-section', defaultOpen: true },
       { id: 'custom', label: 'Custom', body: 'custom-body', defaultOpen: true },
-      { id: 'providers', label: 'Providers', body: 'providers', defaultOpen: false },
-      { id: 'logs', label: 'Logs', body: 'logs-body', defaultOpen: false },
+      { id: 'providers', label: 'Providers', body: 'providers-body', defaultOpen: false },
       { id: 'decisions', label: 'History', body: 'decisions-body', defaultOpen: false },
       { id: 'banned', label: 'Banned', body: 'banned-body', defaultOpen: false },
       { id: 'analytics', label: 'Analytics', body: 'analytics-body', defaultOpen: false },
       { id: 'broken-images', label: 'Broken Images', body: 'broken-images-body', defaultOpen: false },
+      { id: 'ai-usage', label: 'AI usage', body: 'ai-usage-body', defaultOpen: false },
     ];
     const sectionTargets = Object.fromEntries(
       SECTIONS.map((s) => [s.id, {
@@ -1853,6 +1887,127 @@ export function getAdminPage() {
         defaultOpen: s.defaultOpen,
       }])
     );
+
+
+    /* ── AI usage catalog ──────────────────────────────────────────────
+       One entry per AI model call the site makes. The dashboard renders
+       this list and filters it; the README "AI / LLM usage" section
+       documents the same calls for contributors. Keep both in sync. */
+    const AI_USAGE_MODELS = {
+      llama: '@cf/meta/llama-3.2-3b-instruct',
+      flux: '@cf/black-forest-labs/flux-1-schnell',
+      sdxl: '@cf/bytedance/stable-diffusion-xl-lightning',
+      bge: '@cf/baai/bge-base-en-v1.5'
+    };
+    const AI_USAGE_ROWS = [
+      { id: 'curation', name: 'Story curation', models: ['llama'], triggers: ['auto', 'admin'], what: 'Picks up to 5 stories per category for the editor to approve, based on the taste profile and approval history. Recommendations to the editor, never shown to visitors.', cost: '1 call per category, up to 7 per run · 3 slots a day (08:00, 13:00, 18:00) plus manual Curate buttons' },
+      { id: 'summaries', name: 'Admin story summaries', models: ['llama'], triggers: ['admin'], what: 'Writes one accurate paragraph summarizing a story for the admin review workflow. May scrape the article text first.', cost: '1 call per click · rate-limited per GitHub user' },
+      { id: 'scene', name: 'Image scene description', models: ['llama'], triggers: ['admin'], what: 'Writes the 1-2 sentence scene prompt used to render an AI image. If it fails, the image still renders from the story details.', cost: '1 call per image created · 0 calls on failure' },
+      { id: 'image', name: 'Image rendering', models: ['flux', 'sdxl'], triggers: ['admin', 'visitor'], what: 'Renders the AI image. Created from the admin panel; served publicly by /ai-image, which is edge and memory cached.', cost: '1 image call per unique prompt and seed · fallback model only when FLUX fails · repeat loads cost 0 calls' },
+      { id: 'ai-tags', name: 'AI tags keyword correction', models: ['llama'], triggers: ['admin'], what: 'Reads a story title and description and picks up to 3 keywords by meaning, correcting embedding misfires. The button on each validation row.', cost: '1 call per click' },
+      { id: 'validation', name: 'Category validation', models: ['bge'], triggers: ['admin'], what: 'Batch-embeds unapproved stories and flags where the embedding-predicted category disagrees with the query-assigned category.', cost: '1 batch call per group of stories' },
+      { id: 'tagging', name: 'Interest keyword tagging', models: ['bge'], triggers: ['admin'], what: 'Tags stories with up to 3 interest keywords. Runs inside the validation run, reusing the story embedding, so it adds no extra calls. Single-story auto-tag is also available.', cost: '0 extra calls inside validation · 1 embed per auto-tag click' },
+      { id: 'warmup', name: 'Keyword vector warmup', models: ['bge'], triggers: ['admin'], what: 'Warms up keyword vectors for all embedding features: the stored backfill (25 per round, inside the Validate flow) plus the in-memory cache on cold starts.', cost: 'Batch embeds, 25 vectors per round · status check costs 0 calls' },
+      { id: 'ad-auto-tag', name: 'Ad auto-tag', models: ['bge'], triggers: ['admin'], what: 'Tags ads with interest keywords so they can match stories.', cost: '15 ads per click, loops until done' },
+      { id: 'ad-match', name: 'Ad matching', models: ['bge'], triggers: ['visitor'], what: 'Matches ads to stories on the public site. The frontend sends untagged stories from the current feed and gets ranked ad IDs back.', cost: 'Batch embeds per feed load that has untagged stories, up to 20 stories' },
+      { id: 'playroom-fallback', name: 'Playroom description fallback', models: ['bge'], triggers: ['visitor'], what: 'When a playroom has no pills selected, embeds the playroom description to find the most similar interests.', cost: '1 embed per playroom or space load with no pills' }
+    ];
+    let aiUsageCounts = null;
+    function aiUsageTotals(rows) {
+      const today = new Date().toISOString().slice(0, 10);
+      const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      let todayCalls = 0;
+      let weekCalls = 0;
+      let weekErrors = 0;
+      rows.forEach(function (r) {
+        if (r.usage_date >= weekStart) {
+          weekCalls += r.calls || 0;
+          weekErrors += r.errors || 0;
+          if (r.usage_date === today) todayCalls += r.calls || 0;
+        }
+      });
+      return { today: todayCalls, week: weekCalls, errorsWeek: weekErrors };
+    }
+    function renderAiUsage() {
+      const container = document.getElementById('ai-usage-rows');
+      const countEl = document.getElementById('ai-usage-count');
+      if (!container) return;
+      const modelFilter = document.getElementById('ai-usage-model-filter');
+      const triggerFilter = document.getElementById('ai-usage-trigger-filter');
+      const model = modelFilter ? modelFilter.value : 'all';
+      const trigger = triggerFilter ? triggerFilter.value : 'all';
+      const visible = AI_USAGE_ROWS.filter(function (row) {
+        const modelOk = model === 'all' || row.models.indexOf(model) !== -1;
+        const triggerOk = trigger === 'all' || row.triggers.indexOf(trigger) !== -1;
+        return modelOk && triggerOk;
+      });
+      container.replaceChildren();
+      if (aiUsageCounts) {
+        let totalToday = 0;
+        let totalWeek = 0;
+        visible.forEach(function (row) {
+          const totals = aiUsageTotals(aiUsageCounts.filter(function (r) { return r.usage_key === row.id; }));
+          totalToday += totals.today;
+          totalWeek += totals.week;
+        });
+        const totalsLine = document.createElement('p');
+        totalsLine.className = 'muted';
+        totalsLine.textContent = 'Live counts for the visible rows — Today: ' + totalToday + ' calls · Last 7 days: ' + totalWeek + ' calls.';
+        container.appendChild(totalsLine);
+      }
+      visible.forEach(function (row) {
+        const div = document.createElement('div');
+        div.style.padding = '0.6rem 0';
+        div.style.borderTop = '1px solid var(--news-border, #334155)';
+        const title = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = row.name;
+        title.appendChild(name);
+        const badge = document.createElement('span');
+        badge.className = 'muted';
+        badge.textContent = ' · ' + row.models.map(function (m) { return AI_USAGE_MODELS[m]; }).join(', ');
+        title.appendChild(badge);
+        const what = document.createElement('div');
+        what.textContent = row.what;
+        const cost = document.createElement('div');
+        cost.className = 'muted';
+        cost.textContent = row.cost;
+        div.appendChild(title);
+        div.appendChild(what);
+        div.appendChild(cost);
+        if (aiUsageCounts) {
+          const totals = aiUsageTotals(aiUsageCounts.filter(function (r) { return r.usage_key === row.id; }));
+          const counts = document.createElement('div');
+          counts.className = 'muted';
+          counts.textContent = 'Today: ' + totals.today + ' calls · Last 7 days: ' + totals.week + ' calls' + (totals.errorsWeek > 0 ? ' · ' + totals.errorsWeek + ' failed (7d)' : '');
+          div.appendChild(counts);
+        }
+        container.appendChild(div);
+      });
+      if (visible.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'admin-hint';
+        empty.textContent = 'No AI calls match these filters.';
+        container.appendChild(empty);
+      }
+      if (countEl) countEl.textContent = '(' + visible.length + ' of ' + AI_USAGE_ROWS.length + ')';
+    }
+    (function initAiUsageFilters() {
+      const modelFilter = document.getElementById('ai-usage-model-filter');
+      const triggerFilter = document.getElementById('ai-usage-trigger-filter');
+      if (modelFilter) modelFilter.addEventListener('change', renderAiUsage);
+      if (triggerFilter) triggerFilter.addEventListener('change', renderAiUsage);
+      renderAiUsage();
+      fetch('/admin/api/ai-usage?days=30', { credentials: 'same-origin' }).then(function (res) {
+        if (!res.ok) return null;
+        return res.json();
+      }).then(function (data) {
+        if (data && Array.isArray(data.rows)) {
+          aiUsageCounts = data.rows;
+          renderAiUsage();
+        }
+      }).catch(function () { /* counts stay hidden when the endpoint is unavailable */ });
+    })();
 
     function sectionById(id) {
       return adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
@@ -1894,6 +2049,7 @@ export function getAdminPage() {
       logs: () => document.getElementById('logs-count')?.textContent?.trim(),
       decisions: () => document.getElementById('history-count')?.textContent?.trim(),
       banned: () => document.getElementById('banned-count')?.textContent?.trim(),
+      'ai-usage': () => document.getElementById('ai-usage-count')?.textContent?.trim(),
     };
     /* Hamburger section menu: vertical list in current DOM order, with live
        counts pulled from the section headers so they never drift out of sync.
@@ -2101,11 +2257,7 @@ export function getAdminPage() {
       if (!toggleBtn || !arrowEl || !bodyEl) return;
       toggleBtn.setAttribute('aria-expanded', String(expanded));
       arrowEl.textContent = expanded ? '▲' : '▼';
-      if (sectionId === 'providers') {
-        providersEl.hidden = !expanded;
-      } else {
-        bodyEl.hidden = !expanded;
-      }
+      bodyEl.hidden = !expanded;
       if (persist) {
         try {
           const saved = JSON.parse(localStorage.getItem(STORAGE_COLLAPSED_KEY) || '{}');
@@ -2415,8 +2567,83 @@ export function getAdminPage() {
       return body;
     }
 
+    function runTriggerLabel(run) {
+      return {
+        cron: 'Hourly cron',
+        admin_sync_all: 'Sync all',
+        stale_check: 'Stale check',
+        manual: 'Single update'
+      }[run.trigger] || run.trigger || 'Sync';
+    }
+
+    function runProviderName(providerId) {
+      return state.providers.find((p) => p.id === providerId)?.name || providerId;
+    }
+
+    function buildRunProviderList(run) {
+      const entries = run.summary?.providers;
+      if (!Array.isArray(entries) || !entries.length) return null;
+      const list = document.createElement('div');
+      list.className = 'auto-sync-meta';
+      entries.forEach((entry) => {
+        const line = document.createElement('div');
+        if (run.status === 'running') {
+          const catLabel = entry.lastCategory ? (categories.find((c) => c.id === entry.lastCategory)?.label || entry.lastCategory) : '';
+          line.textContent = runProviderName(entry.provider) + ' ' + entry.pairs + '/' + categories.length +
+            (entry.lastStatus ? ' · last: ' + entry.lastStatus + (catLabel ? ' (' + catLabel + ')' : '') : '');
+        } else {
+          line.textContent = runProviderName(entry.provider) + ' ' + entry.status +
+            (entry.storiesSaved != null ? ' · ' + entry.storiesSaved + ' saved' : '');
+        }
+        list.append(line);
+      });
+      return list;
+    }
+
+    function buildRunStrip() {
+      const runs = state.runs || [];
+      if (!runs.length) return null;
+      const active = runs.find((r) => r.status === 'running');
+      const strip = document.createElement('div');
+      strip.className = 'auto-sync-bar';
+      const info = document.createElement('div');
+      info.className = 'auto-sync-info';
+      const title = document.createElement('div');
+      title.className = 'auto-sync-title';
+      const meta = document.createElement('div');
+      meta.className = 'auto-sync-meta tabular-nums';
+      if (active) {
+        title.textContent = '🔄 Live run: ' + runTriggerLabel(active) + (active.provider ? ' · ' + runProviderName(active.provider) : '');
+        const parts = [];
+        if (active.pairs_total) parts.push(active.pairs_done + '/' + active.pairs_total + ' pairs');
+        if (active.current_provider) {
+          const catLabel = categories.find((c) => c.id === active.current_category)?.label || active.current_category || '';
+          parts.push('now: ' + runProviderName(active.current_provider) + (catLabel ? ' / ' + catLabel : ''));
+        }
+        if (active.last_activity_at) parts.push('last activity ' + formatElapsed(Date.parse(active.last_activity_at)));
+        const t = active.last_telemetry || {};
+        if (t.rateLimitRemaining != null) parts.push('remaining: ' + t.rateLimitRemaining);
+        if (t.rateLimitReset) parts.push('reset: ' + formatDateTime(new Date(t.rateLimitReset)));
+        meta.textContent = parts.join(' · ') || 'Starting…';
+      } else {
+        const last = runs[0];
+        title.textContent = 'Last run: ' + runTriggerLabel(last) + (last.provider ? ' · ' + runProviderName(last.provider) : '') + ' · ' + last.status;
+        const saved = last.summary?.totalStoriesSaved ?? last.summary?.storiesSaved ?? null;
+        meta.textContent = (saved !== null ? saved + ' stories saved · ' : '') +
+          formatDateTime(new Date(last.finished_at || last.started_at));
+      }
+      info.append(title, meta);
+      const providerList = buildRunProviderList(active || runs[0]);
+      if (providerList) info.append(providerList);
+      strip.append(info);
+      return strip;
+    }
+
     function renderProviders(providers) {
       providersEl.replaceChildren();
+
+      const runStrip = buildRunStrip();
+      if (runStrip) providersEl.append(runStrip);
 
       const autoBar = document.createElement('div');
       autoBar.className = 'auto-sync-bar';
@@ -2472,7 +2699,15 @@ export function getAdminPage() {
       syncAllBtn.textContent = state.syncingAll ? 'Syncing all…' : 'Sync all providers now';
       syncAllBtn.addEventListener('click', syncAllProvidersNow);
 
-      autoActions.append(toggleAutoBtn, syncAllBtn);
+      const unstickAllBtn = document.createElement('button');
+      unstickAllBtn.id = 'unstick-all-providers';
+      unstickAllBtn.type = 'button';
+      unstickAllBtn.className = 'secondary small-btn';
+      unstickAllBtn.disabled = state.unstickingAll || (!state.providers.some((p) => p.status === 'running') && !(state.runs || []).some((r) => r.status === 'running'));
+      unstickAllBtn.textContent = state.unstickingAll ? 'Unsticking…' : 'Unstick all';
+      unstickAllBtn.addEventListener('click', unstickAllProviders);
+
+      autoActions.append(toggleAutoBtn, syncAllBtn, unstickAllBtn);
       autoBar.append(autoInfo, autoActions);
       providersEl.append(autoBar);
 
@@ -2525,6 +2760,32 @@ export function getAdminPage() {
         statusValue.className = 'status status-' + String(provider.status).toLowerCase();
         statusValue.textContent = text(provider.status);
         status.append(statusValue);
+        // A stuck run and a healthy in-progress run used to look identical
+        // (both just "running"). Surface when the run started and the last
+        // recorded error so a wedged provider is visible, not silent.
+        const statusExtras = [];
+        if (provider.status === 'running' && provider.started_at) {
+          const startedMs = Date.parse(provider.started_at);
+          const runningSince = document.createElement('p');
+          runningSince.className = 'provider-running-since muted';
+          runningSince.textContent = 'Running since: ' + (Number.isFinite(startedMs)
+            ? formatDateTime(new Date(startedMs)) + '; ' + formatElapsed(startedMs)
+            : provider.started_at);
+          statusExtras.push(runningSince);
+        }
+        const activeRunForCard = (state.runs || []).find((r) => r.status === 'running' && r.current_provider === provider.id);
+        if (activeRunForCard?.current_category) {
+          const fetching = document.createElement('p');
+          fetching.className = 'provider-running-since muted';
+          fetching.textContent = 'Fetching: ' + (categories.find((c) => c.id === activeRunForCard.current_category)?.label || activeRunForCard.current_category);
+          statusExtras.push(fetching);
+        }
+        if (provider.last_error) {
+          const lastError = document.createElement('p');
+          lastError.className = 'provider-last-error muted';
+          lastError.textContent = 'Last error: ' + provider.last_error;
+          statusExtras.push(lastError);
+        }
         const updated = document.createElement('p');
         updated.className = 'provider-updated';
         updated.dataset.updatedPrefix = 'Last updated: ';
@@ -2534,6 +2795,7 @@ export function getAdminPage() {
         const totalSaved = document.createElement('p');
         totalSaved.textContent = 'Total stories saved: ' + text(provider.total_stories_saved);
         card.append(head, description, coverage, setup, status, updated, saved, totalSaved);
+        if (statusExtras.length) status.after(...statusExtras);
 
         if (provider.cooldown_until && Date.parse(provider.cooldown_until) > Date.now()) {
           const cooldownBox = document.createElement('div');
@@ -4434,6 +4696,8 @@ export function getAdminPage() {
           state.providerLogs = data.providerLogs.logs || [];
           state.providerLogsSummary = data.providerLogs.summary || state.providerLogsSummary;
         }
+        if (data.runs) state.runs = data.runs;
+        if (!state.runs.some((r) => r.status === 'running') && !state.providers.some((p) => p.status === 'running')) state.syncPollActive = false;
         syncSearchResultsWithKnownLists();
         renderProviders(data.providers);
         renderProviderFilter();
@@ -4561,6 +4825,7 @@ export function getAdminPage() {
     async function updateProvider(providerId, force = false) {
       if (state.busy.has(providerId)) return;
       state.busy.add(providerId);
+      state.syncPollActive = true;
       renderProviders(state.providers);
       messageEl.className = 'muted';
       messageEl.textContent = 'Updating ' + providerId + (force ? ' (forced)…' : '…');
@@ -4640,6 +4905,7 @@ export function getAdminPage() {
     async function syncAllProvidersNow() {
       if (state.syncingAll) return;
       state.syncingAll = true;
+      state.syncPollActive = true;
       renderProviders(state.providers);
       messageEl.className = 'muted';
       messageEl.textContent = 'Running full sync across all configured providers…';
@@ -4654,6 +4920,28 @@ export function getAdminPage() {
         messageEl.textContent = 'Sync all providers failed: ' + error.message;
       } finally {
         state.syncingAll = false;
+        renderProviders(state.providers);
+      }
+    }
+
+    async function unstickAllProviders() {
+      if (state.unstickingAll) return;
+      state.unstickingAll = true;
+      renderProviders(state.providers);
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Clearing stuck sync locks…';
+      try {
+        const res = await request('/admin/api/providers/unstick-all', { method: 'POST' });
+        await refreshData();
+        const providersN = res.providersReset?.length || 0;
+        const runsN = res.runsClosed?.length || 0;
+        messageEl.className = 'success';
+        messageEl.textContent = 'Unstuck ' + providersN + ' provider' + (providersN === 1 ? '' : 's') + ' and closed ' + runsN + ' stuck run' + (runsN === 1 ? '' : 's') + '.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Unstick all failed: ' + error.message;
+      } finally {
+        state.unstickingAll = false;
         renderProviders(state.providers);
       }
     }
@@ -4892,6 +5180,13 @@ export function getAdminPage() {
     }
 
     document.getElementById('refresh').addEventListener('click', refreshData);
+    document.getElementById('logs-nested-toggle').addEventListener('click', () => {
+      const body = document.getElementById('logs-body');
+      const btn = document.getElementById('logs-nested-toggle');
+      const expanded = body.hidden;
+      body.hidden = !expanded;
+      btn.setAttribute('aria-expanded', String(expanded));
+    });
     document.getElementById('refresh-logs-btn').addEventListener('click', refreshLogsOnly);
     document.getElementById('clear-logs-btn').addEventListener('click', clearAllLogs);
     document.getElementById('logs-provider-filter').addEventListener('change', (e) => {
@@ -6877,7 +7172,7 @@ export function getAdminPage() {
 
     setInterval(refreshStoryAges, 1000);
     setInterval(() => {
-      if (state.providers.some((provider) => provider.status === 'running')) refreshData();
+      if (state.providers.some((provider) => provider.status === 'running') || (state.runs || []).some((r) => r.status === 'running') || state.syncPollActive) refreshData();
     }, 15000);
     setInterval(checkStaleHourlySync, 60000);
   </script>

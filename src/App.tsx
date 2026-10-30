@@ -14,6 +14,7 @@ import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { AboutPage } from './components/AboutPage';
+import { TasteReaderPage } from './components/TasteReaderPage';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog, getSavedPendingOtpEmail } from './components/SignInDialog';
 import { ProfileDialog, ProfileDialogTab } from './components/ProfileDialog';
@@ -88,6 +89,12 @@ function parsePlayroomSpaceFromUrl(): { username: string; playroom: string; spac
 function parseAboutFromUrl(): boolean {
   if (typeof window === 'undefined') return false;
   return /^\/about\/?$/i.test(window.location.pathname);
+}
+
+/** True when on the standalone `/taste-reader` page. */
+function parseTasteReaderFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^\/taste-reader\/?$/i.test(window.location.pathname);
 }
 
 /**
@@ -209,6 +216,7 @@ export const App: React.FC = () => {
   const [playroomSpaceRoute, setPlayroomSpaceRoute] = useState<{ username: string; playroom: string; space: string } | null>(() => parsePlayroomSpaceFromUrl());
   const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
   const [lilRoute, setLilRoute] = useState<boolean>(() => parseLilFromUrl());
+  const [tasteReaderRoute, setTasteReaderRoute] = useState<boolean>(() => parseTasteReaderFromUrl());
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
@@ -250,6 +258,10 @@ export const App: React.FC = () => {
     document.documentElement.lang = locale.lang;
     document.documentElement.dir = locale.lang === 'ar' ? 'rtl' : 'ltr';
     if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
+    if (tasteReaderRoute) {
+      document.title = `${SITE_TITLE_BASE} | The Reading Room (Taste Reader)`;
+      return;
+    }
     if (selectedStory?.item?.title) {
       document.title = `${SITE_TITLE_BASE} | ${selectedStory.item.title}`;
     } else if (lilRoute && isAdmin) {
@@ -264,12 +276,12 @@ export const App: React.FC = () => {
     } else {
       document.title = SITE_TITLE_BASE;
     }
-  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute, lilRoute, isAdmin]);
+  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute, lilRoute, tasteReaderRoute, isAdmin]);
 
   // Ensure initial URL reflects the active topic if not already in the address bar
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute || lilRoute) return;
+    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute || lilRoute || tasteReaderRoute) return;
     const currentUrlTopic = parseTopicFromUrl();
     const currentStory = parseStoryFromUrl();
     const currentActivity = parseActivityFromUrl().isOpen;
@@ -277,7 +289,7 @@ export const App: React.FC = () => {
       const nextHref = getTopicHref(category);
       window.history.replaceState({ interest: category, balloon: null }, '', nextHref);
     }
-  }, [lilRoute]);
+  }, [lilRoute, tasteReaderRoute]);
 
   // Guard the /lil route: only accessible when logged in as admin.
   // If a non-admin directly visits /lil, return them to the home feed.
@@ -302,12 +314,24 @@ export const App: React.FC = () => {
         setLilRoute(urlLil);
         if (urlLil) {
           setAboutRoute(false);
+          setTasteReaderRoute(false);
           setPlayroomOrSpaceRoute(null);
           setSpaceRoute(null);
           setPlayroomSpaceRoute(null);
           setProfileRoute(null);
           return;
         }
+      }
+      const urlTasteReader = parseTasteReaderFromUrl();
+      setTasteReaderRoute(urlTasteReader);
+      if (urlTasteReader) {
+        setAboutRoute(false);
+        setLilRoute(false);
+        setPlayroomOrSpaceRoute(null);
+        setSpaceRoute(null);
+        setPlayroomSpaceRoute(null);
+        setProfileRoute(null);
+        return;
       }
       const urlAbout = parseAboutFromUrl();
       setAboutRoute(urlAbout);
@@ -321,6 +345,7 @@ export const App: React.FC = () => {
       const urlPlayroomSpace = parsePlayroomSpaceFromUrl();
       setPlayroomSpaceRoute(urlPlayroomSpace);
       if (urlPlayroomSpace) {
+        setTasteReaderRoute(false);
         setPlayroomOrSpaceRoute(null);
         setSpaceRoute(null);
         setProfileRoute(null);
@@ -329,6 +354,7 @@ export const App: React.FC = () => {
       const urlSpace = parseSpaceFromUrl();
       setSpaceRoute(urlSpace);
       if (urlSpace) {
+        setTasteReaderRoute(false);
         setPlayroomOrSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
@@ -337,11 +363,13 @@ export const App: React.FC = () => {
       const urlPlayroomOrSpace = parsePlayroomOrSpaceFromUrl();
       setPlayroomOrSpaceRoute(urlPlayroomOrSpace);
       if (urlPlayroomOrSpace) {
+        setTasteReaderRoute(false);
         setSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
         return;
       }
+      setTasteReaderRoute(false);
       const urlProfile = parseProfileFromUrl();
       setProfileRoute(urlProfile);
       if (urlProfile) return;
@@ -477,9 +505,9 @@ export const App: React.FC = () => {
   }, [profile?.pills]);
 
   useEffect(() => {
-    if (aboutRoute || lilRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
+    if (aboutRoute || lilRoute || tasteReaderRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
     loadFeed(category);
-  }, [category, loadFeed, aboutRoute, lilRoute, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute]);
+  }, [category, loadFeed, aboutRoute, lilRoute, tasteReaderRoute, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute]);
 
   // If the signed-in user customized their homepage pills and the current category
   // is no longer in their pill list (and wasn't explicitly navigated via URL ?interest=),
@@ -607,6 +635,7 @@ export const App: React.FC = () => {
     setPlayroomSpaceRoute(null);
     setAboutRoute(false);
     setLilRoute(false);
+    setTasteReaderRoute(false);
     const userPills = profile?.pills;
     const availableTopics = userPills && userPills.length > 0 ? userPills.map(getPillTopicId) : null;
     const defaultHomeTopic: NewsCategory =
@@ -641,6 +670,7 @@ export const App: React.FC = () => {
     setSpaceRoute(null);
     setPlayroomSpaceRoute(null);
     setAboutRoute(false);
+    setTasteReaderRoute(false);
     setLilRoute(true);
     if (typeof window !== 'undefined') {
       if (window.location.pathname !== '/lil') {
@@ -756,8 +786,8 @@ export const App: React.FC = () => {
 
         <WorksheetsPanel />
 
-        {/* Category nav is hidden on standalone lil/about/profile/playroom/space pages — those show their own views, not the main feed. */}
-        {!aboutRoute && !(lilRoute && isAdmin) && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
+        {/* Category nav is hidden on standalone lil/about/taste-reader/profile/playroom/space pages — those show their own views, not the main feed. */}
+        {!aboutRoute && !(lilRoute && isAdmin) && !tasteReaderRoute && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
           <CategoryNav
             currentCategory={category}
             onSelectCategory={handleSelectCategory}
@@ -776,6 +806,10 @@ export const App: React.FC = () => {
               onSignIn={handleAboutCta}
               signedIn={!!profile?.username}
             />
+          </main>
+        ) : tasteReaderRoute ? (
+          <main className="news-grid">
+            <TasteReaderPage onSignIn={handleAboutCta} />
           </main>
         ) : playroomSpaceRoute ? (
           <SpacePage

@@ -25,7 +25,12 @@ import {
   sortItemsByDayReactions,
   undoNewsStoryDecision,
   updateNewsStory,
-  upsertNewsStories
+  upsertNewsStories,
+  upsertNewsStoriesBatch,
+  flushProviderFetchLogs,
+  loadProviderCooldownsFromDbIfStale,
+  getProviderCooldownState,
+  clearProviderCooldownState
 } from './news-storage.mjs';
 
 const env = {
@@ -506,7 +511,7 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.providers[0].status, 'succeeded');
     assert.equal(snapshot.providers[0].stories_saved, 7);
     assert.equal(snapshot.providers[0].total_stories_saved, 17);
-    assert.equal(requests.length, 15);
+    assert.equal(requests.length, 17);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
     assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), null);
     assert.ok(requests.some(({ url }) =>
@@ -1424,4 +1429,130 @@ test('AI curation uses choices-style model responses instead of silently falling
   assert.equal(topPick.storyId, 2);
   assert.equal(topPick.score, 95);
   assert.equal(topPick.reason, 'AI picked this one');
+});
+
+test('batch upsert posts one request for several categories with dedup', async () => {
+  const originalFetch = globalThis.fetch;
+  const posts = [];
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    posts.push({ url, body: JSON.parse(options.body) });
+    return new Response(null, { status: 204 });
+  };
+  try {
+    const result = await upsertNewsStoriesBatch(env, 'gnews', [
+      { category: 'childcare', stories: [
+        { title: 'A', link: 'https://example.com/a', image: null, description: 'd', content: 'c', pubDate: '2026-10-30T00:00:00Z', source: 'S' },
+        { title: 'A dup', link: 'https://example.com/a' }
+      ] },
+      { category: 'animals', stories: [{ title: 'B', link: 'https://example.com/b' }] }
+    ]);
+    assert.equal(posts.length, 1, 'all categories must share one upsert POST');
+    assert.equal(posts[0].url.searchParams.get('on_conflict'), 'provider,category,article_url');
+    assert.equal(posts[0].body.length, 2);
+    assert.deepEqual(posts[0].body.map(r => r.category), ['childcare', 'animals']);
+    assert.equal(result.savedCount, 2);
+    assert.equal(result.duplicatesSkipped, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('batch upsert throws on HTTP failure so callers can fall back', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 500 });
+  try {
+    await assert.rejects(
+      upsertNewsStoriesBatch(env, 'gnews', [
+        { category: 'childcare', stories: [{ title: 'A', link: 'https://example.com/a' }] }
+      ]),
+      /Saving gnews stories failed \(HTTP 500\)/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('flushProviderFetchLogs bulk-posts entries and falls back per entry on failure', async () => {
+  const originalFetch = globalThis.fetch;
+  const posts = [];
+  let failBulk = true;
+  globalThis.fetch = async (input, options) => {
+    const body = JSON.parse(options.body);
+    posts.push(body);
+    if (failBulk && body.length > 1) return new Response(null, { status: 500 });
+    return new Response(null, { status: 204 });
+  };
+  try {
+    const n = await flushProviderFetchLogs(env, [
+      { provider: 'gnews', category: 'all', status: 'succeeded' },
+      { provider: 'bing', category: 'tech', status: 'succeeded' }
+    ]);
+    assert.equal(n, 2);
+    assert.equal(posts.length, 3, 'bulk attempt + 2 individual fallbacks');
+    assert.equal(posts[0].length, 2);
+    assert.equal(posts[1].length, 1);
+    assert.equal(posts[1][0].provider, 'gnews');
+    assert.equal(posts[2][0].provider, 'bing');
+
+    posts.length = 0;
+    failBulk = false;
+    const n2 = await flushProviderFetchLogs(env, [
+      { provider: 'gnews', category: 'all', status: 'succeeded' }
+    ]);
+    assert.equal(n2, 1);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('flushProviderFetchLogs never throws', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('network down'); };
+  try {
+    const n = await flushProviderFetchLogs(env, [
+      { provider: 'gnews', category: 'all', status: 'succeeded' }
+    ]);
+    assert.equal(n, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('loadProviderCooldownsFromDbIfStale loads once per window', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    fetches++;
+    if (url.pathname.endsWith('/news_provider_sync')) {
+      return Response.json([{
+        provider: 'stale-test-provider',
+        cooldown_until: new Date(Date.now() + 3600 * 1000).toISOString(),
+        rate_limit_reset_at: null,
+        last_error: 'test'
+      }]);
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+  try {
+    clearProviderCooldownState('stale-test-provider');
+    const first = await loadProviderCooldownsFromDbIfStale(env);
+    assert.equal(first, 1);
+    assert.equal(fetches, 1);
+    const state = getProviderCooldownState('stale-test-provider');
+    assert.ok(state);
+    assert.equal(state.provider, 'stale-test-provider');
+    const second = await loadProviderCooldownsFromDbIfStale(env);
+    assert.equal(second, false);
+    assert.equal(fetches, 1, 'second call within the window must not refetch');
+    const forced = await loadProviderCooldownsFromDbIfStale(env, 0);
+    assert.equal(forced, 1);
+    assert.equal(fetches, 2);
+    clearProviderCooldownState('stale-test-provider');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
