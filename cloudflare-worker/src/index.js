@@ -1,6 +1,6 @@
 import { getAdminLoginPage, getAdminPage } from './admin-page.mjs';
 import { getNewsFeed, getNewsProviders } from './news-feeds.mjs';
-import { getNewsProviderConfig, NEWS_CATEGORIES } from './news-provider-config.mjs';
+import { getNewsProviderConfig, NEWS_CATEGORIES, buildInterleavedPairs } from './news-provider-config.mjs';
 import {
   clearAdminSessionCookie,
   clearOAuthStateCookie,
@@ -16,6 +16,7 @@ import {
   claimNewsProviderSync,
   finishNewsProviderSync,
   resetNewsProviderSync,
+  unstickAllProviderSyncs,
   approveNewsStory,
   createApprovedCustomNewsStory,
   banNewsStory,
@@ -36,11 +37,13 @@ import {
   OVERRIDABLE_CATEGORIES,
   effectiveDisplayCategories,
   upsertNewsStories,
+  upsertNewsStoriesBatch,
   searchNewsStories,
   getProviderCooldownState,
   setProviderCooldownState,
   clearProviderCooldownState,
   persistProviderCooldown,
+  loadProviderCooldownsFromDbIfStale,
   enqueueProviderRetry,
   drainDueRetries,
   completeRetryJob,
@@ -48,12 +51,18 @@ import {
   getAutoSyncState,
   setAutoSyncState,
   recordNewsProviderFetchLog,
+  flushProviderFetchLogs,
   getNewsProviderFetchLogs,
   clearNewsProviderFetchLogs,
   pruneOldProviderLogs,
   getNewsProviderFetchLogsFromDb,
   DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,
   getAiCurationState,
+  createTasteReaderRun,
+  verifyTasteReaderAdmin,
+  recordTasteReaderWordScore,
+  saveTasteReaderNote,
+  extractAiText,
   updateAiCurationConfig,
   runAiStoryCuration,
   bulkDecideNewsStories,
@@ -72,8 +81,11 @@ import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings, cosineSimilarity } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
+import { computeAdaptiveDelayMs } from './feed-utils.mjs';
+import { startSyncRun, updateSyncRun, finishSyncRun, isSyncRunHeartbeatDue, summarizeProviderProgress, SYNC_RUN_HEARTBEAT_MIN_MS } from './provider-sync-runs.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
+import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_FLUX, AI_USAGE_MODEL_SDXL, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -90,7 +102,7 @@ const imageMemoryCache = new Map();
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400'
 };
 
@@ -258,6 +270,10 @@ async function executeProviderSync(provider, updatedBy, env, {
     };
   }
 
+  // Phase 1: persisted cooldowns were previously never reloaded (the loader
+  // had no callers), so a cold-started worker re-hammered cooling providers.
+  await loadProviderCooldownsFromDbIfStale(env);
+
   const activeCooldown = !force ? getProviderCooldownState(provider) : null;
   if (activeCooldown) {
     const remainingSec = Math.max(1, Math.ceil((Date.parse(activeCooldown.cooldownUntil) - Date.now()) / 1000));
@@ -303,10 +319,101 @@ async function executeProviderSync(provider, updatedBy, env, {
   let hitRateLimit = false;
   const errors = [];
   const categories = Object.keys(config.categories);
+  // Phase 1 batching: accumulate stories + log entries, flush once per provider.
+  const pendingStories = [];
+  const pendingLogs = [];
+  // Pacing state from the provider's own rate-limit headers, observed live.
+  let lastRemaining = null;
+  let lastResetAt = null;
+  let fetchedCount = 0;
+
+  // Queue a provider's remaining categories for same-provider retry.
+  const deferRemaining = async (remainingCategories, notBefore, message) => {
+    let queuedCount = 0;
+    for (const rc of remainingCategories) {
+      const ok = await enqueueProviderRetry(env, provider, rc, {
+        notBefore,
+        error: message
+      });
+      if (ok) queuedCount++;
+    }
+    return queuedCount;
+  };
+
+  const runId = await startSyncRun(env, { trigger: triggerSource, provider, pairsTotal: categories.length });
+  let runLastHeartbeatMs = 0;
+  let runLastHeartbeatProvider = null;
+  let runLastPairTelemetry = null;
 
   try {
     for (const [index, category] of categories.entries()) {
-      if (index > 0) await new Promise(resolve => setTimeout(resolve, config.updatePauseMs));
+      if (runId && isSyncRunHeartbeatDue({ lastHeartbeatMs: runLastHeartbeatMs, lastProvider: runLastHeartbeatProvider, provider })) {
+        await updateSyncRun(env, runId, {
+          pairs_done: index,
+          current_provider: provider,
+          current_category: category,
+          last_telemetry: runLastPairTelemetry,
+          summary: {
+            inProgress: true,
+            providers: [summarizeProviderProgress(provider, index, pendingLogs)]
+          }
+        });
+        runLastHeartbeatMs = Date.now();
+        runLastHeartbeatProvider = provider;
+      }
+      // Adaptive pacing (Phase 1): fixed pauses ignore what the provider
+      // actually reports. Slow down as quota drains, wait out short resets,
+      // and defer the provider's remaining pairs when the reset is distant
+      // instead of stalling the whole sequential sweep.
+      if (fetchedCount > 0) {
+        const pacing = computeAdaptiveDelayMs({
+          basePauseMs: config.updatePauseMs,
+          remaining: lastRemaining,
+          resetAt: lastResetAt
+        });
+        if (pacing.deferUntil) {
+          const remainingCategories = categories.slice(index);
+          const queuedCount = await deferRemaining(remainingCategories, pacing.deferUntil, `${provider} pacing deferral until ${pacing.deferUntil}`);
+          setProviderCooldownState(provider, {
+            cooldownUntil: pacing.deferUntil,
+            rateLimitResetAt: pacing.deferUntil,
+            retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+            lastError: 'Deferred by adaptive pacing: rate-limit exhausted',
+            failoverProvider: null,
+            failoverCategories: []
+          });
+          persistProviderCooldown(env, provider, {
+            cooldownUntil: pacing.deferUntil,
+            rateLimitResetAt: pacing.deferUntil,
+            lastError: 'Deferred by adaptive pacing: rate-limit exhausted'
+          }).catch(() => {});
+          cooldownUntil = pacing.deferUntil;
+          hitRateLimit = true;
+          pendingLogs.push({
+            provider,
+            providerLabel: config.label,
+            category,
+            triggerSource,
+            status: 'skipped_pacing',
+            httpStatus: 429,
+            durationMs: 0,
+            attemptCount: 0,
+            itemsFetched: 0,
+            storiesSaved: 0,
+            retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+            rateLimitRemaining: lastRemaining,
+            rateLimitReset: pacing.deferUntil,
+            requestUrl: config.endpoint || '',
+            failoverProvider: null,
+            errorMessage: `Deferred by adaptive pacing: rate-limit exhausted, ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} queued for retry after ${pacing.deferUntil}`
+          });
+          if (queuedCount > 0) {
+            errors.push(`deferred ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} by adaptive pacing until ${pacing.deferUntil}`);
+          }
+          break;
+        }
+        if (pacing.delayMs > 0) await new Promise(resolve => setTimeout(resolve, pacing.delayMs));
+      }
       let lastTelemetry = null;
       try {
         const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
@@ -314,12 +421,25 @@ async function executeProviderSync(provider, updatedBy, env, {
           cache: false,
           onFetchTelemetry: (t) => { lastTelemetry = t; }
         });
+        fetchedCount++;
+        lastRemaining = lastTelemetry?.rateLimitRemaining ?? null;
+        lastResetAt = lastTelemetry?.rateLimitReset ?? null;
         const stories = feed.items.slice(0, 10);
-        const upsertResult = await upsertNewsStories(env, provider, category, stories);
-        const savedCount = upsertResult?.savedCount ?? stories.length;
-        storiesSaved += savedCount;
-
-        await recordNewsProviderFetchLog(env, {
+        // Dedup within the category here so the batch upsert and the log
+        // entry agree on saved/duplicates counts.
+        const seenUrls = new Set();
+        const uniqueStories = [];
+        let duplicatesSkipped = 0;
+        for (const story of stories) {
+          if (!story?.link || seenUrls.has(story.link)) {
+            duplicatesSkipped++;
+            continue;
+          }
+          seenUrls.add(story.link);
+          uniqueStories.push(story);
+        }
+        pendingStories.push({ category, stories: uniqueStories });
+        pendingLogs.push({
           provider,
           providerLabel: config.label,
           category,
@@ -329,8 +449,8 @@ async function executeProviderSync(provider, updatedBy, env, {
           durationMs: lastTelemetry?.durationMs ?? 0,
           attemptCount: lastTelemetry?.attemptCount ?? 1,
           itemsFetched: feed.items.length,
-          storiesSaved: savedCount,
-          duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+          storiesSaved: uniqueStories.length,
+          duplicatesSkipped,
           retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
           rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
           rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
@@ -352,14 +472,7 @@ async function executeProviderSync(provider, updatedBy, env, {
 
           // No cross-provider failover: queue the remaining categories for this
           // same provider to retry after the cooldown expires.
-          let queuedCount = 0;
-          for (const rc of remainingCategories) {
-            const ok = await enqueueProviderRetry(env, provider, rc, {
-              notBefore: cooldownUntil,
-              error: message
-            });
-            if (ok) queuedCount++;
-          }
+          const queuedCount = await deferRemaining(remainingCategories, cooldownUntil, message);
 
           setProviderCooldownState(provider, {
             cooldownUntil,
@@ -377,7 +490,7 @@ async function executeProviderSync(provider, updatedBy, env, {
             lastError: message
           }).catch(() => {});
 
-          await recordNewsProviderFetchLog(env, {
+          pendingLogs.push({
             provider,
             providerLabel: config.label,
             category,
@@ -402,7 +515,7 @@ async function executeProviderSync(provider, updatedBy, env, {
           // Stop querying remaining categories on the rate-limited provider immediately
           break;
         } else {
-          await recordNewsProviderFetchLog(env, {
+          pendingLogs.push({
             provider,
             providerLabel: config.label,
             category,
@@ -419,9 +532,67 @@ async function executeProviderSync(provider, updatedBy, env, {
             requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
             errorMessage: message
           });
+          // Phase 1: transient non-429 failures (5xx / timeouts) get queued
+          // with a short backoff instead of vanishing until next hour.
+          // Content failures (invalid response, no usable stories) are not
+          // queued: re-fetching them would just fail the same way.
+          const isTransient = [500, 502, 503, 504].includes(err?.status) || /timed out/i.test(rawErrMsg);
+          if (isTransient) {
+            await enqueueProviderRetry(env, provider, category, {
+              notBefore: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+              error: message
+            });
+          }
+        }
+      }
+      runLastPairTelemetry = lastTelemetry ? {
+        httpStatus: lastTelemetry.httpStatus ?? null,
+        durationMs: lastTelemetry.durationMs ?? null,
+        rateLimitRemaining: lastTelemetry.rateLimitRemaining ?? null,
+        rateLimitReset: lastTelemetry.rateLimitReset ?? null
+      } : null;
+    }
+
+    // Flush batched writes (Phase 1): one upsert POST for the provider,
+    // falling back to per-category posts on failure, then one log POST.
+    // This runs after both the clean path and the 429-break path, so stories
+    // fetched before a rate limit are still saved.
+    if (pendingStories.length) {
+      const savedByCategory = {};
+      const failedSaveCategories = new Set();
+      try {
+        const batchResult = await upsertNewsStoriesBatch(env, provider, pendingStories);
+        for (const { category: cat, stories: catStories } of pendingStories) {
+          savedByCategory[cat] = catStories.length;
+        }
+        storiesSaved += batchResult?.savedCount ?? 0;
+      } catch (batchErr) {
+        console.error(`Batch upsert failed for ${provider}, falling back to per-category posts:`, batchErr);
+        for (const { category: cat, stories: catStories } of pendingStories) {
+          try {
+            const r = await upsertNewsStories(env, provider, cat, catStories);
+            savedByCategory[cat] = r?.savedCount ?? 0;
+            storiesSaved += r?.savedCount ?? 0;
+          } catch (singleErr) {
+            failedSaveCategories.add(cat);
+            errors.push(`${cat}: ${singleErr instanceof Error ? singleErr.message : String(singleErr)}`);
+          }
+        }
+      }
+      // Keep log entries honest about what actually saved.
+      for (const logEntry of pendingLogs) {
+        if (logEntry.status === 'succeeded') {
+          if (failedSaveCategories.has(logEntry.category) || !Object.hasOwn(savedByCategory, logEntry.category)) {
+            logEntry.status = 'failed';
+            logEntry.storiesSaved = 0;
+            logEntry.errorMessage = `${logEntry.category}: story save failed`;
+          } else {
+            logEntry.storiesSaved = savedByCategory[logEntry.category];
+          }
         }
       }
     }
+    await flushProviderFetchLogs(env, pendingLogs);
 
     if (!hitRateLimit && errors.length === 0) {
       clearProviderCooldownState(provider);
@@ -434,6 +605,7 @@ async function executeProviderSync(provider, updatedBy, env, {
         : 'failed';
     const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
     await finishNewsProviderSync(env, provider, { status, storiesSaved, error: errorMessage });
+    if (runId) await finishSyncRun(env, runId, { status, pairsDone: categories.length, summary: { storiesSaved, errors, providers: [{ provider, status, storiesSaved }] } });
 
     return {
       httpStatus: 200,
@@ -455,6 +627,7 @@ async function executeProviderSync(provider, updatedBy, env, {
     } catch (saveError) {
       console.error(`Could not save failed status for ${provider}:`, saveError);
     }
+    if (runId) await finishSyncRun(env, runId, { status: 'failed', pairsDone: categories.length, summary: { storiesSaved, errors: [message], providers: [{ provider, status: 'failed', storiesSaved }] } });
     throw err;
   }
 }
@@ -619,35 +792,460 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     };
   }
 
+  // Live run tracking: one row for the whole sweep, heartbeated as pairs
+  // complete, so a stuck sweep shows exactly where it died.
+  const runId = await startSyncRun(env, { trigger: triggerSource, provider: null });
+
+  await loadProviderCooldownsFromDbIfStale(env);
+
   const providers = getNewsProviders(env).filter(p => p.configured);
   const results = [];
   let totalStoriesSaved = 0;
   let rateLimitedCount = 0;
 
-  for (const provider of providers) {
-    try {
-      const outcome = await executeProviderSync(provider.id, updatedBy, env, {
-        triggerSource,
-        force: false
+  // Concurrent chains: one async chain per provider, each iterating its
+  // own categories sequentially with its own pacing. A stalled provider
+  // stalls only its own chain; the others finish, flush, and report.
+  // (Previously a single category-major interleaved loop, where one hang
+  // blocked every provider behind it.) Bulk sync always respects
+  // cooldowns (the old code hardcoded force: false here even for admin
+  // sync-all); only the single-provider manual path accepts force.
+  const pairs = buildInterleavedPairs(providers.map(p => p.id));
+  if (runId) await updateSyncRun(env, runId, { pairs_total: pairs.length });
+  const runProgress = { pairsDone: 0, lastHeartbeatMs: 0, lastPairTelemetry: null };
+  const providerState = new Map();
+  const getState = (providerId) => {
+    if (!providerState.has(providerId)) {
+      providerState.set(providerId, {
+        claimed: false,
+        done: false,
+        attempted: new Set(),
+        fetchedCount: 0,
+        lastRemaining: null,
+        lastResetAt: null,
+        pendingStories: [],
+        pendingLogs: [],
+        storiesSaved: 0,
+        errors: [],
+        rateLimited: false,
+        finished: false
       });
-      if (outcome.httpStatus === 200) {
-        totalStoriesSaved += (outcome.body.storiesSaved || 0);
-        if (outcome.body.rateLimited || outcome.body.status === 'rate_limited') {
-          rateLimitedCount++;
+    }
+    return providerState.get(providerId);
+  };
+  // Categories not yet attempted for this provider, including the current
+  // one (attempted is only marked after a pair finishes, so a 429 or a
+  // pacing deferral re-queues the pair that triggered it, matching the old
+  // categories.slice(index) behavior).
+  const remainingCategoriesFor = (providerId, st) => {
+    const config = getNewsProviderConfig(providerId);
+    return Object.keys(config?.categories || {}).filter(c => !st.attempted.has(c));
+  };
+  const deferProviderPairs = async (providerId, st, notBefore, message) => {
+    let queuedCount = 0;
+    for (const rc of remainingCategoriesFor(providerId, st)) {
+      const ok = await enqueueProviderRetry(env, providerId, rc, { notBefore, error: message });
+      if (ok) queuedCount++;
+    }
+    return queuedCount;
+  };
+
+  // Throttled run heartbeat: the first call fires immediately, then at
+  // most one PATCH per 30 seconds no matter how many chains are running.
+  const maybeHeartbeat = async (providerId, category) => {
+    if (!runId) return;
+    const nowMs = Date.now();
+    if (runProgress.lastHeartbeatMs !== 0 && nowMs - runProgress.lastHeartbeatMs < SYNC_RUN_HEARTBEAT_MIN_MS) return;
+    await updateSyncRun(env, runId, {
+      pairs_done: runProgress.pairsDone,
+      current_provider: providerId,
+      current_category: category,
+      last_telemetry: runProgress.lastPairTelemetry,
+      summary: {
+        inProgress: true,
+        providers: providers.map(p => {
+          const pst = getState(p.id);
+          return summarizeProviderProgress(p.id, pst.attempted.size, pst.pendingLogs);
+        })
+      }
+    });
+    runProgress.lastHeartbeatMs = Date.now();
+  };
+
+  // Safety net (see the final pass below): if anything escapes a chain,
+  // claimed providers must still reach the flush + final pass instead
+  // of dying mid-sweep with their lock rows stuck on 'running'.
+  let sweepError = null;
+  const runProviderChain = async (providerId) => {
+    const config = getNewsProviderConfig(providerId);
+    const st = getState(providerId);
+  for (const category of Object.keys(config?.categories || {})) {
+    if (st.done) break;
+
+    // Skip providers in an active cooldown (state was refreshed from the
+    // DB at the start of this run). Only one log entry per provider: the
+    // first pair marks it done, the rest skip silently.
+    const activeCooldown = getProviderCooldownState(providerId);
+    if (activeCooldown) {
+      st.done = true;
+      st.rateLimited = true;
+      const remainingSec = Math.max(1, Math.ceil((Date.parse(activeCooldown.cooldownUntil) - Date.now()) / 1000));
+      const cooldownMsg = `${config.label} is in rate-limit cooldown for ${remainingSec}s (until ${activeCooldown.cooldownUntil})`;
+      st.errors.push(cooldownMsg);
+      st.pendingLogs.push({
+        provider: providerId,
+        providerLabel: config.label,
+        category,
+        triggerSource,
+        status: 'skipped_cooldown',
+        httpStatus: 429,
+        durationMs: 0,
+        attemptCount: 0,
+        itemsFetched: 0,
+        storiesSaved: 0,
+        retryAfterSeconds: remainingSec,
+        rateLimitRemaining: activeCooldown.rateLimitRemaining,
+        rateLimitReset: activeCooldown.rateLimitResetAt,
+        requestUrl: config.endpoint || '',
+        failoverProvider: activeCooldown.failoverProvider,
+        errorMessage: cooldownMsg
+      });
+      continue;
+    }
+
+    // Lazy per-provider claim: a provider that never fetches is never
+    // locked, and a collision skips just that provider (old 409 shape).
+    if (!st.claimed) {
+      let claimed = false;
+      try {
+        claimed = await claimNewsProviderSync(env, providerId, updatedBy);
+      } catch (claimErr) {
+        console.error(`Auto-sync claim failed for provider ${providerId}:`, claimErr);
+        st.done = true;
+        st.errors.push(`${providerId}: ${claimErr instanceof Error ? claimErr.message : String(claimErr)}`);
+        continue;
+      }
+      if (!claimed) {
+        st.done = true;
+        st.errors.push(`${providerId} is already being updated`);
+        continue;
+      }
+      st.claimed = true;
+    }
+
+    // Adaptive pacing from the provider's own observed headers.
+    if (st.fetchedCount > 0) {
+      const pacing = computeAdaptiveDelayMs({
+        basePauseMs: config.updatePauseMs,
+        remaining: st.lastRemaining,
+        resetAt: st.lastResetAt
+      });
+      if (pacing.deferUntil) {
+        const message = `${providerId} pacing deferral until ${pacing.deferUntil}`;
+        const queuedCount = await deferProviderPairs(providerId, st, pacing.deferUntil, message);
+        setProviderCooldownState(providerId, {
+          cooldownUntil: pacing.deferUntil,
+          rateLimitResetAt: pacing.deferUntil,
+          retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+          lastError: 'Deferred by adaptive pacing: rate-limit exhausted',
+          failoverProvider: null,
+          failoverCategories: []
+        });
+        persistProviderCooldown(env, providerId, {
+          cooldownUntil: pacing.deferUntil,
+          rateLimitResetAt: pacing.deferUntil,
+          lastError: 'Deferred by adaptive pacing: rate-limit exhausted'
+        }).catch(() => {});
+        st.done = true;
+        st.rateLimited = true;
+        st.errors.push(`deferred ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} by adaptive pacing until ${pacing.deferUntil}`);
+        st.pendingLogs.push({
+          provider: providerId,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'skipped_pacing',
+          httpStatus: 429,
+          durationMs: 0,
+          attemptCount: 0,
+          itemsFetched: 0,
+          storiesSaved: 0,
+          retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+          rateLimitRemaining: st.lastRemaining,
+          rateLimitReset: pacing.deferUntil,
+          requestUrl: config.endpoint || '',
+          failoverProvider: null,
+          errorMessage: st.errors[st.errors.length - 1]
+        });
+        continue;
+      }
+      if (pacing.delayMs > 0) await new Promise(resolve => setTimeout(resolve, pacing.delayMs));
+    }
+
+    // Report the current pair only once the chain is actually about to
+    // fetch it: heartbeating earlier let cooldown-skipped or
+    // claim-collided providers show as "Fetching:" without fetching.
+    await maybeHeartbeat(providerId, category);
+    let lastTelemetry = null;
+    try {
+      const feed = await getNewsFeed(providerId, category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+        onFetchTelemetry: (t) => { lastTelemetry = t; }
+      });
+      st.fetchedCount++;
+      st.lastRemaining = lastTelemetry?.rateLimitRemaining ?? null;
+      st.lastResetAt = lastTelemetry?.rateLimitReset ?? null;
+      const stories = feed.items.slice(0, 10);
+      const seenUrls = new Set();
+      const uniqueStories = [];
+      let duplicatesSkipped = 0;
+      for (const story of stories) {
+        if (!story?.link || seenUrls.has(story.link)) {
+          duplicatesSkipped++;
+          continue;
         }
+        seenUrls.add(story.link);
+        uniqueStories.push(story);
+      }
+      st.pendingStories.push({ category, stories: uniqueStories });
+      st.pendingLogs.push({
+        provider: providerId,
+        providerLabel: config.label,
+        category,
+        triggerSource,
+        status: 'succeeded',
+        httpStatus: lastTelemetry?.httpStatus ?? 200,
+        durationMs: lastTelemetry?.durationMs ?? 0,
+        attemptCount: lastTelemetry?.attemptCount ?? 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: uniqueStories.length,
+        duplicatesSkipped,
+        retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
+        rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
+        rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
+        requestUrl: lastTelemetry?.requestUrl || config.endpoint || '',
+        errorMessage: null
+      });
+    } catch (err) {
+      const isRateLimit = Boolean(err?.isRateLimit || err?.status === 429);
+      const rawErrMsg = err instanceof Error ? err.message : 'Unknown provider error';
+      const message = `${category}: ${rawErrMsg}`;
+      console.error(`News provider update failed for ${providerId}/${category}:`, err);
+      st.errors.push(message);
+      if (isRateLimit) {
+        const windowInfo = computeCooldownWindow(err);
+        const queuedCount = await deferProviderPairs(providerId, st, windowInfo.cooldownUntil, message);
+        setProviderCooldownState(providerId, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          retryAfterSeconds: windowInfo.cooldownSeconds,
+          rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
+          lastError: message,
+          failoverProvider: null,
+          failoverCategories: []
+        });
+        persistProviderCooldown(env, providerId, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          lastError: message
+        }).catch(() => {});
+        st.rateLimited = true;
+        st.done = true;
+        st.pendingLogs.push({
+          provider: providerId,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'rate_limited',
+          httpStatus: err?.status ?? lastTelemetry?.httpStatus ?? 429,
+          durationMs: err?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+          attemptCount: err?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+          itemsFetched: 0,
+          storiesSaved: 0,
+          retryAfterSeconds: windowInfo.cooldownSeconds,
+          rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
+          rateLimitReset: windowInfo.rateLimitResetAt,
+          requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
+          failoverProvider: null,
+          errorMessage: `${message} · queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown`
+        });
+        if (queuedCount > 0) {
+          st.errors.push(`queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown (${windowInfo.cooldownUntil})`);
+        }
+      } else {
+        st.pendingLogs.push({
+          provider: providerId,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'failed',
+          httpStatus: err?.status ?? lastTelemetry?.httpStatus ?? null,
+          durationMs: err?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+          attemptCount: err?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+          itemsFetched: 0,
+          storiesSaved: 0,
+          retryAfterSeconds: err?.retryAfterSeconds ?? null,
+          rateLimitRemaining: err?.rateLimitRemaining ?? null,
+          rateLimitReset: err?.rateLimitReset ?? null,
+          requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
+          errorMessage: message
+        });
+        const isTransient = [500, 502, 503, 504].includes(err?.status) || /timed out/i.test(rawErrMsg);
+        if (isTransient) {
+          await enqueueProviderRetry(env, providerId, category, {
+            notBefore: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+            error: message
+          });
+        }
+      }
+    }
+    st.attempted.add(category);
+    runProgress.pairsDone++;
+    runProgress.lastPairTelemetry = lastTelemetry ? {
+      httpStatus: lastTelemetry.httpStatus ?? null,
+      durationMs: lastTelemetry.durationMs ?? null,
+      rateLimitRemaining: lastTelemetry.rateLimitRemaining ?? null,
+      rateLimitReset: lastTelemetry.rateLimitReset ?? null
+    } : null;
+  }
+  };
+  const chainResults = await Promise.allSettled(providers.map(p => runProviderChain(p.id)));
+  for (const [index, result] of chainResults.entries()) {
+    if (result.status === 'rejected') {
+      if (!sweepError) sweepError = result.reason;
+      const failedProvider = providers[index];
+      const fst = getState(failedProvider.id);
+      fst.errors.push(`${failedProvider.id}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      console.error(`Auto-sync provider chain failed for ${failedProvider.id}:`, result.reason);
+    }
+  }
+
+  // Flush per provider: one batch upsert (per-category fallback), one bulk
+  // log insert, then the provider's final sync status.
+  for (const provider of providers) {
+    const st = getState(provider.id);
+    if (!st.claimed) {
+      // Never fetched (cooldown-skipped, lock collision, or claim failure):
+      // surface it in results, but there is no sync row to finish.
+      if (st.errors.some(e => e.includes('is already being updated'))) {
+        results.push({
+          provider: provider.id,
+          httpStatus: 409,
+          error: st.errors.find(e => e.includes('is already being updated'))
+        });
+      } else if (st.rateLimited) {
+        results.push({
+          provider: provider.id,
+          httpStatus: 200,
+          status: 'rate_limited',
+          storiesSaved: 0,
+          errors: st.errors
+        });
+        rateLimitedCount++;
+      } else {
+        results.push({
+          provider: provider.id,
+          httpStatus: 200,
+          status: 'failed',
+          storiesSaved: 0,
+          errors: st.errors
+        });
+      }
+      await flushProviderFetchLogs(env, st.pendingLogs);
+      continue;
+    }
+    try {
+      const savedByCategory = {};
+      const failedSaveCategories = new Set();
+      if (st.pendingStories.length) {
+        try {
+          const batchResult = await upsertNewsStoriesBatch(env, provider.id, st.pendingStories);
+          for (const { category: cat, stories: catStories } of st.pendingStories) {
+            savedByCategory[cat] = catStories.length;
+          }
+          st.storiesSaved = batchResult?.savedCount ?? 0;
+        } catch (batchErr) {
+          console.error(`Batch upsert failed for ${provider.id}, falling back to per-category posts:`, batchErr);
+          for (const { category: cat, stories: catStories } of st.pendingStories) {
+            try {
+              const r = await upsertNewsStories(env, provider.id, cat, catStories);
+              savedByCategory[cat] = r?.savedCount ?? 0;
+              st.storiesSaved += r?.savedCount ?? 0;
+            } catch (singleErr) {
+              failedSaveCategories.add(cat);
+              st.errors.push(`${cat}: ${singleErr instanceof Error ? singleErr.message : String(singleErr)}`);
+            }
+          }
+        }
+      }
+      for (const logEntry of st.pendingLogs) {
+        if (logEntry.status === 'succeeded') {
+          if (failedSaveCategories.has(logEntry.category) || !Object.hasOwn(savedByCategory, logEntry.category)) {
+            logEntry.status = 'failed';
+            logEntry.storiesSaved = 0;
+            logEntry.errorMessage = `${logEntry.category}: story save failed`;
+          } else {
+            logEntry.storiesSaved = savedByCategory[logEntry.category];
+          }
+        }
+      }
+      await flushProviderFetchLogs(env, st.pendingLogs);
+      const status = st.errors.length === 0
+        ? 'succeeded'
+        : st.storiesSaved > 0
+          ? 'partial'
+          : 'failed';
+      const errorMessage = st.errors.length ? st.errors.join('; ').slice(0, 2000) : null;
+      await finishNewsProviderSync(env, provider.id, { status, storiesSaved: st.storiesSaved, error: errorMessage });
+      st.finished = true;
+      if (st.errors.length === 0) clearProviderCooldownState(provider.id);
+      totalStoriesSaved += st.storiesSaved;
+      if (st.rateLimited) rateLimitedCount++;
+      results.push({
+        provider: provider.id,
+        httpStatus: 200,
+        status,
+        storiesSaved: st.storiesSaved,
+        errors: st.errors,
+        ...(st.rateLimited ? { rateLimited: true } : {})
+      });
+    } catch (err) {
+      console.error(`Auto-sync flush failed for provider ${provider.id}:`, err);
+      const flushMessage = err instanceof Error ? err.message : String(err);
+      try {
+        await finishNewsProviderSync(env, provider.id, { status: 'failed', storiesSaved: st.storiesSaved, error: flushMessage });
+        st.finished = true;
+      } catch (finishErr) {
+        console.error(`Auto-sync could not save failed status for provider ${provider.id}:`, finishErr);
       }
       results.push({
         provider: provider.id,
-        httpStatus: outcome.httpStatus,
-        ...outcome.body
-      });
-    } catch (err) {
-      console.error(`Auto-sync failed for provider ${provider.id}:`, err);
-      results.push({
-        provider: provider.id,
         status: 'failed',
-        error: err instanceof Error ? err.message : String(err)
+        error: flushMessage
       });
+    }
+  }
+
+  // Final safety net: any provider this run claimed but never finished
+  // (pair-loop escape, flush failure, or a finish that itself threw) must
+  // not stay 'running' — that wedges the panel until the 20-minute
+  // re-claim window. Unclaimed providers are never touched: their row may
+  // belong to another concurrent run.
+  for (const provider of providers) {
+    const st = getState(provider.id);
+    if (!st.claimed || st.finished) continue;
+    const safetyMessage = sweepError
+      ? `Auto-sync did not complete: ${sweepError instanceof Error ? sweepError.message : String(sweepError)}`
+      : 'Auto-sync did not finish this provider';
+    try {
+      await finishNewsProviderSync(env, provider.id, { status: 'failed', storiesSaved: st.storiesSaved, error: safetyMessage });
+      st.finished = true;
+    } catch (finishErr) {
+      console.error(`Auto-sync safety net could not save failed status for provider ${provider.id}:`, finishErr);
+    }
+    if (!results.some(r => r.provider === provider.id)) {
+      results.push({ provider: provider.id, httpStatus: 200, status: 'failed', storiesSaved: st.storiesSaved, errors: [safetyMessage] });
     }
   }
 
@@ -677,6 +1275,18 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     }
   } catch (err) {
     console.error('Scheduled AI story curation check failed:', err);
+  }
+
+  if (runId) {
+    await finishSyncRun(env, runId, {
+      status: overallStatus,
+      pairsDone: pairs.length,
+      summary: {
+        totalStoriesSaved,
+        rateLimitedCount,
+        providers: results.map(r => ({ provider: r.provider, status: r.status, storiesSaved: r.storiesSaved ?? 0 }))
+      }
+    });
   }
 
   console.info(JSON.stringify({
@@ -913,6 +1523,7 @@ async function serveAdmin(request, env) {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Summary generation must be requested from the admin origin' }, 403);
     }
+    const usage = createAiUsageCounter();
     try {
       const payload = await readAdminStoryPayload(request);
       if (payload instanceof Response) return payload;
@@ -922,9 +1533,12 @@ async function serveAdmin(request, env) {
       }
       const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-summary:${identity.login}` });
       if (!limit.success) return jsonResponse({ error: 'Summary generation rate limit exceeded' }, 429);
-      return jsonResponse({ summary: await generateAdminSummary(payload, env) });
+      const summary = await generateAdminSummary(payload, env, usage);
+      await usage.flush(env);
+      return jsonResponse({ summary });
     } catch (err) {
       console.error('Admin AI summary generation failed:', err);
+      await usage.flush(env);
       return jsonResponse({
         error: err instanceof Error ? err.message : 'Could not generate an AI summary'
       }, 502);
@@ -935,6 +1549,7 @@ async function serveAdmin(request, env) {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Image generation must be requested from the admin origin' }, 403);
     }
+    const usage = createAiUsageCounter();
     try {
       const payload = await readAdminStoryPayload(request);
       if (payload instanceof Response) return payload;
@@ -944,9 +1559,12 @@ async function serveAdmin(request, env) {
       }
       const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-image:${identity.login}` });
       if (!limit.success) return jsonResponse({ error: 'Image generation rate limit exceeded' }, 429);
-      return jsonResponse(await generateAdminStoryImage(payload, request.url, env));
+      const image = await generateAdminStoryImage(payload, request.url, env, usage);
+      await usage.flush(env);
+      return jsonResponse(image);
     } catch (err) {
       console.error('Admin AI image generation failed:', err);
+      await usage.flush(env);
       return jsonResponse({
         error: err instanceof Error ? err.message : 'Could not generate an AI image'
       }, 502);
@@ -1090,6 +1708,7 @@ async function serveAdmin(request, env) {
     if (!env.AI) {
       return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
     }
+    const usage = createAiUsageCounter();
     try {
       const storyId = llmKwMatch[1];
       const storyQuery = new URLSearchParams({ id: `eq.${storyId}`, select: 'id,title,description' });
@@ -1113,14 +1732,23 @@ async function serveAdmin(request, env) {
         'a story about a broken office globe is about history, not outer space.\n\n' +
         `${keywordList}\n\n` +
         'Respond with ONLY a JSON array of keyword ids, e.g. ["space", "science"]. If none fit well, respond with [].';
-      const aiRes = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
-        messages: [
-          { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
-          { role: 'user', content: prompt },
-        ],
-        max_tokens: 200,
-        temperature: 0.1,
-      });
+      let aiRes;
+      try {
+        aiRes = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+          messages: [
+            { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 200,
+          temperature: 0.1,
+        });
+        usage.add(AI_USAGE_MODEL_LLAMA, 'ai-tags', 1);
+        await usage.flush(env);
+      } catch (err) {
+        usage.add(AI_USAGE_MODEL_LLAMA, 'ai-tags', 0, 1);
+        await usage.flush(env);
+        throw err;
+      }
       // Extract usable text from the model response. Workers AI returns an
       // OpenAI-compatible object for this model: the text lives in
       // choices[0].message.content, while `response` is itself an object.
@@ -1213,6 +1841,21 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('News admin provider reset failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not reset provider sync state' }, 502);
+    }
+  }
+
+  if (url.pathname === '/admin/api/providers/unstick-all' && request.method === 'POST') {
+    try {
+      if (!isSameOrigin(request)) {
+        return jsonResponse({ error: 'Provider unstick must be requested from the admin origin' }, 403);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Admin update rate limit exceeded' }, 429);
+      const result = await unstickAllProviderSyncs(env, identity.login);
+      return jsonResponse(result);
+    } catch (err) {
+      console.error('News admin unstick-all failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not unstick provider sync state' }, 502);
     }
   }
 
@@ -1370,6 +2013,30 @@ async function serveAdmin(request, env) {
     return jsonResponse(await getAnalyticsStats(env, { type, country, region, limit }));
   }
 
+  if (url.pathname === '/admin/api/ai-usage' && request.method === 'GET') {
+    // No isSameOrigin check here, matching /admin/api/analytics: the admin
+    // session gate is the authorization, and browsers send no Origin header
+    // on same-origin GET fetches, so the check would 403 every dashboard
+    // load and hide the counts.
+    try {
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days')) || 30));
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      const query = new URLSearchParams({
+        select: 'usage_date,model,usage_key,calls,errors',
+        usage_date: `gte.${cutoff}`,
+        order: 'usage_date.desc',
+        limit: '5000'
+      });
+      const res = await fetch(supabaseUrl(env, 'ai_usage_daily', query), { headers: supabaseHeaders(env) });
+      if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+      const rows = await res.json();
+      return jsonResponse({ rows: Array.isArray(rows) ? rows : [] });
+    } catch (err) {
+      console.error('AI usage fetch failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not load AI usage' }, 502);
+    }
+  }
+
   if (url.pathname === '/admin/api/logs/clear' && request.method === 'POST') {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Log clearing must be requested from the admin origin' }, 403);
@@ -1525,6 +2192,7 @@ async function serveAdmin(request, env) {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Must be requested from the admin origin' }, 403);
     }
+    const usage = createAiUsageCounter();
     try {
       const body = await request.json().catch(() => ({}));
       const storyId = body.id;
@@ -1550,8 +2218,11 @@ async function serveAdmin(request, env) {
       }
       const vector = await embedText(env, text);
       if (!vector) {
+        usage.add(AI_USAGE_MODEL_BGE, 'tagging', 0, 1);
+        await usage.flush(env);
         return jsonResponse({ error: 'Failed to embed story text', id: storyId }, 500);
       }
+      usage.add(AI_USAGE_MODEL_BGE, 'tagging', 1);
       const matches = classifyStoryKeywords(vector, keywordVectors);
       const keywords = matches.map(m => m.id);
 
@@ -1566,6 +2237,7 @@ async function serveAdmin(request, env) {
       );
       if (!saveRes.ok) throw new Error('Save failed: ' + saveRes.status);
 
+      await usage.flush(env);
       return jsonResponse({
         id: storyId,
         keywords,
@@ -1578,6 +2250,7 @@ async function serveAdmin(request, env) {
         }
       });
     } catch (err) {
+      await usage.flush(env);
       return jsonResponse({ error: err.message || 'Auto-tag failed' }, 500);
     }
   }
@@ -1588,6 +2261,7 @@ async function serveAdmin(request, env) {
     if (!env.AI) {
       return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
     }
+    const usage = createAiUsageCounter();
     try {
       // Parse optional limit (default: process all unvalidated)
       let body = {};
@@ -1669,7 +2343,7 @@ async function serveAdmin(request, env) {
         const stories = await res.json();
         if (!stories.length) break;
 
-        const results = await validateStoryCategories(env, stories, { keywordVectors });
+        const results = await validateStoryCategories(env, stories, { keywordVectors, usage });
 
         // Store the embedding predictions. For category mismatches, auto-apply
         // the AI's pick as the display override — Katie reviews them in the
@@ -1745,6 +2419,8 @@ async function serveAdmin(request, env) {
         if (stories.length < BATCH) break;
       }
 
+      await usage.flush(env);
+
       return jsonResponse({
         validated: totalValidated,
         stored: totalStored,
@@ -1773,6 +2449,7 @@ async function serveAdmin(request, env) {
       });
     } catch (err) {
       console.error('Category validation failed:', err);
+      await usage.flush(env);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Validation failed' }, 502);
     }
   }
@@ -1857,6 +2534,7 @@ async function serveAdmin(request, env) {
     if (!env.AI) {
       return jsonResponse({ error: 'Workers AI not available' }, 503);
     }
+    const usage = createAiUsageCounter();
     try {
       const payload = await request.json().catch(() => ({}));
       const ads = Array.isArray(payload.ads) ? payload.ads : [];
@@ -1883,6 +2561,8 @@ async function serveAdmin(request, env) {
         }
         try {
           const vector = await embedText(env, text);
+          if (vector) usage.add(AI_USAGE_MODEL_BGE, 'ad-auto-tag', 1);
+          else usage.add(AI_USAGE_MODEL_BGE, 'ad-auto-tag', 0, 1);
           const matches = classifyStoryKeywords(vector, keywordVectors);
           results.push({
             id: ad.id,
@@ -1920,12 +2600,14 @@ async function serveAdmin(request, env) {
         console.error('ad_keyword_tags save error:', saveErr.message);
       }
 
+      await usage.flush(env);
       return jsonResponse({
         results,
         done: newOffset >= ads.length,
         progress: { done: newOffset, total: ads.length }
       });
     } catch (err) {
+      await usage.flush(env);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Auto-tag failed' }, 500);
     }
   }
@@ -2270,7 +2952,7 @@ function isReadableArticleText(text) {
     !/\b(?:enable javascript|verify you are human|access denied|request blocked|checking your browser|robot or human)\b/i.test(text);
 }
 
-async function generateAdminSummary(story, env) {
+async function generateAdminSummary(story, env, usage = null) {
   const suppliedText = [story.description, story.content]
     .map(value => extractPageText(decodeHtml(value)))
     .filter(Boolean)
@@ -2308,7 +2990,9 @@ async function generateAdminSummary(story, env) {
       max_tokens: 220,
       temperature: 0.2
     });
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'summaries', 1);
   } catch (err) {
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'summaries', 0, 1);
     console.error('Workers AI summary generation failed:', err);
     const details = err instanceof Error ? `: ${err.message.slice(0, 250)}` : '';
     throw new Error(`Workers AI could not generate the summary${details}`);
@@ -2388,7 +3072,7 @@ async function matchImageFromEdgeCache(cacheKey) {
   return null;
 }
 
-async function buildLittlablesImagePrompt(story, env) {
+async function buildLittlablesImagePrompt(story, env, usage = null) {
   const suppliedText = [story.aiSummary, story.description, story.content]
     .map(value => extractPageText(decodeHtml(value || '')))
     .filter(Boolean)
@@ -2431,10 +3115,12 @@ async function buildLittlablesImagePrompt(story, env) {
       max_tokens: 120,
       temperature: 0.6
     });
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'scene', 1);
     if (typeof generated?.response === 'string') {
       sceneDescription = generated.response.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 320);
     }
   } catch (err) {
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'scene', 0, 1);
     console.warn('Could not refine image prompt with LLM, using story details directly:', err);
   }
 
@@ -2444,7 +3130,7 @@ async function buildLittlablesImagePrompt(story, env) {
   return `Create a fun image based around the story details that fit the theme of Littlables: ${coreScene}. Whimsical, warm, colorful family-friendly storybook illustration, cozy and uplifting Littlables aesthetic, charming characters and scenery, soft lighting, no text, no words, no watermarks.`.slice(0, 650);
 }
 
-async function runWorkersAiImageModel(prompt, seed, env) {
+async function runWorkersAiImageModel(prompt, seed, env, usage = null) {
   let rawResult;
   try {
     rawResult = await env.AI.run(IMAGE_MODEL, {
@@ -2452,14 +3138,18 @@ async function runWorkersAiImageModel(prompt, seed, env) {
       num_steps: 8,
       ...(Number.isFinite(seed) ? { seed } : {})
     });
+    if (usage) usage.add(AI_USAGE_MODEL_FLUX, 'image', 1);
   } catch (primaryErr) {
+    if (usage) usage.add(AI_USAGE_MODEL_FLUX, 'image', 0, 1);
     console.warn(`Primary image model (${IMAGE_MODEL}) failed, trying fallback:`, primaryErr);
     try {
       rawResult = await env.AI.run(FALLBACK_IMAGE_MODEL, {
         prompt,
         ...(Number.isFinite(seed) ? { seed } : {})
       });
+      if (usage) usage.add(AI_USAGE_MODEL_SDXL, 'image', 1);
     } catch {
+      if (usage) usage.add(AI_USAGE_MODEL_SDXL, 'image', 0, 1);
       console.error('Workers AI image generation failed:', primaryErr);
       const details = primaryErr instanceof Error ? `: ${primaryErr.message.slice(0, 250)}` : '';
       throw new Error(`Workers AI could not generate the image${details}`);
@@ -2490,10 +3180,10 @@ async function runWorkersAiImageModel(prompt, seed, env) {
   };
 }
 
-async function generateAdminStoryImage(story, requestUrl, env) {
-  const prompt = await buildLittlablesImagePrompt(story, env);
+async function generateAdminStoryImage(story, requestUrl, env, usage = null) {
+  const prompt = await buildLittlablesImagePrompt(story, env, usage);
   const seed = Math.floor(Math.random() * 1_000_000);
-  const generated = await runWorkersAiImageModel(prompt, seed, env);
+  const generated = await runWorkersAiImageModel(prompt, seed, env, usage);
 
   const imageUrlObj = new URL('/ai-image', requestUrl);
   imageUrlObj.searchParams.set('prompt', prompt);
@@ -2541,13 +3231,16 @@ async function serveAiStoryImage(request, env) {
     }
   }
 
+  const usage = createAiUsageCounter();
   try {
-    const generated = await runWorkersAiImageModel(prompt, seed, env);
+    const generated = await runWorkersAiImageModel(prompt, seed, env, usage);
     rememberGeneratedImage(cacheKey, generated);
     await putImageInEdgeCache(cacheKey, generated);
+    await usage.flush(env);
     return createImageResponse(generated);
   } catch (err) {
     console.error('Public AI story image generation failed:', err);
+    await usage.flush(env);
     return jsonResponse({
       error: err instanceof Error ? err.message : 'Unable to generate story image'
     }, 502);
@@ -2601,6 +3294,144 @@ export default {
         return jsonResponse({ items: [], count: 0, error: err.message }, 500);
       }
     }
+    // Taste Reader step 2: manual selection run for the gated site page.
+    // Site auth (Supabase token + profiles.is_admin), not the GitHub admin
+    // session: the site is cross-origin and the page is not /admin.
+    if (request.method === 'POST' && pathname === '/api/taste-reader/run') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        const payload = await request.json().catch(() => ({}));
+        const interestFilter = typeof payload.interestFilter === 'string' && payload.interestFilter.trim()
+          ? payload.interestFilter.trim()
+          : null;
+        const result = await createTasteReaderRun(env, { userId: auth.userId, interestFilter });
+        if (result.error) return jsonResponse({ error: result.error }, 400);
+        return jsonResponse({
+          ok: true,
+          runId: result.runId,
+          totalCount: result.totalCount,
+          nextPosition: result.nextPosition,
+          items: result.items
+        });
+      } catch (err) {
+        console.error('Taste Reader run failed:', err);
+        return jsonResponse({
+          error: err instanceof Error ? err.message : 'Could not run Taste Reader'
+        }, 502);
+      }
+    }
+
+    // Taste Reader reader actions: word scores + notes + AI reason.
+    // Same site auth as /api/taste-reader/run (Supabase token +
+    // profiles.is_admin), same rate limiter, no GitHub session.
+    if (request.method === 'POST' && pathname === '/api/taste-reader/score') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        const payload = await request.json().catch(() => ({}));
+        const result = await recordTasteReaderWordScore(env, {
+          userId: auth.userId,
+          contentId: payload.contentId,
+          runId: payload.runId,
+          wordDisplay: payload.wordDisplay,
+          source: payload.source,
+          wordPosition: payload.wordPosition,
+          action: payload.action
+        });
+        if (result.error) return jsonResponse({ error: result.error }, 400);
+        return jsonResponse(result);
+      } catch (err) {
+        console.error('Taste Reader score failed:', err);
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Could not save the word score' }, 502);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/taste-reader/note') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        const payload = await request.json().catch(() => ({}));
+        const result = await saveTasteReaderNote(env, {
+          userId: auth.userId,
+          contentId: payload.contentId,
+          runId: payload.runId,
+          kind: payload.kind,
+          body: payload.body,
+          actionContext: payload.actionContext,
+          stoppedWordNormalized: payload.stoppedWordNormalized,
+          stoppedPosition: payload.stoppedPosition,
+          aiModel: payload.aiModel
+        });
+        if (result.error) return jsonResponse({ error: result.error }, 400);
+        return jsonResponse(result);
+      } catch (err) {
+        console.error('Taste Reader note failed:', err);
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Could not save the note' }, 502);
+      }
+    }
+
+    if (request.method === 'POST' && pathname === '/api/taste-reader/reason') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        if (!env.AI) return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+        const payload = await request.json().catch(() => ({}));
+        const title = typeof payload.title === 'string' ? payload.title : '';
+        const description = typeof payload.description === 'string' ? payload.description : '';
+        if (!title && !description) return jsonResponse({ error: 'A title or description is required' }, 400);
+        const usage = createAiUsageCounter();
+        const model = '@cf/meta/llama-3.2-3b-instruct';
+        let aiRes;
+        try {
+          aiRes = await env.AI.run(model, {
+            messages: [
+              { role: 'system', content: 'You write short reasons a careful editor of a family-friendly news site might NOT like a story. Be specific to this story, one sentence, plain language, no preamble, no quotes.' },
+              { role: 'user', content: `Title: ${title}\nDescription: ${description.slice(0, 1200)}` }
+            ],
+            max_tokens: 120,
+            temperature: 0.3
+          });
+          usage.add(AI_USAGE_MODEL_LLAMA, 'taste-reader-reason', 1);
+          await usage.flush(env);
+        } catch (err) {
+          usage.add(AI_USAGE_MODEL_LLAMA, 'taste-reader-reason', 0, 1);
+          await usage.flush(env);
+          throw err;
+        }
+        const reason = extractAiText(aiRes).trim();
+        if (!reason) return jsonResponse({ error: 'The AI came back empty; try again' }, 502);
+        return jsonResponse({ ok: true, reason, model });
+      } catch (err) {
+        console.error('Taste Reader reason failed:', err);
+        return jsonResponse({ error: err instanceof Error ? err.message : 'Could not generate a reason' }, 502);
+      }
+    }
+
     // Phase 2 preview: admin-only space feed sample + diagnostics.
     // GitHub admin session required (same auth as /admin/api/*).
     if (request.method === 'GET' && pathname === '/api/admin/preview') {
@@ -2798,6 +3629,7 @@ export default {
     // Frontend looks up ad content by ID from its JSON cache.
     // Response: { matches: { [storyIndex]: [adId, ...] } }
     if (request.method === 'POST' && pathname === '/ads/match') {
+      const usage = createAiUsageCounter();
       try {
         if (!env.AI) throw new Error('Workers AI not available');
         if (env.SUMMARY_RATE_LIMITER) {
@@ -2828,6 +3660,8 @@ export default {
             if (text) {
               try {
                 storyVector = await embedText(env, text);
+                if (storyVector) usage.add(AI_USAGE_MODEL_BGE, 'ad-match', 1);
+                else usage.add(AI_USAGE_MODEL_BGE, 'ad-match', 0, 1);
                 const matches = classifyStoryKeywords(storyVector, keywordVectors);
                 for (const m of matches) {
                   kws.push(m.id);
@@ -2907,8 +3741,10 @@ export default {
           }
         });
 
+        await usage.flush(env);
         return jsonResponse({ matches });
       } catch (err) {
+        await usage.flush(env);
         return jsonResponse({ matches: {}, error: err.message });
       }
     }
@@ -2959,7 +3795,14 @@ export default {
     const task = (async () => {
       // Prune logs older than 30 days (1 cheap indexed delete per run)
       await pruneOldProviderLogs(env);
-      const drainResult = await drainProviderRetries(env, { limit: 6, triggerSource: 'cron:retry' });
+      // Phase 1: persisted cooldowns were previously never reloaded (the
+      // loader had no callers), so a cold-started worker re-hammered cooling
+      // providers. Load them before the drain and the sweep read them.
+      await loadProviderCooldownsFromDbIfStale(env);
+      // Drain deeper when the queue is deep, instead of a fixed 6 per run.
+      const pendingRetries = await countQueuedRetries(env);
+      const drainLimit = pendingRetries > 6 ? 12 : 6;
+      const drainResult = await drainProviderRetries(env, { limit: drainLimit, triggerSource: 'cron:retry' });
       const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
       const syncResult = isStaggered
         ? await runStaggeredSync(env, 'cron', `cron:${cronPattern}`)

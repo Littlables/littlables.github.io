@@ -447,3 +447,42 @@ export function parseRss(xml) {
 export function stripMarkup(value) {
   return decodeXml(value.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
+
+// Adaptive per-provider pacing for the fetch sweep (Phase 1: provider fetching).
+// The sweep is sequential, so the goal is spacing, not concurrency limits:
+// a provider's own calls get room to breathe, and an exhausted quota pauses
+// that provider instead of hammering it into another 429.
+// - remaining > 5 (or unknown, e.g. RSS providers send no headers): base pause + jitter.
+// - 0 < remaining <= 5: base pause x4 + jitter (slow down as quota drains).
+// - remaining <= 0 with a reset soon (<= 5 min away): wait until the reset.
+// - remaining <= 0 with a distant reset: defer instead of stalling the whole
+//   sequential sweep; the caller queues the provider's remaining pairs with
+//   notBefore = deferUntil and moves on to other providers.
+export const PACING_LOW_REMAINING = 5;
+export const PACING_MAX_RESET_WAIT_MS = 5 * 60 * 1000;
+
+export function computeAdaptiveDelayMs({
+  basePauseMs,
+  remaining = null,
+  resetAt = null,
+  nowMs = Date.now(),
+  random = Math.random
+} = {}) {
+  const jittered = (ms) => Math.round(ms * (0.8 + random() * 0.4));
+  const rem = remaining === null || remaining === undefined ? null : Number(remaining);
+  if (rem === null || !Number.isFinite(rem) || rem > PACING_LOW_REMAINING) {
+    return { delayMs: jittered(basePauseMs), deferUntil: null };
+  }
+  if (rem > 0) {
+    return { delayMs: jittered(basePauseMs * 4), deferUntil: null };
+  }
+  const resetMs = resetAt ? Date.parse(resetAt) : NaN;
+  if (Number.isFinite(resetMs) && resetMs > nowMs) {
+    const waitMs = resetMs - nowMs;
+    if (waitMs <= PACING_MAX_RESET_WAIT_MS) {
+      return { delayMs: Math.round(waitMs + basePauseMs * (0.8 + random() * 0.4)), deferUntil: null };
+    }
+    return { delayMs: 0, deferUntil: new Date(resetMs).toISOString() };
+  }
+  return { delayMs: jittered(basePauseMs * 4), deferUntil: null };
+}

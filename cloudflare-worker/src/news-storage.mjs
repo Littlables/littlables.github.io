@@ -1,12 +1,14 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion, isValidInterestKeyword } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
+import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
 // are sharpened, old vectors stop matching and get recomputed.
 const KEYWORD_VECTOR_MODEL = `${EMBEDDING_MODEL}:kwv${KEYWORD_DESCRIPTIONS_VERSION}`;
 
 export const STORIES_TABLE = 'news_stories';
+export const SYNC_RUNS_TABLE = 'provider_sync_runs';
 const SYNC_TABLE = 'news_provider_sync';
 
 export function supabaseHeaders(env, extra = {}) {
@@ -468,6 +470,10 @@ export async function getPersistedKeywordEmbeddings(env) {
         console.warn('Keyword embeddings upsert failed:', upsertError);
       }
     }
+    const warmupUsage = createAiUsageCounter();
+    const warmupSucceeded = vectors.filter((v) => Boolean(v)).length;
+    warmupUsage.add(AI_USAGE_MODEL_BGE, 'warmup', warmupSucceeded, chunk.length - warmupSucceeded);
+    await warmupUsage.flush(env);
   }
 
   const done = map.size;
@@ -657,6 +663,19 @@ export async function loadProviderCooldownsFromDb(env) {
   }
 }
 
+let providerCooldownsLoadedAt = 0;
+
+// Load persisted cooldowns into memory, at most once per maxAgeMs.
+// Previously loadProviderCooldownsFromDb had no callers, so a cold-started
+// worker forgot every cooldown and re-hammered cooling providers until the
+// next 429. Call this at the start of scheduled and manual sync runs.
+export async function loadProviderCooldownsFromDbIfStale(env, maxAgeMs = 5 * 60 * 1000) {
+  if (Date.now() - providerCooldownsLoadedAt < maxAgeMs) return false;
+  const loaded = await loadProviderCooldownsFromDb(env);
+  providerCooldownsLoadedAt = Date.now();
+  return loaded;
+}
+
 /**
  * Enqueue a provider/category fetch for retry after a rate limit (or failure).
  * Upserts: one pending/running row per (provider, category); re-queues with the
@@ -823,8 +842,8 @@ export function setAutoSyncState(updates = {}) {
   return getAutoSyncState();
 }
 
-export async function recordNewsProviderFetchLog(env, entry) {
-  const normalized = {
+function normalizeProviderFetchLog(entry) {
+  return {
     id: nextLogId++,
     provider: entry.provider || 'unknown',
     providerLabel: entry.providerLabel || entry.provider || 'Unknown',
@@ -845,6 +864,31 @@ export async function recordNewsProviderFetchLog(env, entry) {
     failoverProvider: entry.failoverProvider || null,
     createdAt: entry.createdAt || new Date().toISOString()
   };
+}
+
+function providerFetchLogDbRow(normalized) {
+  return {
+    provider: normalized.provider,
+    category: normalized.category,
+    trigger_source: normalized.triggerSource,
+    status: normalized.status,
+    http_status: normalized.httpStatus,
+    duration_ms: normalized.durationMs,
+    attempt_count: normalized.attemptCount,
+    items_fetched: normalized.itemsFetched,
+    stories_saved: normalized.storiesSaved,
+    retry_after_seconds: normalized.retryAfterSeconds,
+    rate_limit_remaining: normalized.rateLimitRemaining,
+    rate_limit_reset: normalized.rateLimitReset,
+    request_url: normalized.requestUrl,
+    error_message: normalized.errorMessage,
+    failover_provider: normalized.failoverProvider,
+    created_at: normalized.createdAt
+  };
+}
+
+export async function recordNewsProviderFetchLog(env, entry) {
+  const normalized = normalizeProviderFetchLog(entry);
 
   providerFetchLogsMemory.unshift(normalized);
   if (providerFetchLogsMemory.length > MAX_PROVIDER_FETCH_LOGS) {
@@ -857,30 +901,48 @@ export async function recordNewsProviderFetchLog(env, entry) {
     await fetch(supabaseUrl(env, 'news_provider_logs'), {
         method: 'POST',
         headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
-        body: JSON.stringify([{
-          provider: normalized.provider,
-          category: normalized.category,
-          trigger_source: normalized.triggerSource,
-          status: normalized.status,
-          http_status: normalized.httpStatus,
-          duration_ms: normalized.durationMs,
-          attempt_count: normalized.attemptCount,
-          items_fetched: normalized.itemsFetched,
-          stories_saved: normalized.storiesSaved,
-          retry_after_seconds: normalized.retryAfterSeconds,
-          rate_limit_remaining: normalized.rateLimitRemaining,
-          rate_limit_reset: normalized.rateLimitReset,
-          request_url: normalized.requestUrl,
-          error_message: normalized.errorMessage,
-          failover_provider: normalized.failoverProvider,
-          created_at: normalized.createdAt
-        }])
+        body: JSON.stringify([providerFetchLogDbRow(normalized)])
       });
     } catch (err) {
       console.warn('Could not persist provider fetch log to Supabase:', err);
     }
 
   return normalized;
+}
+
+// Bulk-persist accumulated fetch-log entries in one POST (Phase 1 batching).
+// Falls back to individual posts on failure; never throws, so logging can
+// never break a sync run. Returns the number of entries accepted for write.
+export async function flushProviderFetchLogs(env, entries) {
+  if (!entries?.length) return 0;
+  const normalized = entries.map(normalizeProviderFetchLog);
+  for (const entry of normalized) providerFetchLogsMemory.unshift(entry);
+  if (providerFetchLogsMemory.length > MAX_PROVIDER_FETCH_LOGS) {
+    providerFetchLogsMemory.length = MAX_PROVIDER_FETCH_LOGS;
+  }
+  const rows = normalized.map(providerFetchLogDbRow);
+  try {
+    const res = await fetch(supabaseUrl(env, 'news_provider_logs'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify(rows)
+    });
+    if (res.ok) return rows.length;
+  } catch (err) {
+    console.warn('Could not bulk-persist provider fetch logs, falling back to individual posts:', err);
+  }
+  for (const row of rows) {
+    try {
+      await fetch(supabaseUrl(env, 'news_provider_logs'), {
+        method: 'POST',
+        headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+        body: JSON.stringify([row])
+      });
+    } catch (err) {
+      console.warn('Could not persist provider fetch log to Supabase:', err);
+    }
+  }
+  return rows.length;
 }
 
 export function getNewsProviderFetchLogs({
@@ -998,6 +1060,36 @@ export async function getNewsProviderFetchLogsFromDb(env, {
     console.warn('DB log read failed:', err.message);
     return { logs: [], totalRequests: 0 };
   }
+}
+
+// Recent sync runs for the admin panel run strip. Fail-open: if the table
+// is missing (migration not yet applied) the strip just shows nothing.
+export async function getRecentSyncRuns(env, limit = 5) {
+  try {
+    const query = new URLSearchParams({
+      select: 'id,trigger,provider,status,started_at,finished_at,pairs_total,pairs_done,current_provider,current_category,last_activity_at,last_telemetry,summary',
+      order: 'started_at.desc',
+      limit: String(limit)
+    });
+    const res = await fetch(supabaseUrl(env, SYNC_RUNS_TABLE, query), {
+      headers: supabaseHeaders(env)
+    });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+// Logs for the admin panel: the database is the source of truth (it
+// survives worker redeploys), with the in-memory ring as fallback for
+// entries whose DB write failed. Reading the ring alone blanks the list
+// after every redeploy.
+async function getSnapshotProviderLogs(env) {
+  const db = await getNewsProviderFetchLogsFromDb(env, { limit: 100 });
+  if (db.logs.length) return db;
+  return getNewsProviderFetchLogs({ limit: 100 });
 }
 
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
@@ -1173,7 +1265,8 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
       };
     }),
     autoSync: getAutoSyncState(),
-    providerLogs: getNewsProviderFetchLogs({ limit: 100 }),
+    runs: await getRecentSyncRuns(env),
+    providerLogs: await getSnapshotProviderLogs(env),
     aiCuration: await ensureAndGetAiCurationSnapshot(env, {
       recentRows,
       bannedRows,
@@ -1474,33 +1567,64 @@ export async function claimNewsProviderSync(env, provider, updatedBy) {
   return result;
 }
 
-export async function upsertNewsStories(env, provider, category, stories) {
-  if (!stories.length) return { savedCount: 0, duplicatesSkipped: 0 };
+function buildStoryRows(provider, category, stories) {
   const seenUrls = new Set();
-  const uniqueStories = [];
+  const rows = [];
   let duplicatesSkipped = 0;
-  for (const story of stories) {
+  for (const story of stories || []) {
     if (!story?.link || seenUrls.has(story.link)) {
       duplicatesSkipped++;
       continue;
     }
     seenUrls.add(story.link);
-    uniqueStories.push(story);
+    rows.push({
+      provider,
+      category,
+      title: story.title,
+      article_url: story.link,
+      image_url: story.image || null,
+      description: story.description || null,
+      content: story.content || null,
+      published_at: story.pubDate || null,
+      source_name: story.source || null,
+      provider_country: story.providerCountry || null,
+      fetched_at: new Date().toISOString()
+    });
   }
-  if (!uniqueStories.length) return { savedCount: 0, duplicatesSkipped };
-  const rows = uniqueStories.map(story => ({
-    provider,
-    category,
-    title: story.title,
-    article_url: story.link,
-    image_url: story.image || null,
-    description: story.description || null,
-    content: story.content || null,
-    published_at: story.pubDate || null,
-    source_name: story.source || null,
-    provider_country: story.providerCountry || null,
-    fetched_at: new Date().toISOString()
-  }));
+  return { rows, duplicatesSkipped };
+}
+
+export async function upsertNewsStories(env, provider, category, stories) {
+  if (!stories.length) return { savedCount: 0, duplicatesSkipped: 0 };
+  const { rows: uniqueRows, duplicatesSkipped } = buildStoryRows(provider, category, stories);
+  if (!uniqueRows.length) return { savedCount: 0, duplicatesSkipped };
+  const query = new URLSearchParams({
+    on_conflict: 'provider,category,article_url'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'POST',
+    headers: supabaseHeaders(env, {
+      Prefer: 'resolution=merge-duplicates,return=minimal'
+    }),
+    body: JSON.stringify(uniqueRows)
+  });
+  if (!response.ok) throw new Error(`Saving ${provider}/${category} stories failed (HTTP ${response.status})`);
+  return { savedCount: uniqueRows.length, duplicatesSkipped };
+}
+
+// Batch variant (Phase 1 batching): one POST for a provider's stories across
+// several categories. Rows already carry provider+category, so the upsert
+// conflict target is unchanged and semantics match per-category upserts.
+// Callers fall back to per-category upsertNewsStories on failure.
+export async function upsertNewsStoriesBatch(env, provider, categoryStories) {
+  const rows = [];
+  let duplicatesSkipped = 0;
+  for (const { category, stories } of categoryStories || []) {
+    const built = buildStoryRows(provider, category, stories);
+    rows.push(...built.rows);
+    duplicatesSkipped += built.duplicatesSkipped;
+  }
+  if (!rows.length) return { savedCount: 0, duplicatesSkipped };
   const query = new URLSearchParams({
     on_conflict: 'provider,category,article_url'
   });
@@ -1511,7 +1635,7 @@ export async function upsertNewsStories(env, provider, category, stories) {
     }),
     body: JSON.stringify(rows)
   });
-  if (!response.ok) throw new Error(`Saving ${provider}/${category} stories failed (HTTP ${response.status})`);
+  if (!response.ok) throw new Error(`Saving ${provider} stories failed (HTTP ${response.status})`);
   return { savedCount: rows.length, duplicatesSkipped };
 }
 
@@ -1565,6 +1689,43 @@ export async function resetNewsProviderSync(env, provider, resetBy) {
     if (!response.ok) throw new Error(`Resetting ${provider} sync state failed (HTTP ${response.status})`);
   }
   return { provider, reset: wasStuck, previousStatus: rows[0]?.status ?? 'never' };
+}
+
+export async function unstickAllProviderSyncs(env, resetBy) {
+  // Clear every stuck "running" provider lock AND every open run row in
+  // one call, so the panel stops showing a ghost live run after a wedge.
+  // Harmless when nothing is stuck. Does not stop a live crawl: a chain
+  // that is still running rewrites its rows when it finishes.
+  const providersReset = [];
+  const runsClosed = [];
+  const syncQuery = new URLSearchParams({ status: 'eq.running', select: 'provider,status,started_at' });
+  const syncResponse = await fetch(supabaseUrl(env, SYNC_TABLE, syncQuery), { headers: supabaseHeaders(env) });
+  const syncRows = await readRows(syncResponse, 'Running provider sync state lookup');
+  for (const row of syncRows) {
+    const result = await resetNewsProviderSync(env, row.provider, resetBy);
+    if (result.reset) providersReset.push(row.provider);
+  }
+  const runsQuery = new URLSearchParams({ status: 'eq.running', select: 'id,summary' });
+  const runsResponse = await fetch(supabaseUrl(env, SYNC_RUNS_TABLE, runsQuery), { headers: supabaseHeaders(env) });
+  const runRows = await readRows(runsResponse, 'Open sync run lookup');
+  for (const row of runRows) {
+    const patchQuery = new URLSearchParams({ id: `eq.${row.id}` });
+    const response = await fetch(supabaseUrl(env, SYNC_RUNS_TABLE, patchQuery), {
+      method: 'PATCH',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        current_provider: null,
+        current_category: null,
+        last_activity_at: new Date().toISOString(),
+        summary: { ...(row.summary || {}), unstuck: true, unstuckBy: resetBy }
+      })
+    });
+    if (!response.ok) throw new Error(`Closing sync run ${row.id} failed (HTTP ${response.status})`);
+    runsClosed.push(row.id);
+  }
+  return { ok: true, providersReset, runsClosed };
 }
 
 export function buildKeywordOrFilter(queryText) {
@@ -2124,7 +2285,7 @@ export function extractAiText(res, depth = 0) {
   return '';
 }
 
-async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}) {
+async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}, usage = null) {
   // First pre-score all candidates deterministically
   const scoredCandidates = candidates.map(story => {
     const { score, reason } = scoreCandidateStory(story, signals, tasteProfile, engagementSignals);
@@ -2167,6 +2328,7 @@ async function selectCategoryPicksWithAi(env, category, candidates, signals, tas
         max_tokens: 450,
         temperature: 0.25
       });
+      if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'curation', 1);
 
       const rawText = extractAiText(response).trim();
       if (!rawText) {
@@ -2212,6 +2374,7 @@ async function selectCategoryPicksWithAi(env, category, candidates, signals, tas
         }
       }
     } catch (err) {
+      if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'curation', 0, 1);
       console.warn(`AI LLM curation fallback used for category ${category}:`, err);
     }
   }
@@ -2291,6 +2454,10 @@ export async function runAiStoryCuration(env, {
       aiCuration: getAiCurationState()
     };
   }
+
+  // AI usage counting: one batched flush at the end of the run covers every
+  // per-category LLM call (see ai-usage-log.mjs).
+  const usage = createAiUsageCounter();
 
   // Refresh learned signals if rows are available or fetch them from Supabase
   let recentRows = preloadedRecentRows;
@@ -2379,7 +2546,8 @@ export async function runAiStoryCuration(env, {
       dedupedCandidates,
       learnedSignalsCache,
       aiTasteProfileMemory,
-      engagementSignals
+      engagementSignals,
+      usage
     );
 
     stagedByCategory[category] = pickedForCategory.length;
@@ -2417,6 +2585,8 @@ export async function runAiStoryCuration(env, {
   aiCurationStateMemory.lastSummary = `Staged ${totalStagedInRun} AI-picked stories across ${NEWS_CATEGORIES.length} categories for ${getSlotLabel(targetSlot)}`;
   aiCurationStateMemory.updatedAt = curatedAt;
   aiCurationStateMemory.updatedBy = updatedBy;
+
+  await usage.flush(env);
 
   return {
     skipped: false,
@@ -3041,6 +3211,10 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
     if (descText && env.AI) {
       try {
         const descVector = await embedText(env, descText);
+        const fallbackUsage = createAiUsageCounter();
+        if (descVector) fallbackUsage.add(AI_USAGE_MODEL_BGE, 'playroom-fallback', 1);
+        else fallbackUsage.add(AI_USAGE_MODEL_BGE, 'playroom-fallback', 0, 1);
+        await fallbackUsage.flush(env);
         const { vectors } = await getPersistedKeywordEmbeddings(env);
         if (vectors && descVector) {
           const scored = [];
@@ -3101,3 +3275,399 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
 
   return { playroom, spaces, items: [...rankedApproved, ...rankedUnapproved] };
 }
+
+// ---------------------------------------------------------------------------
+// Taste Reader (step 2): manual selection run.
+//
+// The gated site page (not the GitHub admin panel) calls POST
+// /api/taste-reader/run with the signed-in user's Supabase access token.
+// The worker verifies that token against Supabase Auth, checks
+// profiles.is_admin for the token's user, and uses that user's id as
+// taste_reader_runs.user_id — no worker secret and no invented uid.
+// Scoring reuses scoreCandidateStory with the story's full content
+// blanked, so only the title + description the reader actually reads
+// affect the score, and with no engagement boost ({}), so popularity
+// cannot crowd out new content. Pool defaults, all deliberate:
+// unapproved only, removed=false, decided rows excluded
+// (decision_action null/undo), published_at strictly inside the past
+// 24 hours (null published_at is excluded by the range filter), flagged
+// interests excluded with the same De Morgan rewrite as the front-page
+// feeds. Per-space queries (6 front-page spaces, 50 each) keep slow
+// spaces from crowding out fast ones; dedupe assigns each story to its
+// highest-overlap space (ties keep the earliest space in order); the
+// pool round-robins across spaces and caps at 100 (10 pages of 10).
+// ---------------------------------------------------------------------------
+
+export const TASTE_READER_RUNS_TABLE = 'taste_reader_runs';
+export const TASTE_READER_RUN_ITEMS_TABLE = 'taste_reader_run_items';
+const TASTE_READER_FRONT_PAGE_SPACES = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
+const TASTE_READER_PER_SPACE_LIMIT = 50;
+const TASTE_READER_POOL_CAP = 100;
+const TASTE_READER_PAGE_SIZE = 10;
+const TASTE_READER_WINDOW_MS = 24 * 3600 * 1000;
+
+/**
+ * Verify a Taste Reader caller: Supabase access token -> Auth user ->
+ * profiles.is_admin. Returns { userId } or { error, status }.
+ * The Supabase service key doubles as the project API key for the Auth
+ * call; the user's own Bearer token is what proves who they are.
+ */
+export async function verifyTasteReaderAdmin(env, request) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) {
+    return { error: 'Taste Reader is not configured', status: 503 };
+  }
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+  if (!token) {
+    return { error: 'Supabase sign-in is required', status: 401 };
+  }
+  let userResponse;
+  try {
+    userResponse = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+      headers: { apikey: env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${token}` }
+    });
+  } catch {
+    return { error: 'Could not verify sign-in', status: 502 };
+  }
+  if (!userResponse.ok) {
+    return { error: 'Supabase sign-in is required', status: 401 };
+  }
+  const user = await userResponse.json().catch(() => null);
+  const userId = user && typeof user.id === 'string' ? user.id : '';
+  if (!userId) {
+    return { error: 'Supabase sign-in is required', status: 401 };
+  }
+  let profileResponse;
+  try {
+    profileResponse = await fetch(
+      supabaseUrl(env, 'profiles', new URLSearchParams({ select: 'is_admin', id: `eq.${userId}` })),
+      { headers: supabaseHeaders(env) }
+    );
+  } catch {
+    return { error: 'Could not verify admin status', status: 502 };
+  }
+  if (!profileResponse.ok) {
+    return { error: 'Could not verify admin status', status: 502 };
+  }
+  const rows = await profileResponse.json().catch(() => null);
+  if (!Array.isArray(rows) || rows.length === 0 || rows[0].is_admin !== true) {
+    return { error: 'Taste Reader is for admins only', status: 403 };
+  }
+  return { userId };
+}
+
+/**
+ * Build one Taste Reader pool: run row + ordered run items, first page
+ * returned. Returns { error } on an invalid interest filter, otherwise
+ * { runId, userId, windowStart, windowEnd, interestFilter, totalCount,
+ *   nextPosition, items } where items are the first page (at most 10).
+ * Throws on Supabase failures so the route can answer 502; a failed
+ * items insert deletes the just-created run row first, so a half-built
+ * run never lingers in the strip.
+ */
+export async function createTasteReaderRun(env, { userId, interestFilter = null, now = new Date() } = {}) {
+  const filter = typeof interestFilter === 'string' && interestFilter.trim() ? interestFilter.trim() : null;
+  if (filter && !isValidInterestKeyword(filter)) {
+    return { error: 'Unknown interest keyword' };
+  }
+  const windowEnd = now instanceof Date ? now : new Date(now);
+  const windowStart = new Date(windowEnd.getTime() - TASTE_READER_WINDOW_MS);
+
+  // Learned taste signals, same sources as AI curation (recent 60 decided
+  // + 40 banned). Failures here only weaken scoring, never the run.
+  let signals = null;
+  if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY) {
+    try {
+      const [recentRes, bannedRes] = await Promise.all([
+        fetch(supabaseUrl(env, STORIES_TABLE, new URLSearchParams({
+          select: 'id,provider,category,title,description,source_name,approved,removed,decision_action,decision_at',
+          decision_at: 'not.is.null',
+          order: 'decision_at.desc',
+          limit: '60'
+        })), { headers: supabaseHeaders(env) }),
+        fetch(supabaseUrl(env, STORIES_TABLE, new URLSearchParams({
+          select: 'id,provider,category,title,description,source_name,approved,removed,decision_action,removed_at',
+          removed: 'eq.true',
+          order: 'removed_at.desc.nullslast',
+          limit: '40'
+        })), { headers: supabaseHeaders(env) })
+      ]);
+      const recentRows = recentRes.ok ? await recentRes.json() : [];
+      const bannedRows = bannedRes.ok ? await bannedRes.json() : [];
+      signals = computeLearnedTasteSignals(
+        Array.isArray(recentRows) ? recentRows : [],
+        Array.isArray(bannedRows) ? bannedRows : []
+      );
+    } catch {
+      signals = null;
+    }
+  }
+  if (!signals) {
+    signals = computeLearnedTasteSignals([], []);
+  }
+  const tasteProfile = { ...aiTasteProfileMemory };
+
+  // Per-space candidate queries, concurrent. DB truth (not the
+  // in-memory dismissed set) decides what is still undecided.
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const candidateRequests = TASTE_READER_FRONT_PAGE_SPACES.map(space => {
+    const def = SPACE_DEFINITIONS[space];
+    const interestIds = [...new Set((def?.interestIds || []).map(String).filter(Boolean))];
+    const params = new URLSearchParams({
+      select: 'id,provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action',
+      approved: 'eq.false',
+      removed: 'eq.false',
+      // One logic tree: (space match) AND (still undecided). Two separate
+      // `or` params would collide, so both groups nest inside `and`.
+      and: `(or(interest_keywords.ov.{${interestIds.join(',')}},display_categories.cs.{${space}}),or(decision_action.is.null,decision_action.eq.undo))`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: String(TASTE_READER_PER_SPACE_LIMIT)
+    });
+    // PostgREST has no single range operator: two published_at params AND.
+    params.append('published_at', `gte.${windowStart.toISOString()}`);
+    params.append('published_at', `lte.${windowEnd.toISOString()}`);
+    if (excludedIds.length > 0) {
+      params.set('not.and', `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
+    }
+    return fetch(supabaseUrl(env, STORIES_TABLE, params), { headers: supabaseHeaders(env) })
+      .then(async res => {
+        if (!res.ok) throw new Error('Taste Reader candidate lookup failed');
+        return { space, rows: await res.json() };
+      });
+  });
+  const spaceResults = await Promise.all(candidateRequests);
+
+  // Dedupe by content id, assigning the highest-overlap space (ties keep
+  // the earliest space in front-page order, since spaces iterate in order
+  // and only a strictly higher overlap replaces the assignment).
+  const byId = new Map();
+  for (const { space, rows } of spaceResults) {
+    if (!Array.isArray(rows)) continue;
+    const spaceInterestIds = new Set(SPACE_DEFINITIONS[space]?.interestIds || []);
+    for (const row of rows) {
+      if (!row || row.id == null || !row.article_url) continue;
+      const story = { ...normalizeStory(row), id: Number(row.id), approved: false, removed: false };
+      const keywords = Array.isArray(story.interestKeywords) ? story.interestKeywords : [];
+      const overlap = keywords.filter(k => spaceInterestIds.has(k)).length;
+      const existing = byId.get(story.id);
+      if (!existing) {
+        byId.set(story.id, { story, space, overlap });
+      } else if (overlap > existing.overlap) {
+        existing.space = space;
+        existing.overlap = overlap;
+      }
+    }
+  }
+
+  // Score title + description only, no engagement boost.
+  let scored = Array.from(byId.values()).map(({ story, space }) => {
+    const { score } = scoreCandidateStory({ ...story, content: '' }, signals, tasteProfile, {});
+    return { story, space, score };
+  });
+  if (filter) {
+    scored = scored.filter(({ story }) => (story.interestKeywords || []).includes(filter));
+  }
+
+  // Sort within each space, then round-robin across spaces to the cap.
+  const bySpace = new Map(TASTE_READER_FRONT_PAGE_SPACES.map(space => [space, []]));
+  for (const item of scored) {
+    if (!bySpace.has(item.space)) bySpace.set(item.space, []);
+    bySpace.get(item.space).push(item);
+  }
+  for (const list of bySpace.values()) {
+    list.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if ((b.story.pubDate || '') !== (a.story.pubDate || '')) return (b.story.pubDate || '').localeCompare(a.story.pubDate || '');
+      return a.story.id - b.story.id;
+    });
+  }
+  const pool = [];
+  const cursors = new Map(TASTE_READER_FRONT_PAGE_SPACES.map(space => [space, 0]));
+  let progressed = true;
+  while (pool.length < TASTE_READER_POOL_CAP && progressed) {
+    progressed = false;
+    for (const space of TASTE_READER_FRONT_PAGE_SPACES) {
+      if (pool.length >= TASTE_READER_POOL_CAP) break;
+      const list = bySpace.get(space) || [];
+      const cursor = cursors.get(space) || 0;
+      if (cursor < list.length) {
+        pool.push(list[cursor]);
+        cursors.set(space, cursor + 1);
+        progressed = true;
+      }
+    }
+  }
+
+  // Persist: run row first (returning its id), then one bulk items insert.
+  const runResponse = await fetch(supabaseUrl(env, TASTE_READER_RUNS_TABLE, ''), {
+    method: 'POST',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({
+      user_id: userId,
+      window_start: windowStart.toISOString(),
+      window_end: windowEnd.toISOString(),
+      interest_filter: filter,
+      total_count: pool.length,
+      next_position: Math.min(TASTE_READER_PAGE_SIZE, pool.length)
+    })
+  });
+  if (!runResponse.ok) throw new Error('Taste Reader run could not be saved');
+  const runRows = await runResponse.json().catch(() => null);
+  const runId = Array.isArray(runRows) && runRows[0] ? runRows[0].id : null;
+  if (!runId) throw new Error('Taste Reader run could not be saved');
+
+  const itemsResponse = await fetch(supabaseUrl(env, TASTE_READER_RUN_ITEMS_TABLE, ''), {
+    method: 'POST',
+    headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+    body: JSON.stringify(pool.map((item, position) => ({
+      run_id: runId,
+      user_id: userId,
+      position,
+      content_id: item.story.id,
+      status: 'queued'
+    })))
+  });
+  if (!itemsResponse.ok) {
+    // Best-effort cleanup so a half-built run never lingers.
+    try {
+      await fetch(supabaseUrl(env, TASTE_READER_RUNS_TABLE, new URLSearchParams({ id: `eq.${runId}` })), {
+        method: 'DELETE',
+        headers: supabaseHeaders(env, { Prefer: 'return=minimal' })
+      });
+    } catch {
+      // Cleanup failure is secondary to reporting the run failure.
+    }
+    throw new Error('Taste Reader run items could not be saved');
+  }
+
+  const firstPage = pool.slice(0, TASTE_READER_PAGE_SIZE).map((item, position) => ({
+    position,
+    contentId: item.story.id,
+    score: item.score,
+    space: item.space,
+    title: item.story.title,
+    description: item.story.description,
+    link: item.story.link,
+    image: item.story.image,
+    pubDate: item.story.pubDate,
+    source: item.story.source,
+    category: item.story.category,
+    interestKeywords: item.story.interestKeywords
+  }));
+  return {
+    runId,
+    userId,
+    windowStart: windowStart.toISOString(),
+    windowEnd: windowEnd.toISOString(),
+    interestFilter: filter,
+    totalCount: pool.length,
+    nextPosition: Math.min(TASTE_READER_PAGE_SIZE, pool.length),
+    items: firstPage
+  };
+};
+
+// Taste Reader reader actions: word scores + notes. Append-only tables, so
+// every click is a record, not an overwrite — the weighted list (step 5)
+// sums these rows per user + word.
+
+export const TASTE_READER_WORD_SCORE_DELTAS = Object.freeze({
+  up: 1,
+  down: -1,
+  next: -1,
+  ignore: -3,
+  ban: -5
+});
+
+// Aggregation key: lowercase, punctuation trimmed from both ends (the same
+// rule the frontend uses, so a marked word and its stored key always
+// match). Punctuation-only tokens normalize to '' and are unscoreable.
+export function normalizeTasteReaderWord(word) {
+  if (typeof word !== 'string') return '';
+  return word.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+}
+
+const TASTE_READER_NOTE_KINDS = new Set(['user_note', 'ai_reason']);
+const TASTE_READER_NOTE_CONTEXTS = new Set(['viewed', 'skipped', 'ignored', 'banned', 'next']);
+
+export async function recordTasteReaderWordScore(env, {
+  userId, contentId, runId = null, wordDisplay, source, wordPosition, action
+} = {}) {
+  if (!userId || !Number.isFinite(Number(contentId))) {
+    return { error: 'A content balloon and a signed-in admin are required' };
+  }
+  const delta = TASTE_READER_WORD_SCORE_DELTAS[action];
+  if (delta === undefined) return { error: 'Unknown word action' };
+  if (source !== 'title' && source !== 'description') {
+    return { error: 'Word source must be title or description' };
+  }
+  if (!Number.isInteger(wordPosition) || wordPosition < 0) {
+    return { error: 'Word position must be a non-negative integer' };
+  }
+  const wordNormalized = normalizeTasteReaderWord(wordDisplay);
+  if (!wordNormalized) return { error: 'That word has no letters or digits to score' };
+  const row = {
+    user_id: userId,
+    content_id: Number(contentId),
+    run_id: typeof runId === 'string' && runId ? runId : null,
+    word_display: String(wordDisplay),
+    word_normalized: wordNormalized,
+    source,
+    word_position: wordPosition,
+    action,
+    score_delta: delta
+  };
+  const res = await fetch(supabaseUrl(env, 'taste_reader_word_scores', new URLSearchParams({ select: 'id' })), {
+    method: 'POST',
+    headers: { ...supabaseHeaders(env), Prefer: 'return=representation' },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) throw new Error(`Word score insert failed (HTTP ${res.status})`);
+  // next / ignore / ban move past a balloon: its run item is skipped.
+  // Status is secondary — a failed status update never fails the score.
+  if (row.run_id && ['next', 'ignore', 'ban'].includes(action)) {
+    try {
+      const params = new URLSearchParams({
+        run_id: `eq.${row.run_id}`,
+        content_id: `eq.${row.content_id}`
+      });
+      await fetch(supabaseUrl(env, 'taste_reader_run_items', params), {
+        method: 'PATCH',
+        headers: { ...supabaseHeaders(env), Prefer: 'return=minimal' },
+        body: JSON.stringify({ status: 'skipped' })
+      });
+    } catch { /* score already saved; status can be fixed in step 4 */ }
+  }
+  return { ok: true, scoreDelta: delta, wordNormalized };
+}
+
+export async function saveTasteReaderNote(env, {
+  userId, contentId, runId = null, kind = 'user_note', body,
+  actionContext = null, stoppedWordNormalized = null, stoppedPosition = null, aiModel = null
+} = {}) {
+  if (!userId || !Number.isFinite(Number(contentId))) {
+    return { error: 'A content balloon and a signed-in admin are required' };
+  }
+  if (!TASTE_READER_NOTE_KINDS.has(kind)) return { error: 'Unknown note kind' };
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (!text) return { error: 'A note needs some text' };
+  if (text.length > 2000) return { error: 'Note is too long (max 2000 characters)' };
+  const row = {
+    user_id: userId,
+    content_id: Number(contentId),
+    run_id: typeof runId === 'string' && runId ? runId : null,
+    kind,
+    body: text,
+    action_context: TASTE_READER_NOTE_CONTEXTS.has(actionContext) ? actionContext : null,
+    stopped_word_normalized: typeof stoppedWordNormalized === 'string' && stoppedWordNormalized ? stoppedWordNormalized : null,
+    stopped_position: Number.isInteger(stoppedPosition) && stoppedPosition >= 0 ? stoppedPosition : null,
+    ai_model: typeof aiModel === 'string' && aiModel ? aiModel : null
+  };
+  const res = await fetch(supabaseUrl(env, 'taste_reader_notes', new URLSearchParams({ select: 'id' })), {
+    method: 'POST',
+    headers: { ...supabaseHeaders(env), Prefer: 'return=representation' },
+    body: JSON.stringify(row)
+  });
+  if (!res.ok) throw new Error(`Note insert failed (HTTP ${res.status})`);
+  return { ok: true };
+}
+
