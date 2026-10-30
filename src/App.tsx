@@ -14,6 +14,7 @@ import { StoryModal } from './components/StoryModal';
 import { Footer } from './components/Footer';
 import { InfoDialog } from './components/InfoDialog';
 import { AboutPage } from './components/AboutPage';
+import { TasteReaderPage } from './components/TasteReaderPage';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SignInDialog, getSavedPendingOtpEmail } from './components/SignInDialog';
 import { ProfileDialog, ProfileDialogTab } from './components/ProfileDialog';
@@ -86,6 +87,12 @@ function parsePlayroomSpaceFromUrl(): { username: string; playroom: string; spac
 function parseAboutFromUrl(): boolean {
   if (typeof window === 'undefined') return false;
   return /^\/about\/?$/i.test(window.location.pathname);
+}
+
+/** True when on the standalone `/taste-reader` page. */
+function parseTasteReaderFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^\/taste-reader\/?$/i.test(window.location.pathname);
 }
 
 /**
@@ -206,6 +213,7 @@ export const App: React.FC = () => {
   const [spaceRoute, setSpaceRoute] = useState<{ username: string; slug: string } | null>(() => parseSpaceFromUrl());
   const [playroomSpaceRoute, setPlayroomSpaceRoute] = useState<{ username: string; playroom: string; space: string } | null>(() => parsePlayroomSpaceFromUrl());
   const [aboutRoute, setAboutRoute] = useState<boolean>(() => parseAboutFromUrl());
+  const [tasteReaderRoute, setTasteReaderRoute] = useState<boolean>(() => parseTasteReaderFromUrl());
 
   const [activeStoryParam, setActiveStoryParam] = useState<string | null>(() => parseStoryFromUrl());
   const [selectedStory, setSelectedStory] = useState<{ item: NewsItem; index: number } | null>(null);
@@ -247,6 +255,10 @@ export const App: React.FC = () => {
     document.documentElement.lang = locale.lang;
     document.documentElement.dir = locale.lang === 'ar' ? 'rtl' : 'ltr';
     if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
+    if (tasteReaderRoute) {
+      document.title = `${SITE_TITLE_BASE} | The Reading Room (Taste Reader)`;
+      return;
+    }
     if (selectedStory?.item?.title) {
       document.title = `${SITE_TITLE_BASE} | ${selectedStory.item.title}`;
     } else if (aboutRoute) {
@@ -259,12 +271,12 @@ export const App: React.FC = () => {
     } else {
       document.title = SITE_TITLE_BASE;
     }
-  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute]);
+  }, [selectedStory, category, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute, aboutRoute, tasteReaderRoute]);
 
   // Ensure initial URL reflects the active topic if not already in the address bar
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute) return;
+    if (profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute || aboutRoute || tasteReaderRoute) return;
     const currentUrlTopic = parseTopicFromUrl();
     const currentStory = parseStoryFromUrl();
     const currentActivity = parseActivityFromUrl().isOpen;
@@ -278,6 +290,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
+      const urlTasteReader = parseTasteReaderFromUrl();
+      setTasteReaderRoute(urlTasteReader);
+      if (urlTasteReader) {
+        setAboutRoute(false);
+        setPlayroomOrSpaceRoute(null);
+        setSpaceRoute(null);
+        setPlayroomSpaceRoute(null);
+        setProfileRoute(null);
+        return;
+      }
       const urlAbout = parseAboutFromUrl();
       setAboutRoute(urlAbout);
       if (urlAbout) {
@@ -290,6 +312,7 @@ export const App: React.FC = () => {
       const urlPlayroomSpace = parsePlayroomSpaceFromUrl();
       setPlayroomSpaceRoute(urlPlayroomSpace);
       if (urlPlayroomSpace) {
+        setTasteReaderRoute(false);
         setPlayroomOrSpaceRoute(null);
         setSpaceRoute(null);
         setProfileRoute(null);
@@ -298,6 +321,7 @@ export const App: React.FC = () => {
       const urlSpace = parseSpaceFromUrl();
       setSpaceRoute(urlSpace);
       if (urlSpace) {
+        setTasteReaderRoute(false);
         setPlayroomOrSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
@@ -306,11 +330,13 @@ export const App: React.FC = () => {
       const urlPlayroomOrSpace = parsePlayroomOrSpaceFromUrl();
       setPlayroomOrSpaceRoute(urlPlayroomOrSpace);
       if (urlPlayroomOrSpace) {
+        setTasteReaderRoute(false);
         setSpaceRoute(null);
         setPlayroomSpaceRoute(null);
         setProfileRoute(null);
         return;
       }
+      setTasteReaderRoute(false);
       const urlProfile = parseProfileFromUrl();
       setProfileRoute(urlProfile);
       if (urlProfile) return;
@@ -446,7 +472,7 @@ export const App: React.FC = () => {
   }, [profile?.pills]);
 
   useEffect(() => {
-    if (aboutRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
+    if (aboutRoute || tasteReaderRoute || profileRoute || playroomOrSpaceRoute || spaceRoute || playroomSpaceRoute) return;
     loadFeed(category);
   }, [category, loadFeed, aboutRoute, profileRoute, playroomOrSpaceRoute, spaceRoute, playroomSpaceRoute]);
 
@@ -705,7 +731,7 @@ export const App: React.FC = () => {
         <WorksheetsPanel />
 
         {/* Category nav is hidden on standalone about/profile/playroom/space pages — those show their own views, not the main feed. */}
-        {!aboutRoute && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
+        {!aboutRoute && !tasteReaderRoute && !profileRoute && !playroomOrSpaceRoute && !spaceRoute && !playroomSpaceRoute && (
           <CategoryNav
             currentCategory={category}
             onSelectCategory={handleSelectCategory}
@@ -720,6 +746,10 @@ export const App: React.FC = () => {
               onSignIn={handleAboutCta}
               signedIn={!!profile?.username}
             />
+          </main>
+        ) : tasteReaderRoute ? (
+          <main className="news-grid">
+            <TasteReaderPage onSignIn={handleAboutCta} />
           </main>
         ) : playroomSpaceRoute ? (
           <SpacePage

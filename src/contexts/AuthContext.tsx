@@ -55,6 +55,7 @@ export interface Profile {
   pills: PillConfig[] | null;
   use_viewer_theme_for_boards: boolean;
   membership?: MembershipTier | string;
+  is_admin?: boolean;
   created_at: string;
   updated_at: string;
 }
