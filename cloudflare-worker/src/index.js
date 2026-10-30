@@ -58,6 +58,8 @@ import {
   getNewsProviderFetchLogsFromDb,
   DEFAULT_RATE_LIMIT_COOLDOWN_SECONDS,
   getAiCurationState,
+  createTasteReaderRun,
+  verifyTasteReaderAdmin,
   updateAiCurationConfig,
   runAiStoryCuration,
   bulkDecideNewsStories,
@@ -97,7 +99,7 @@ const imageMemoryCache = new Map();
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400'
 };
 
@@ -3289,6 +3291,40 @@ export default {
         return jsonResponse({ items: [], count: 0, error: err.message }, 500);
       }
     }
+    // Taste Reader step 2: manual selection run for the gated site page.
+    // Site auth (Supabase token + profiles.is_admin), not the GitHub admin
+    // session: the site is cross-origin and the page is not /admin.
+    if (request.method === 'POST' && pathname === '/api/taste-reader/run') {
+      try {
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `taste-reader:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Taste Reader rate limit exceeded; try again shortly' }, 429);
+        }
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+        const payload = await request.json().catch(() => ({}));
+        const interestFilter = typeof payload.interestFilter === 'string' && payload.interestFilter.trim()
+          ? payload.interestFilter.trim()
+          : null;
+        const result = await createTasteReaderRun(env, { userId: auth.userId, interestFilter });
+        if (result.error) return jsonResponse({ error: result.error }, 400);
+        return jsonResponse({
+          ok: true,
+          runId: result.runId,
+          totalCount: result.totalCount,
+          nextPosition: result.nextPosition,
+          items: result.items
+        });
+      } catch (err) {
+        console.error('Taste Reader run failed:', err);
+        return jsonResponse({
+          error: err instanceof Error ? err.message : 'Could not run Taste Reader'
+        }, 502);
+      }
+    }
+
     // Phase 2 preview: admin-only space feed sample + diagnostics.
     // GitHub admin session required (same auth as /admin/api/*).
     if (request.method === 'GET' && pathname === '/api/admin/preview') {

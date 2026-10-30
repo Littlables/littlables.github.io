@@ -16,6 +16,7 @@ TEST_FILES=(
   "cloudflare-worker/src/staggered-sync.test.mjs"
   "cloudflare-worker/src/ai-usage-log.test.mjs"
   "cloudflare-worker/src/provider-sync-runs.test.mjs"
+  "cloudflare-worker/src/taste-reader.test.mjs"
 )
 
 TOTAL_PASS=0

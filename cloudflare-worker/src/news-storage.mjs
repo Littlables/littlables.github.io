@@ -1,5 +1,5 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
-import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion } from './interest-keywords.mjs';
+import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion, isValidInterestKeyword } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
 import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
 
@@ -3275,3 +3275,293 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
 
   return { playroom, spaces, items: [...rankedApproved, ...rankedUnapproved] };
 }
+
+// ---------------------------------------------------------------------------
+// Taste Reader (step 2): manual selection run.
+//
+// The gated site page (not the GitHub admin panel) calls POST
+// /api/taste-reader/run with the signed-in user's Supabase access token.
+// The worker verifies that token against Supabase Auth, checks
+// profiles.is_admin for the token's user, and uses that user's id as
+// taste_reader_runs.user_id — no worker secret and no invented uid.
+// Scoring reuses scoreCandidateStory with the story's full content
+// blanked, so only the title + description the reader actually reads
+// affect the score, and with no engagement boost ({}), so popularity
+// cannot crowd out new content. Pool defaults, all deliberate:
+// unapproved only, removed=false, decided rows excluded
+// (decision_action null/undo), published_at strictly inside the past
+// 24 hours (null published_at is excluded by the range filter), flagged
+// interests excluded with the same De Morgan rewrite as the front-page
+// feeds. Per-space queries (6 front-page spaces, 50 each) keep slow
+// spaces from crowding out fast ones; dedupe assigns each story to its
+// highest-overlap space (ties keep the earliest space in order); the
+// pool round-robins across spaces and caps at 100 (10 pages of 10).
+// ---------------------------------------------------------------------------
+
+export const TASTE_READER_RUNS_TABLE = 'taste_reader_runs';
+export const TASTE_READER_RUN_ITEMS_TABLE = 'taste_reader_run_items';
+const TASTE_READER_FRONT_PAGE_SPACES = ['childcare', 'animals', 'arts', 'tech', 'world', 'uplifting'];
+const TASTE_READER_PER_SPACE_LIMIT = 50;
+const TASTE_READER_POOL_CAP = 100;
+const TASTE_READER_PAGE_SIZE = 10;
+const TASTE_READER_WINDOW_MS = 24 * 3600 * 1000;
+
+/**
+ * Verify a Taste Reader caller: Supabase access token -> Auth user ->
+ * profiles.is_admin. Returns { userId } or { error, status }.
+ * The Supabase service key doubles as the project API key for the Auth
+ * call; the user's own Bearer token is what proves who they are.
+ */
+export async function verifyTasteReaderAdmin(env, request) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SECRET_KEY) {
+    return { error: 'Taste Reader is not configured', status: 503 };
+  }
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+  if (!token) {
+    return { error: 'Supabase sign-in is required', status: 401 };
+  }
+  let userResponse;
+  try {
+    userResponse = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+      headers: { apikey: env.SUPABASE_SECRET_KEY, Authorization: `Bearer ${token}` }
+    });
+  } catch {
+    return { error: 'Could not verify sign-in', status: 502 };
+  }
+  if (!userResponse.ok) {
+    return { error: 'Supabase sign-in is required', status: 401 };
+  }
+  const user = await userResponse.json().catch(() => null);
+  const userId = user && typeof user.id === 'string' ? user.id : '';
+  if (!userId) {
+    return { error: 'Supabase sign-in is required', status: 401 };
+  }
+  let profileResponse;
+  try {
+    profileResponse = await fetch(
+      supabaseUrl(env, 'profiles', new URLSearchParams({ select: 'is_admin', id: `eq.${userId}` })),
+      { headers: supabaseHeaders(env) }
+    );
+  } catch {
+    return { error: 'Could not verify admin status', status: 502 };
+  }
+  if (!profileResponse.ok) {
+    return { error: 'Could not verify admin status', status: 502 };
+  }
+  const rows = await profileResponse.json().catch(() => null);
+  if (!Array.isArray(rows) || rows.length === 0 || rows[0].is_admin !== true) {
+    return { error: 'Taste Reader is for admins only', status: 403 };
+  }
+  return { userId };
+}
+
+/**
+ * Build one Taste Reader pool: run row + ordered run items, first page
+ * returned. Returns { error } on an invalid interest filter, otherwise
+ * { runId, userId, windowStart, windowEnd, interestFilter, totalCount,
+ *   nextPosition, items } where items are the first page (at most 10).
+ * Throws on Supabase failures so the route can answer 502; a failed
+ * items insert deletes the just-created run row first, so a half-built
+ * run never lingers in the strip.
+ */
+export async function createTasteReaderRun(env, { userId, interestFilter = null, now = new Date() } = {}) {
+  const filter = typeof interestFilter === 'string' && interestFilter.trim() ? interestFilter.trim() : null;
+  if (filter && !isValidInterestKeyword(filter)) {
+    return { error: 'Unknown interest keyword' };
+  }
+  const windowEnd = now instanceof Date ? now : new Date(now);
+  const windowStart = new Date(windowEnd.getTime() - TASTE_READER_WINDOW_MS);
+
+  // Learned taste signals, same sources as AI curation (recent 60 decided
+  // + 40 banned). Failures here only weaken scoring, never the run.
+  let signals = null;
+  if (env?.SUPABASE_URL && env?.SUPABASE_SECRET_KEY) {
+    try {
+      const [recentRes, bannedRes] = await Promise.all([
+        fetch(supabaseUrl(env, STORIES_TABLE, new URLSearchParams({
+          select: 'id,provider,category,title,description,source_name,approved,removed,decision_action,decision_at',
+          decision_at: 'not.is.null',
+          order: 'decision_at.desc',
+          limit: '60'
+        })), { headers: supabaseHeaders(env) }),
+        fetch(supabaseUrl(env, STORIES_TABLE, new URLSearchParams({
+          select: 'id,provider,category,title,description,source_name,approved,removed,decision_action,removed_at',
+          removed: 'eq.true',
+          order: 'removed_at.desc.nullslast',
+          limit: '40'
+        })), { headers: supabaseHeaders(env) })
+      ]);
+      const recentRows = recentRes.ok ? await recentRes.json() : [];
+      const bannedRows = bannedRes.ok ? await bannedRes.json() : [];
+      signals = computeLearnedTasteSignals(
+        Array.isArray(recentRows) ? recentRows : [],
+        Array.isArray(bannedRows) ? bannedRows : []
+      );
+    } catch {
+      signals = null;
+    }
+  }
+  if (!signals) {
+    signals = computeLearnedTasteSignals([], []);
+  }
+  const tasteProfile = { ...aiTasteProfileMemory };
+
+  // Per-space candidate queries, concurrent. DB truth (not the
+  // in-memory dismissed set) decides what is still undecided.
+  const excludedIds = [...EXCLUDED_KEYWORD_IDS];
+  const candidateRequests = TASTE_READER_FRONT_PAGE_SPACES.map(space => {
+    const def = SPACE_DEFINITIONS[space];
+    const interestIds = [...new Set((def?.interestIds || []).map(String).filter(Boolean))];
+    const params = new URLSearchParams({
+      select: 'id,provider,category,display_categories,interest_keywords,title,article_url,image_url,description,content,ai_summary,published_at,source_name,approved,removed,fetched_at,decision_action',
+      approved: 'eq.false',
+      removed: 'eq.false',
+      // One logic tree: (space match) AND (still undecided). Two separate
+      // `or` params would collide, so both groups nest inside `and`.
+      and: `(or(interest_keywords.ov.{${interestIds.join(',')}},display_categories.cs.{${space}}),or(decision_action.is.null,decision_action.eq.undo))`,
+      order: 'published_at.desc.nullslast,fetched_at.desc',
+      limit: String(TASTE_READER_PER_SPACE_LIMIT)
+    });
+    // PostgREST has no single range operator: two published_at params AND.
+    params.append('published_at', `gte.${windowStart.toISOString()}`);
+    params.append('published_at', `lte.${windowEnd.toISOString()}`);
+    if (excludedIds.length > 0) {
+      params.set('not.and', `(interest_keywords.not.is.null,interest_keywords.ov.{${excludedIds.join(',')}})`);
+    }
+    return fetch(supabaseUrl(env, STORIES_TABLE, params), { headers: supabaseHeaders(env) })
+      .then(async res => {
+        if (!res.ok) throw new Error('Taste Reader candidate lookup failed');
+        return { space, rows: await res.json() };
+      });
+  });
+  const spaceResults = await Promise.all(candidateRequests);
+
+  // Dedupe by content id, assigning the highest-overlap space (ties keep
+  // the earliest space in front-page order, since spaces iterate in order
+  // and only a strictly higher overlap replaces the assignment).
+  const byId = new Map();
+  for (const { space, rows } of spaceResults) {
+    if (!Array.isArray(rows)) continue;
+    const spaceInterestIds = new Set(SPACE_DEFINITIONS[space]?.interestIds || []);
+    for (const row of rows) {
+      if (!row || row.id == null || !row.article_url) continue;
+      const story = { ...normalizeStory(row), id: Number(row.id), approved: false, removed: false };
+      const keywords = Array.isArray(story.interestKeywords) ? story.interestKeywords : [];
+      const overlap = keywords.filter(k => spaceInterestIds.has(k)).length;
+      const existing = byId.get(story.id);
+      if (!existing) {
+        byId.set(story.id, { story, space, overlap });
+      } else if (overlap > existing.overlap) {
+        existing.space = space;
+        existing.overlap = overlap;
+      }
+    }
+  }
+
+  // Score title + description only, no engagement boost.
+  let scored = Array.from(byId.values()).map(({ story, space }) => {
+    const { score } = scoreCandidateStory({ ...story, content: '' }, signals, tasteProfile, {});
+    return { story, space, score };
+  });
+  if (filter) {
+    scored = scored.filter(({ story }) => (story.interestKeywords || []).includes(filter));
+  }
+
+  // Sort within each space, then round-robin across spaces to the cap.
+  const bySpace = new Map(TASTE_READER_FRONT_PAGE_SPACES.map(space => [space, []]));
+  for (const item of scored) {
+    if (!bySpace.has(item.space)) bySpace.set(item.space, []);
+    bySpace.get(item.space).push(item);
+  }
+  for (const list of bySpace.values()) {
+    list.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if ((b.story.pubDate || '') !== (a.story.pubDate || '')) return (b.story.pubDate || '').localeCompare(a.story.pubDate || '');
+      return a.story.id - b.story.id;
+    });
+  }
+  const pool = [];
+  const cursors = new Map(TASTE_READER_FRONT_PAGE_SPACES.map(space => [space, 0]));
+  let progressed = true;
+  while (pool.length < TASTE_READER_POOL_CAP && progressed) {
+    progressed = false;
+    for (const space of TASTE_READER_FRONT_PAGE_SPACES) {
+      if (pool.length >= TASTE_READER_POOL_CAP) break;
+      const list = bySpace.get(space) || [];
+      const cursor = cursors.get(space) || 0;
+      if (cursor < list.length) {
+        pool.push(list[cursor]);
+        cursors.set(space, cursor + 1);
+        progressed = true;
+      }
+    }
+  }
+
+  // Persist: run row first (returning its id), then one bulk items insert.
+  const runResponse = await fetch(supabaseUrl(env, TASTE_READER_RUNS_TABLE, ''), {
+    method: 'POST',
+    headers: supabaseHeaders(env, { Prefer: 'return=representation' }),
+    body: JSON.stringify({
+      user_id: userId,
+      window_start: windowStart.toISOString(),
+      window_end: windowEnd.toISOString(),
+      interest_filter: filter,
+      total_count: pool.length,
+      next_position: Math.min(TASTE_READER_PAGE_SIZE, pool.length)
+    })
+  });
+  if (!runResponse.ok) throw new Error('Taste Reader run could not be saved');
+  const runRows = await runResponse.json().catch(() => null);
+  const runId = Array.isArray(runRows) && runRows[0] ? runRows[0].id : null;
+  if (!runId) throw new Error('Taste Reader run could not be saved');
+
+  const itemsResponse = await fetch(supabaseUrl(env, TASTE_READER_RUN_ITEMS_TABLE, ''), {
+    method: 'POST',
+    headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+    body: JSON.stringify(pool.map((item, position) => ({
+      run_id: runId,
+      user_id: userId,
+      position,
+      content_id: item.story.id,
+      status: 'queued'
+    })))
+  });
+  if (!itemsResponse.ok) {
+    // Best-effort cleanup so a half-built run never lingers.
+    try {
+      await fetch(supabaseUrl(env, TASTE_READER_RUNS_TABLE, new URLSearchParams({ id: `eq.${runId}` })), {
+        method: 'DELETE',
+        headers: supabaseHeaders(env, { Prefer: 'return=minimal' })
+      });
+    } catch {
+      // Cleanup failure is secondary to reporting the run failure.
+    }
+    throw new Error('Taste Reader run items could not be saved');
+  }
+
+  const firstPage = pool.slice(0, TASTE_READER_PAGE_SIZE).map((item, position) => ({
+    position,
+    contentId: item.story.id,
+    score: item.score,
+    space: item.space,
+    title: item.story.title,
+    description: item.story.description,
+    link: item.story.link,
+    image: item.story.image,
+    pubDate: item.story.pubDate,
+    source: item.story.source,
+    category: item.story.category,
+    interestKeywords: item.story.interestKeywords
+  }));
+  return {
+    runId,
+    userId,
+    windowStart: windowStart.toISOString(),
+    windowEnd: windowEnd.toISOString(),
+    interestFilter: filter,
+    totalCount: pool.length,
+    nextPosition: Math.min(TASTE_READER_PAGE_SIZE, pool.length),
+    items: firstPage
+  };
+};
