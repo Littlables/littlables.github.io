@@ -6,6 +6,7 @@ import {
   parseActivityFromUrl,
   shareWorksheetWithImage,
 } from '../services/urlService';
+import { DigitalWorksheetModal } from './DigitalWorksheetModal';
 
 type WorksheetType = 'coloring-page' | 'hidden-puzzle' | 'word-search';
 type WorksheetFilter = 'all' | WorksheetType;
@@ -97,6 +98,8 @@ export const WorksheetsPanel: React.FC = () => {
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [openDownloadPopoverId, setOpenDownloadPopoverId] = useState<string | null>(null);
+  const [activeDigitalWorksheet, setActiveDigitalWorksheet] = useState<WorksheetItem | null>(null);
   const [worksheetFilter, setWorksheetFilter] = useState<WorksheetFilter>('all');
   const visibleWorksheets = worksheetFilter === 'all'
     ? WORKSHEETS
@@ -150,6 +153,7 @@ export const WorksheetsPanel: React.FC = () => {
     if (!isOpen) {
       document.documentElement.classList.remove('story-modal-open');
       document.body.classList.remove('story-modal-open');
+      setOpenDownloadPopoverId(null);
       return;
     }
     document.documentElement.classList.add('story-modal-open');
@@ -167,7 +171,11 @@ export const WorksheetsPanel: React.FC = () => {
     const handlePointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
+      if (!target.closest('.worksheet-download-popover-wrap')) {
+        setOpenDownloadPopoverId(null);
+      }
       if (target.closest('#worksheets-btn')) return;
+      if (target.closest('.digital-worksheet-modal-backdrop')) return;
       if (containerRef.current && !containerRef.current.contains(target)) {
         clearActivityFromUrl();
         setIsOpen(false);
@@ -417,7 +425,19 @@ export const WorksheetsPanel: React.FC = () => {
             id={`worksheet-card-${worksheet.id}`}
             className="news-card worksheet-card"
           >
-            <div className="news-card-image-wrap worksheet-card-image-wrap is-loaded">
+            <div
+              className="news-card-image-wrap worksheet-card-image-wrap is-loaded"
+              role="button"
+              tabIndex={0}
+              title={`Open interactive ${worksheet.title}`}
+              onClick={() => setActiveDigitalWorksheet(worksheet)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveDigitalWorksheet(worksheet);
+                }
+              }}
+            >
               <img
                 src={worksheet.previewImg}
                 alt={worksheet.title}
@@ -449,45 +469,89 @@ export const WorksheetsPanel: React.FC = () => {
               <p className="news-card-desc">{worksheet.description}</p>
 
               <div className="news-card-footer worksheet-card-footer">
-                <button
-                  type="button"
-                  className="worksheet-action-btn worksheet-print-btn"
-                  data-umami-event="Print-Worksheet"
-                  data-umami-event-worksheet={worksheet.id}
-                  onClick={() => handlePrintWorksheet(worksheet)}
-                >
-                  🖨️ {printingId === worksheet.id ? 'Preparing…' : 'Print'}
-                </button>
+                <div className="worksheet-primary-actions">
+                  <button
+                    type="button"
+                    className="worksheet-action-btn worksheet-digital-btn"
+                    data-umami-event="Open-Digital-Worksheet"
+                    data-umami-event-worksheet={worksheet.id}
+                    onClick={() => setActiveDigitalWorksheet(worksheet)}
+                    title="Color & solve interactively"
+                  >
+                    🎨 Digital
+                  </button>
+                  <button
+                    type="button"
+                    className="worksheet-action-btn worksheet-print-btn"
+                    data-umami-event="Print-Worksheet"
+                    data-umami-event-worksheet={worksheet.id}
+                    onClick={() => handlePrintWorksheet(worksheet)}
+                  >
+                    🖨️ {printingId === worksheet.id ? 'Preparing…' : 'Print'}
+                  </button>
+                </div>
 
                 <div className="worksheet-download-group">
-                  <a
-                    href={worksheet.pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="worksheet-action-btn worksheet-download-btn"
-                    data-umami-event="Download-Worksheet-PDF"
-                    data-umami-event-worksheet={worksheet.id}
-                    title="Download PDF"
-                    onClick={(e) =>
-                      handleFileDownload(e, worksheet.pdfUrl, worksheet.pdfFilename, 'pdf')
-                    }
-                  >
-                    ⬇ PDF
-                  </a>
-                  <a
-                    href={worksheet.jpgUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="worksheet-action-btn worksheet-download-btn"
-                    data-umami-event="Download-Worksheet-JPG"
-                    data-umami-event-worksheet={worksheet.id}
-                    title="Download JPG"
-                    onClick={(e) =>
-                      handleFileDownload(e, worksheet.jpgUrl, worksheet.jpgFilename, 'jpg')
-                    }
-                  >
-                    ⬇ JPG
-                  </a>
+                  <div className="worksheet-download-popover-wrap">
+                    <button
+                      type="button"
+                      className={`worksheet-action-btn worksheet-download-btn worksheet-download-trigger ${
+                        openDownloadPopoverId === worksheet.id ? 'is-open' : ''
+                      }`}
+                      aria-expanded={openDownloadPopoverId === worksheet.id}
+                      aria-haspopup="menu"
+                      title="Download PDF or JPG"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenDownloadPopoverId((prev) =>
+                          prev === worksheet.id ? null : worksheet.id
+                        );
+                      }}
+                    >
+                      ⬇PDF/JPG
+                    </button>
+
+                    {openDownloadPopoverId === worksheet.id && (
+                      <div
+                        className="worksheet-download-popover"
+                        role="menu"
+                        aria-label={`Download options for ${worksheet.title}`}
+                      >
+                        <a
+                          href={worksheet.pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          role="menuitem"
+                          className="worksheet-download-popover-item"
+                          data-umami-event="Download-Worksheet-PDF"
+                          data-umami-event-worksheet={worksheet.id}
+                          onClick={(e) => {
+                            setOpenDownloadPopoverId(null);
+                            handleFileDownload(e, worksheet.pdfUrl, worksheet.pdfFilename, 'pdf');
+                          }}
+                        >
+                          <span>📄</span>
+                          <span>Download PDF</span>
+                        </a>
+                        <a
+                          href={worksheet.jpgUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          role="menuitem"
+                          className="worksheet-download-popover-item"
+                          data-umami-event="Download-Worksheet-JPG"
+                          data-umami-event-worksheet={worksheet.id}
+                          onClick={(e) => {
+                            setOpenDownloadPopoverId(null);
+                            handleFileDownload(e, worksheet.jpgUrl, worksheet.jpgFilename, 'jpg');
+                          }}
+                        >
+                          <span>🖼️</span>
+                          <span>Download JPG</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     className={`reaction-pill story-share-btn worksheet-share-btn ${
@@ -520,6 +584,13 @@ export const WorksheetsPanel: React.FC = () => {
           aria-hidden="true"
         />
       </section>
+
+      <DigitalWorksheetModal
+        worksheet={activeDigitalWorksheet}
+        allWorksheets={WORKSHEETS}
+        onClose={() => setActiveDigitalWorksheet(null)}
+        onSelectWorksheet={(next) => setActiveDigitalWorksheet(next)}
+      />
     </div>
   );
 };
