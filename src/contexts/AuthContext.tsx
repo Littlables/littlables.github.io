@@ -91,6 +91,45 @@ function cleanAuthFragmentFromUrl() {
   window.history.replaceState(null, '', window.location.pathname + window.location.search);
 }
 
+// Sign-in return path: Google OAuth and magic links both redirect to
+// window.location.origin (the Supabase-allowlisted root), so a user who
+// signs in from /taste-reader — or any deep page — lands on the homepage
+// and never comes back. Instead of changing redirectTo (a deep path may
+// not be in Supabase's Redirect URLs allowlist, and a rejected redirect
+// falls back to the project Site URL, which is worse), save the page the
+// sign-in started from and restore it once the session is known. The
+// restore uses the same pushState + popstate pattern App already uses
+// for in-app navigation, so the route state follows the URL.
+const SIGN_IN_RETURN_PATH_KEY = 'littlables-return-path';
+
+function saveSignInReturnPath() {
+  if (typeof window === 'undefined') return;
+  try {
+    const path = window.location.pathname + window.location.search;
+    if (path) window.localStorage.setItem(SIGN_IN_RETURN_PATH_KEY, path);
+  } catch {
+    // Private mode or blocked storage: sign-in still works, just without
+    // the return trip.
+  }
+}
+
+function restoreSignInReturnPath() {
+  if (typeof window === 'undefined') return;
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(SIGN_IN_RETURN_PATH_KEY);
+    window.localStorage.removeItem(SIGN_IN_RETURN_PATH_KEY);
+  } catch {
+    return;
+  }
+  if (!stored || !stored.startsWith('/')) return;
+  const current = window.location.pathname + window.location.search;
+  if (stored === current) return;
+  window.history.pushState({}, '', stored);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  window.scrollTo({ top: 0 });
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -107,13 +146,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     client.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
-      if (session) cleanAuthFragmentFromUrl();
+      if (session) {
+        cleanAuthFragmentFromUrl();
+        restoreSignInReturnPath();
+      }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) cleanAuthFragmentFromUrl();
+      if (session) {
+        cleanAuthFragmentFromUrl();
+        restoreSignInReturnPath();
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -167,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithGoogle = async () => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase not configured');
+    saveSignInReturnPath();
     const { error } = await client.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -179,6 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithEmail = async (email: string) => {
     const client = getSupabaseClient();
     if (!client) throw new Error('Supabase not configured');
+    saveSignInReturnPath();
     const { error } = await client.auth.signInWithOtp({
       email,
       options: {
