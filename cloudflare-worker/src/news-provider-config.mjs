@@ -104,3 +104,21 @@ export function getNewsProviders(env = {}) {
     configured: !config.credential || Boolean(env[config.credential])
   }));
 }
+
+// Category-major pair order for the hourly sweep (Phase 1: provider fetching).
+// All providers' childcare runs before all providers' animals, and so on, so
+// each provider gets the other providers' fetches as breathing room between
+// its own calls instead of 7 back-to-back hits. Pairs a provider does not
+// define a query for are skipped.
+export function buildInterleavedPairs(providerIds) {
+  const pairs = [];
+  for (const category of NEWS_CATEGORIES) {
+    for (const id of providerIds) {
+      const config = NEWS_PROVIDERS[id];
+      if (config && Object.hasOwn(config.categories, category)) {
+        pairs.push({ provider: id, category });
+      }
+    }
+  }
+  return pairs;
+}

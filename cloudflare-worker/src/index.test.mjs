@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import worker from './index.js';
 import { createAdminSessionCookie } from './github-auth.mjs';
+import {
+  clearProviderCooldownState,
+  updateAiCurationConfig
+} from './news-storage.mjs';
+import { NEWS_CATEGORIES } from './news-provider-config.mjs';
 
 // Quiet the worker's structured JSON event logs ({"event":"PROVIDER_FETCH",...})
 // during tests so failures are easy to spot in CI output. Anything that isn't
@@ -1477,6 +1482,142 @@ test('admin ai-usage endpoint returns daily counter rows', async () => {
     assert.match(seenUrl, /ai_usage_daily/);
     assert.match(seenUrl, /usage_date=gte\./);
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('hourly sweep fetches providers interleaved with batched writes', async () => {
+  const originalFetch = globalThis.fetch;
+  const providerFetchOrder = [];
+  const gnewsCategories = [];
+  const storyPosts = [];
+  const logPosts = [];
+  const retryQueuePosts = [];
+  const rss = `<rss><channel><item><title>Hourly Story</title><link>https://publisher.example/hourly</link><description>Summary</description><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`;
+
+  const gnewsCategoryFromUrl = (url) => {
+    if (url.pathname.includes('top-headlines')) {
+      return url.searchParams.get('category') === 'world' ? 'world' : 'all';
+    }
+    const q = url.searchParams.get('q') || '';
+    if (q.includes('childcare')) return 'childcare';
+    if (q.includes('animals')) return 'animals';
+    if (q.includes('arts')) return 'arts';
+    if (q.includes('technology')) return 'tech';
+    return 'uplifting';
+  };
+
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    const method = options?.method || 'GET';
+    if (url.hostname === 'gnews.io') {
+      providerFetchOrder.push(url.hostname);
+      gnewsCategories.push(gnewsCategoryFromUrl(url));
+      return Response.json({ articles: [{
+        title: 'G story',
+        url: 'https://publisher.example/g',
+        image: '',
+        description: 'd',
+        content: 'c',
+        publishedAt: new Date().toISOString(),
+        source: { name: 'GNews Source' }
+      }] });
+    }
+    if (url.hostname === 'www.bing.com') {
+      providerFetchOrder.push(url.hostname);
+      return new Response(rss);
+    }
+    if (url.hostname === 'www.reddit.com') {
+      providerFetchOrder.push(url.hostname);
+      // Non-Atom body: the adapter throws fast, so Reddit costs no pacing time.
+      return new Response('not an atom feed');
+    }
+    if (url.hostname === 'supabase.example') {
+      if (url.pathname.endsWith('/rpc/claim_news_provider_sync')) return Response.json(true);
+      if (url.pathname.endsWith('/news_stories')) {
+        storyPosts.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/news_provider_logs')) {
+        logPosts.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/news_provider_sync')) {
+        return method === 'GET' ? Response.json([]) : new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/provider_retry_queue')) {
+        if (method === 'GET') return Response.json([]);
+        retryQueuePosts.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const cronEnv = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      GNEWS_API_KEY: 'test-key'
+    };
+
+    // Guarantee a clean sweep regardless of earlier tests in this file.
+    const enableRes = await worker.fetch(
+      new Request('https://worker.example/admin/api/auto-sync', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://worker.example',
+          Cookie: cookie,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: true })
+      }),
+      cronEnv
+    );
+    assert.equal(enableRes.status, 200);
+    for (const provider of ['gnews', 'bing', 'reddit']) clearProviderCooldownState(provider);
+    updateAiCurationConfig({ enabled: false });
+
+    await worker.scheduled({ cron: '0 * * * *' }, cronEnv, {});
+
+    // Category-major interleave: the three providers cycle per category,
+    // never one provider's whole sweep before the next provider starts.
+    const expectedOrder = [];
+    for (let i = 0; i < NEWS_CATEGORIES.length; i++) {
+      expectedOrder.push('gnews.io', 'www.bing.com', 'www.reddit.com');
+    }
+    assert.deepEqual(providerFetchOrder, expectedOrder);
+    assert.deepEqual(gnewsCategories, NEWS_CATEGORIES);
+
+    // One batched upsert per successful provider, covering all 7 categories.
+    assert.equal(storyPosts.length, 2);
+    for (const rows of storyPosts) {
+      assert.equal(rows.length, 7);
+      assert.deepEqual(rows.map(r => r.category), NEWS_CATEGORIES);
+    }
+    assert.deepEqual(
+      storyPosts.map(rows => rows[0].provider).sort(),
+      ['bing', 'gnews']
+    );
+
+    // One batched log flush per provider: gnews + bing succeeded, reddit failed.
+    assert.equal(logPosts.length, 3);
+    const logsByProvider = {};
+    for (const rows of logPosts) logsByProvider[rows[0].provider] = rows;
+    assert.equal(logsByProvider.gnews.length, 7);
+    assert.ok(logsByProvider.gnews.every(r => r.status === 'succeeded'));
+    assert.equal(logsByProvider.bing.length, 7);
+    assert.ok(logsByProvider.bing.every(r => r.status === 'succeeded'));
+    assert.equal(logsByProvider.reddit.length, 7);
+    assert.ok(logsByProvider.reddit.every(r => r.status === 'failed'));
+
+    // No 429s, no 5xx: nothing may be queued for retry.
+    assert.equal(retryQueuePosts.length, 0);
+  } finally {
+    updateAiCurationConfig({ enabled: true });
     globalThis.fetch = originalFetch;
   }
 });

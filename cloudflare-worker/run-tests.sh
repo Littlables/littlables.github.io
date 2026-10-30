@@ -10,6 +10,8 @@ cd "$(dirname "$0")/.." || exit 1
 TEST_FILES=(
   "cloudflare-worker/src/index.test.mjs"
   "cloudflare-worker/src/news-storage.test.mjs"
+  "cloudflare-worker/src/feed-utils.test.mjs"
+  "cloudflare-worker/src/news-provider-config.test.mjs"
   "cloudflare-worker/src/embedding-classifier.test.mjs"
   "cloudflare-worker/src/staggered-sync.test.mjs"
   "cloudflare-worker/src/ai-usage-log.test.mjs"

@@ -1,6 +1,6 @@
 import { getAdminLoginPage, getAdminPage } from './admin-page.mjs';
 import { getNewsFeed, getNewsProviders } from './news-feeds.mjs';
-import { getNewsProviderConfig, NEWS_CATEGORIES } from './news-provider-config.mjs';
+import { getNewsProviderConfig, NEWS_CATEGORIES, buildInterleavedPairs } from './news-provider-config.mjs';
 import {
   clearAdminSessionCookie,
   clearOAuthStateCookie,
@@ -36,11 +36,13 @@ import {
   OVERRIDABLE_CATEGORIES,
   effectiveDisplayCategories,
   upsertNewsStories,
+  upsertNewsStoriesBatch,
   searchNewsStories,
   getProviderCooldownState,
   setProviderCooldownState,
   clearProviderCooldownState,
   persistProviderCooldown,
+  loadProviderCooldownsFromDbIfStale,
   enqueueProviderRetry,
   drainDueRetries,
   completeRetryJob,
@@ -48,6 +50,7 @@ import {
   getAutoSyncState,
   setAutoSyncState,
   recordNewsProviderFetchLog,
+  flushProviderFetchLogs,
   getNewsProviderFetchLogs,
   clearNewsProviderFetchLogs,
   pruneOldProviderLogs,
@@ -72,6 +75,7 @@ import { syncAwin, getAwinAds } from './awin-sync.mjs';
 import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEmbeddings, cosineSimilarity } from './embedding-classifier.mjs';
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
+import { computeAdaptiveDelayMs } from './feed-utils.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_FLUX, AI_USAGE_MODEL_SDXL, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
@@ -259,6 +263,10 @@ async function executeProviderSync(provider, updatedBy, env, {
     };
   }
 
+  // Phase 1: persisted cooldowns were previously never reloaded (the loader
+  // had no callers), so a cold-started worker re-hammered cooling providers.
+  await loadProviderCooldownsFromDbIfStale(env);
+
   const activeCooldown = !force ? getProviderCooldownState(provider) : null;
   if (activeCooldown) {
     const remainingSec = Math.max(1, Math.ceil((Date.parse(activeCooldown.cooldownUntil) - Date.now()) / 1000));
@@ -304,10 +312,82 @@ async function executeProviderSync(provider, updatedBy, env, {
   let hitRateLimit = false;
   const errors = [];
   const categories = Object.keys(config.categories);
+  // Phase 1 batching: accumulate stories + log entries, flush once per provider.
+  const pendingStories = [];
+  const pendingLogs = [];
+  // Pacing state from the provider's own rate-limit headers, observed live.
+  let lastRemaining = null;
+  let lastResetAt = null;
+  let fetchedCount = 0;
+
+  // Queue a provider's remaining categories for same-provider retry.
+  const deferRemaining = async (remainingCategories, notBefore, message) => {
+    let queuedCount = 0;
+    for (const rc of remainingCategories) {
+      const ok = await enqueueProviderRetry(env, provider, rc, {
+        notBefore,
+        error: message
+      });
+      if (ok) queuedCount++;
+    }
+    return queuedCount;
+  };
 
   try {
     for (const [index, category] of categories.entries()) {
-      if (index > 0) await new Promise(resolve => setTimeout(resolve, config.updatePauseMs));
+      // Adaptive pacing (Phase 1): fixed pauses ignore what the provider
+      // actually reports. Slow down as quota drains, wait out short resets,
+      // and defer the provider's remaining pairs when the reset is distant
+      // instead of stalling the whole sequential sweep.
+      if (fetchedCount > 0) {
+        const pacing = computeAdaptiveDelayMs({
+          basePauseMs: config.updatePauseMs,
+          remaining: lastRemaining,
+          resetAt: lastResetAt
+        });
+        if (pacing.deferUntil) {
+          const remainingCategories = categories.slice(index);
+          const queuedCount = await deferRemaining(remainingCategories, pacing.deferUntil, `${provider} pacing deferral until ${pacing.deferUntil}`);
+          setProviderCooldownState(provider, {
+            cooldownUntil: pacing.deferUntil,
+            rateLimitResetAt: pacing.deferUntil,
+            retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+            lastError: 'Deferred by adaptive pacing: rate-limit exhausted',
+            failoverProvider: null,
+            failoverCategories: []
+          });
+          persistProviderCooldown(env, provider, {
+            cooldownUntil: pacing.deferUntil,
+            rateLimitResetAt: pacing.deferUntil,
+            lastError: 'Deferred by adaptive pacing: rate-limit exhausted'
+          }).catch(() => {});
+          cooldownUntil = pacing.deferUntil;
+          hitRateLimit = true;
+          pendingLogs.push({
+            provider,
+            providerLabel: config.label,
+            category,
+            triggerSource,
+            status: 'skipped_pacing',
+            httpStatus: 429,
+            durationMs: 0,
+            attemptCount: 0,
+            itemsFetched: 0,
+            storiesSaved: 0,
+            retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+            rateLimitRemaining: lastRemaining,
+            rateLimitReset: pacing.deferUntil,
+            requestUrl: config.endpoint || '',
+            failoverProvider: null,
+            errorMessage: `Deferred by adaptive pacing: rate-limit exhausted, ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} queued for retry after ${pacing.deferUntil}`
+          });
+          if (queuedCount > 0) {
+            errors.push(`deferred ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} by adaptive pacing until ${pacing.deferUntil}`);
+          }
+          break;
+        }
+        if (pacing.delayMs > 0) await new Promise(resolve => setTimeout(resolve, pacing.delayMs));
+      }
       let lastTelemetry = null;
       try {
         const feed = await getNewsFeed(provider, category, ADMIN_MARKET, {
@@ -315,12 +395,25 @@ async function executeProviderSync(provider, updatedBy, env, {
           cache: false,
           onFetchTelemetry: (t) => { lastTelemetry = t; }
         });
+        fetchedCount++;
+        lastRemaining = lastTelemetry?.rateLimitRemaining ?? null;
+        lastResetAt = lastTelemetry?.rateLimitReset ?? null;
         const stories = feed.items.slice(0, 10);
-        const upsertResult = await upsertNewsStories(env, provider, category, stories);
-        const savedCount = upsertResult?.savedCount ?? stories.length;
-        storiesSaved += savedCount;
-
-        await recordNewsProviderFetchLog(env, {
+        // Dedup within the category here so the batch upsert and the log
+        // entry agree on saved/duplicates counts.
+        const seenUrls = new Set();
+        const uniqueStories = [];
+        let duplicatesSkipped = 0;
+        for (const story of stories) {
+          if (!story?.link || seenUrls.has(story.link)) {
+            duplicatesSkipped++;
+            continue;
+          }
+          seenUrls.add(story.link);
+          uniqueStories.push(story);
+        }
+        pendingStories.push({ category, stories: uniqueStories });
+        pendingLogs.push({
           provider,
           providerLabel: config.label,
           category,
@@ -330,8 +423,8 @@ async function executeProviderSync(provider, updatedBy, env, {
           durationMs: lastTelemetry?.durationMs ?? 0,
           attemptCount: lastTelemetry?.attemptCount ?? 1,
           itemsFetched: feed.items.length,
-          storiesSaved: savedCount,
-          duplicatesSkipped: upsertResult?.duplicatesSkipped ?? 0,
+          storiesSaved: uniqueStories.length,
+          duplicatesSkipped,
           retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
           rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
           rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
@@ -353,14 +446,7 @@ async function executeProviderSync(provider, updatedBy, env, {
 
           // No cross-provider failover: queue the remaining categories for this
           // same provider to retry after the cooldown expires.
-          let queuedCount = 0;
-          for (const rc of remainingCategories) {
-            const ok = await enqueueProviderRetry(env, provider, rc, {
-              notBefore: cooldownUntil,
-              error: message
-            });
-            if (ok) queuedCount++;
-          }
+          const queuedCount = await deferRemaining(remainingCategories, cooldownUntil, message);
 
           setProviderCooldownState(provider, {
             cooldownUntil,
@@ -378,7 +464,7 @@ async function executeProviderSync(provider, updatedBy, env, {
             lastError: message
           }).catch(() => {});
 
-          await recordNewsProviderFetchLog(env, {
+          pendingLogs.push({
             provider,
             providerLabel: config.label,
             category,
@@ -403,7 +489,7 @@ async function executeProviderSync(provider, updatedBy, env, {
           // Stop querying remaining categories on the rate-limited provider immediately
           break;
         } else {
-          await recordNewsProviderFetchLog(env, {
+          pendingLogs.push({
             provider,
             providerLabel: config.label,
             category,
@@ -420,9 +506,61 @@ async function executeProviderSync(provider, updatedBy, env, {
             requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
             errorMessage: message
           });
+          // Phase 1: transient non-429 failures (5xx / timeouts) get queued
+          // with a short backoff instead of vanishing until next hour.
+          // Content failures (invalid response, no usable stories) are not
+          // queued: re-fetching them would just fail the same way.
+          const isTransient = [500, 502, 503, 504].includes(err?.status) || /timed out/i.test(rawErrMsg);
+          if (isTransient) {
+            await enqueueProviderRetry(env, provider, category, {
+              notBefore: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+              error: message
+            });
+          }
         }
       }
     }
+
+    // Flush batched writes (Phase 1): one upsert POST for the provider,
+    // falling back to per-category posts on failure, then one log POST.
+    // This runs after both the clean path and the 429-break path, so stories
+    // fetched before a rate limit are still saved.
+    if (pendingStories.length) {
+      const savedByCategory = {};
+      const failedSaveCategories = new Set();
+      try {
+        const batchResult = await upsertNewsStoriesBatch(env, provider, pendingStories);
+        for (const { category: cat, stories: catStories } of pendingStories) {
+          savedByCategory[cat] = catStories.length;
+        }
+        storiesSaved += batchResult?.savedCount ?? 0;
+      } catch (batchErr) {
+        console.error(`Batch upsert failed for ${provider}, falling back to per-category posts:`, batchErr);
+        for (const { category: cat, stories: catStories } of pendingStories) {
+          try {
+            const r = await upsertNewsStories(env, provider, cat, catStories);
+            savedByCategory[cat] = r?.savedCount ?? 0;
+            storiesSaved += r?.savedCount ?? 0;
+          } catch (singleErr) {
+            failedSaveCategories.add(cat);
+            errors.push(`${cat}: ${singleErr instanceof Error ? singleErr.message : String(singleErr)}`);
+          }
+        }
+      }
+      // Keep log entries honest about what actually saved.
+      for (const logEntry of pendingLogs) {
+        if (logEntry.status === 'succeeded') {
+          if (failedSaveCategories.has(logEntry.category) || !Object.hasOwn(savedByCategory, logEntry.category)) {
+            logEntry.status = 'failed';
+            logEntry.storiesSaved = 0;
+            logEntry.errorMessage = `${logEntry.category}: story save failed`;
+          } else {
+            logEntry.storiesSaved = savedByCategory[logEntry.category];
+          }
+        }
+      }
+    }
+    await flushProviderFetchLogs(env, pendingLogs);
 
     if (!hitRateLimit && errors.length === 0) {
       clearProviderCooldownState(provider);
@@ -620,30 +758,368 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     };
   }
 
+  await loadProviderCooldownsFromDbIfStale(env);
+
   const providers = getNewsProviders(env).filter(p => p.configured);
   const results = [];
   let totalStoriesSaved = 0;
   let rateLimitedCount = 0;
 
-  for (const provider of providers) {
-    try {
-      const outcome = await executeProviderSync(provider.id, updatedBy, env, {
-        triggerSource,
-        force: false
+  // Phase 1: category-major interleave. All providers' childcare runs before
+  // all providers' animals, so each provider gets the other providers'
+  // fetches as breathing room between its own calls instead of 7
+  // back-to-back hits. Bulk sync always respects cooldowns (the old code
+  // hardcoded force: false here even for admin sync-all); only the
+  // single-provider manual path accepts force.
+  const pairs = buildInterleavedPairs(providers.map(p => p.id));
+  const providerState = new Map();
+  const getState = (providerId) => {
+    if (!providerState.has(providerId)) {
+      providerState.set(providerId, {
+        claimed: false,
+        done: false,
+        attempted: new Set(),
+        fetchedCount: 0,
+        lastRemaining: null,
+        lastResetAt: null,
+        pendingStories: [],
+        pendingLogs: [],
+        storiesSaved: 0,
+        errors: [],
+        rateLimited: false
       });
-      if (outcome.httpStatus === 200) {
-        totalStoriesSaved += (outcome.body.storiesSaved || 0);
-        if (outcome.body.rateLimited || outcome.body.status === 'rate_limited') {
-          rateLimitedCount++;
-        }
+    }
+    return providerState.get(providerId);
+  };
+  // Categories not yet attempted for this provider, including the current
+  // one (attempted is only marked after a pair finishes, so a 429 or a
+  // pacing deferral re-queues the pair that triggered it, matching the old
+  // categories.slice(index) behavior).
+  const remainingCategoriesFor = (providerId, st) => {
+    const config = getNewsProviderConfig(providerId);
+    return Object.keys(config?.categories || {}).filter(c => !st.attempted.has(c));
+  };
+  const deferProviderPairs = async (providerId, st, notBefore, message) => {
+    let queuedCount = 0;
+    for (const rc of remainingCategoriesFor(providerId, st)) {
+      const ok = await enqueueProviderRetry(env, providerId, rc, { notBefore, error: message });
+      if (ok) queuedCount++;
+    }
+    return queuedCount;
+  };
+
+  for (const { provider: providerId, category } of pairs) {
+    const config = getNewsProviderConfig(providerId);
+    const st = getState(providerId);
+    if (st.done) continue;
+
+    // Skip providers in an active cooldown (state was refreshed from the
+    // DB at the start of this run). Only one log entry per provider: the
+    // first pair marks it done, the rest skip silently.
+    const activeCooldown = getProviderCooldownState(providerId);
+    if (activeCooldown) {
+      st.done = true;
+      st.rateLimited = true;
+      const remainingSec = Math.max(1, Math.ceil((Date.parse(activeCooldown.cooldownUntil) - Date.now()) / 1000));
+      const cooldownMsg = `${config.label} is in rate-limit cooldown for ${remainingSec}s (until ${activeCooldown.cooldownUntil})`;
+      st.errors.push(cooldownMsg);
+      st.pendingLogs.push({
+        provider: providerId,
+        providerLabel: config.label,
+        category,
+        triggerSource,
+        status: 'skipped_cooldown',
+        httpStatus: 429,
+        durationMs: 0,
+        attemptCount: 0,
+        itemsFetched: 0,
+        storiesSaved: 0,
+        retryAfterSeconds: remainingSec,
+        rateLimitRemaining: activeCooldown.rateLimitRemaining,
+        rateLimitReset: activeCooldown.rateLimitResetAt,
+        requestUrl: config.endpoint || '',
+        failoverProvider: activeCooldown.failoverProvider,
+        errorMessage: cooldownMsg
+      });
+      continue;
+    }
+
+    // Lazy per-provider claim: a provider that never fetches is never
+    // locked, and a collision skips just that provider (old 409 shape).
+    if (!st.claimed) {
+      let claimed = false;
+      try {
+        claimed = await claimNewsProviderSync(env, providerId, updatedBy);
+      } catch (claimErr) {
+        console.error(`Auto-sync claim failed for provider ${providerId}:`, claimErr);
+        st.done = true;
+        st.errors.push(`${providerId}: ${claimErr instanceof Error ? claimErr.message : String(claimErr)}`);
+        continue;
       }
-      results.push({
-        provider: provider.id,
-        httpStatus: outcome.httpStatus,
-        ...outcome.body
+      if (!claimed) {
+        st.done = true;
+        st.errors.push(`${providerId} is already being updated`);
+        continue;
+      }
+      st.claimed = true;
+    }
+
+    // Adaptive pacing from the provider's own observed headers.
+    if (st.fetchedCount > 0) {
+      const pacing = computeAdaptiveDelayMs({
+        basePauseMs: config.updatePauseMs,
+        remaining: st.lastRemaining,
+        resetAt: st.lastResetAt
+      });
+      if (pacing.deferUntil) {
+        const message = `${providerId} pacing deferral until ${pacing.deferUntil}`;
+        const queuedCount = await deferProviderPairs(providerId, st, pacing.deferUntil, message);
+        setProviderCooldownState(providerId, {
+          cooldownUntil: pacing.deferUntil,
+          rateLimitResetAt: pacing.deferUntil,
+          retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+          lastError: 'Deferred by adaptive pacing: rate-limit exhausted',
+          failoverProvider: null,
+          failoverCategories: []
+        });
+        persistProviderCooldown(env, providerId, {
+          cooldownUntil: pacing.deferUntil,
+          rateLimitResetAt: pacing.deferUntil,
+          lastError: 'Deferred by adaptive pacing: rate-limit exhausted'
+        }).catch(() => {});
+        st.done = true;
+        st.rateLimited = true;
+        st.errors.push(`deferred ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} by adaptive pacing until ${pacing.deferUntil}`);
+        st.pendingLogs.push({
+          provider: providerId,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'skipped_pacing',
+          httpStatus: 429,
+          durationMs: 0,
+          attemptCount: 0,
+          itemsFetched: 0,
+          storiesSaved: 0,
+          retryAfterSeconds: Math.max(1, Math.ceil((Date.parse(pacing.deferUntil) - Date.now()) / 1000)),
+          rateLimitRemaining: st.lastRemaining,
+          rateLimitReset: pacing.deferUntil,
+          requestUrl: config.endpoint || '',
+          failoverProvider: null,
+          errorMessage: st.errors[st.errors.length - 1]
+        });
+        continue;
+      }
+      if (pacing.delayMs > 0) await new Promise(resolve => setTimeout(resolve, pacing.delayMs));
+    }
+
+    let lastTelemetry = null;
+    try {
+      const feed = await getNewsFeed(providerId, category, ADMIN_MARKET, {
+        credentials: env,
+        cache: false,
+        onFetchTelemetry: (t) => { lastTelemetry = t; }
+      });
+      st.fetchedCount++;
+      st.lastRemaining = lastTelemetry?.rateLimitRemaining ?? null;
+      st.lastResetAt = lastTelemetry?.rateLimitReset ?? null;
+      const stories = feed.items.slice(0, 10);
+      const seenUrls = new Set();
+      const uniqueStories = [];
+      let duplicatesSkipped = 0;
+      for (const story of stories) {
+        if (!story?.link || seenUrls.has(story.link)) {
+          duplicatesSkipped++;
+          continue;
+        }
+        seenUrls.add(story.link);
+        uniqueStories.push(story);
+      }
+      st.pendingStories.push({ category, stories: uniqueStories });
+      st.pendingLogs.push({
+        provider: providerId,
+        providerLabel: config.label,
+        category,
+        triggerSource,
+        status: 'succeeded',
+        httpStatus: lastTelemetry?.httpStatus ?? 200,
+        durationMs: lastTelemetry?.durationMs ?? 0,
+        attemptCount: lastTelemetry?.attemptCount ?? 1,
+        itemsFetched: feed.items.length,
+        storiesSaved: uniqueStories.length,
+        duplicatesSkipped,
+        retryAfterSeconds: lastTelemetry?.retryAfterSeconds ?? null,
+        rateLimitRemaining: lastTelemetry?.rateLimitRemaining ?? null,
+        rateLimitReset: lastTelemetry?.rateLimitReset ?? null,
+        requestUrl: lastTelemetry?.requestUrl || config.endpoint || '',
+        errorMessage: null
       });
     } catch (err) {
-      console.error(`Auto-sync failed for provider ${provider.id}:`, err);
+      const isRateLimit = Boolean(err?.isRateLimit || err?.status === 429);
+      const rawErrMsg = err instanceof Error ? err.message : 'Unknown provider error';
+      const message = `${category}: ${rawErrMsg}`;
+      console.error(`News provider update failed for ${providerId}/${category}:`, err);
+      st.errors.push(message);
+      if (isRateLimit) {
+        const windowInfo = computeCooldownWindow(err);
+        const queuedCount = await deferProviderPairs(providerId, st, windowInfo.cooldownUntil, message);
+        setProviderCooldownState(providerId, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          retryAfterSeconds: windowInfo.cooldownSeconds,
+          rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
+          lastError: message,
+          failoverProvider: null,
+          failoverCategories: []
+        });
+        persistProviderCooldown(env, providerId, {
+          cooldownUntil: windowInfo.cooldownUntil,
+          rateLimitResetAt: windowInfo.rateLimitResetAt,
+          lastError: message
+        }).catch(() => {});
+        st.rateLimited = true;
+        st.done = true;
+        st.pendingLogs.push({
+          provider: providerId,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'rate_limited',
+          httpStatus: err?.status ?? lastTelemetry?.httpStatus ?? 429,
+          durationMs: err?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+          attemptCount: err?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+          itemsFetched: 0,
+          storiesSaved: 0,
+          retryAfterSeconds: windowInfo.cooldownSeconds,
+          rateLimitRemaining: err?.rateLimitRemaining ?? lastTelemetry?.rateLimitRemaining ?? '0',
+          rateLimitReset: windowInfo.rateLimitResetAt,
+          requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
+          failoverProvider: null,
+          errorMessage: `${message} · queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown`
+        });
+        if (queuedCount > 0) {
+          st.errors.push(`queued ${queuedCount} remaining categor${queuedCount === 1 ? 'y' : 'ies'} for retry after cooldown (${windowInfo.cooldownUntil})`);
+        }
+      } else {
+        st.pendingLogs.push({
+          provider: providerId,
+          providerLabel: config.label,
+          category,
+          triggerSource,
+          status: 'failed',
+          httpStatus: err?.status ?? lastTelemetry?.httpStatus ?? null,
+          durationMs: err?.durationMs ?? lastTelemetry?.durationMs ?? 0,
+          attemptCount: err?.attemptCount ?? lastTelemetry?.attemptCount ?? 1,
+          itemsFetched: 0,
+          storiesSaved: 0,
+          retryAfterSeconds: err?.retryAfterSeconds ?? null,
+          rateLimitRemaining: err?.rateLimitRemaining ?? null,
+          rateLimitReset: err?.rateLimitReset ?? null,
+          requestUrl: err?.requestUrl || lastTelemetry?.requestUrl || config.endpoint || '',
+          errorMessage: message
+        });
+        const isTransient = [500, 502, 503, 504].includes(err?.status) || /timed out/i.test(rawErrMsg);
+        if (isTransient) {
+          await enqueueProviderRetry(env, providerId, category, {
+            notBefore: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+            error: message
+          });
+        }
+      }
+    }
+    st.attempted.add(category);
+  }
+
+  // Flush per provider: one batch upsert (per-category fallback), one bulk
+  // log insert, then the provider's final sync status.
+  for (const provider of providers) {
+    const st = getState(provider.id);
+    if (!st.claimed) {
+      // Never fetched (cooldown-skipped, lock collision, or claim failure):
+      // surface it in results, but there is no sync row to finish.
+      if (st.errors.some(e => e.includes('is already being updated'))) {
+        results.push({
+          provider: provider.id,
+          httpStatus: 409,
+          error: st.errors.find(e => e.includes('is already being updated'))
+        });
+      } else if (st.rateLimited) {
+        results.push({
+          provider: provider.id,
+          httpStatus: 200,
+          status: 'rate_limited',
+          storiesSaved: 0,
+          errors: st.errors
+        });
+        rateLimitedCount++;
+      } else {
+        results.push({
+          provider: provider.id,
+          httpStatus: 200,
+          status: 'failed',
+          storiesSaved: 0,
+          errors: st.errors
+        });
+      }
+      await flushProviderFetchLogs(env, st.pendingLogs);
+      continue;
+    }
+    try {
+      const savedByCategory = {};
+      const failedSaveCategories = new Set();
+      if (st.pendingStories.length) {
+        try {
+          const batchResult = await upsertNewsStoriesBatch(env, provider.id, st.pendingStories);
+          for (const { category: cat, stories: catStories } of st.pendingStories) {
+            savedByCategory[cat] = catStories.length;
+          }
+          st.storiesSaved = batchResult?.savedCount ?? 0;
+        } catch (batchErr) {
+          console.error(`Batch upsert failed for ${provider.id}, falling back to per-category posts:`, batchErr);
+          for (const { category: cat, stories: catStories } of st.pendingStories) {
+            try {
+              const r = await upsertNewsStories(env, provider.id, cat, catStories);
+              savedByCategory[cat] = r?.savedCount ?? 0;
+              st.storiesSaved += r?.savedCount ?? 0;
+            } catch (singleErr) {
+              failedSaveCategories.add(cat);
+              st.errors.push(`${cat}: ${singleErr instanceof Error ? singleErr.message : String(singleErr)}`);
+            }
+          }
+        }
+      }
+      for (const logEntry of st.pendingLogs) {
+        if (logEntry.status === 'succeeded') {
+          if (failedSaveCategories.has(logEntry.category) || !Object.hasOwn(savedByCategory, logEntry.category)) {
+            logEntry.status = 'failed';
+            logEntry.storiesSaved = 0;
+            logEntry.errorMessage = `${logEntry.category}: story save failed`;
+          } else {
+            logEntry.storiesSaved = savedByCategory[logEntry.category];
+          }
+        }
+      }
+      await flushProviderFetchLogs(env, st.pendingLogs);
+      const status = st.errors.length === 0
+        ? 'succeeded'
+        : st.storiesSaved > 0
+          ? 'partial'
+          : 'failed';
+      const errorMessage = st.errors.length ? st.errors.join('; ').slice(0, 2000) : null;
+      await finishNewsProviderSync(env, provider.id, { status, storiesSaved: st.storiesSaved, error: errorMessage });
+      if (st.errors.length === 0) clearProviderCooldownState(provider.id);
+      totalStoriesSaved += st.storiesSaved;
+      if (st.rateLimited) rateLimitedCount++;
+      results.push({
+        provider: provider.id,
+        httpStatus: 200,
+        status,
+        storiesSaved: st.storiesSaved,
+        errors: st.errors,
+        ...(st.rateLimited ? { rateLimited: true } : {})
+      });
+    } catch (err) {
+      console.error(`Auto-sync flush failed for provider ${provider.id}:`, err);
       results.push({
         provider: provider.id,
         status: 'failed',
@@ -3016,7 +3492,14 @@ export default {
     const task = (async () => {
       // Prune logs older than 30 days (1 cheap indexed delete per run)
       await pruneOldProviderLogs(env);
-      const drainResult = await drainProviderRetries(env, { limit: 6, triggerSource: 'cron:retry' });
+      // Phase 1: persisted cooldowns were previously never reloaded (the
+      // loader had no callers), so a cold-started worker re-hammered cooling
+      // providers. Load them before the drain and the sweep read them.
+      await loadProviderCooldownsFromDbIfStale(env);
+      // Drain deeper when the queue is deep, instead of a fixed 6 per run.
+      const pendingRetries = await countQueuedRetries(env);
+      const drainLimit = pendingRetries > 6 ? 12 : 6;
+      const drainResult = await drainProviderRetries(env, { limit: drainLimit, triggerSource: 'cron:retry' });
       const isStaggered = cronPattern.includes('*/10') || cronPattern.includes('*/5');
       const syncResult = isStaggered
         ? await runStaggeredSync(env, 'cron', `cron:${cronPattern}`)

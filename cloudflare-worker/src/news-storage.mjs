@@ -662,6 +662,19 @@ export async function loadProviderCooldownsFromDb(env) {
   }
 }
 
+let providerCooldownsLoadedAt = 0;
+
+// Load persisted cooldowns into memory, at most once per maxAgeMs.
+// Previously loadProviderCooldownsFromDb had no callers, so a cold-started
+// worker forgot every cooldown and re-hammered cooling providers until the
+// next 429. Call this at the start of scheduled and manual sync runs.
+export async function loadProviderCooldownsFromDbIfStale(env, maxAgeMs = 5 * 60 * 1000) {
+  if (Date.now() - providerCooldownsLoadedAt < maxAgeMs) return false;
+  const loaded = await loadProviderCooldownsFromDb(env);
+  providerCooldownsLoadedAt = Date.now();
+  return loaded;
+}
+
 /**
  * Enqueue a provider/category fetch for retry after a rate limit (or failure).
  * Upserts: one pending/running row per (provider, category); re-queues with the
@@ -828,8 +841,8 @@ export function setAutoSyncState(updates = {}) {
   return getAutoSyncState();
 }
 
-export async function recordNewsProviderFetchLog(env, entry) {
-  const normalized = {
+function normalizeProviderFetchLog(entry) {
+  return {
     id: nextLogId++,
     provider: entry.provider || 'unknown',
     providerLabel: entry.providerLabel || entry.provider || 'Unknown',
@@ -850,6 +863,31 @@ export async function recordNewsProviderFetchLog(env, entry) {
     failoverProvider: entry.failoverProvider || null,
     createdAt: entry.createdAt || new Date().toISOString()
   };
+}
+
+function providerFetchLogDbRow(normalized) {
+  return {
+    provider: normalized.provider,
+    category: normalized.category,
+    trigger_source: normalized.triggerSource,
+    status: normalized.status,
+    http_status: normalized.httpStatus,
+    duration_ms: normalized.durationMs,
+    attempt_count: normalized.attemptCount,
+    items_fetched: normalized.itemsFetched,
+    stories_saved: normalized.storiesSaved,
+    retry_after_seconds: normalized.retryAfterSeconds,
+    rate_limit_remaining: normalized.rateLimitRemaining,
+    rate_limit_reset: normalized.rateLimitReset,
+    request_url: normalized.requestUrl,
+    error_message: normalized.errorMessage,
+    failover_provider: normalized.failoverProvider,
+    created_at: normalized.createdAt
+  };
+}
+
+export async function recordNewsProviderFetchLog(env, entry) {
+  const normalized = normalizeProviderFetchLog(entry);
 
   providerFetchLogsMemory.unshift(normalized);
   if (providerFetchLogsMemory.length > MAX_PROVIDER_FETCH_LOGS) {
@@ -862,30 +900,48 @@ export async function recordNewsProviderFetchLog(env, entry) {
     await fetch(supabaseUrl(env, 'news_provider_logs'), {
         method: 'POST',
         headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
-        body: JSON.stringify([{
-          provider: normalized.provider,
-          category: normalized.category,
-          trigger_source: normalized.triggerSource,
-          status: normalized.status,
-          http_status: normalized.httpStatus,
-          duration_ms: normalized.durationMs,
-          attempt_count: normalized.attemptCount,
-          items_fetched: normalized.itemsFetched,
-          stories_saved: normalized.storiesSaved,
-          retry_after_seconds: normalized.retryAfterSeconds,
-          rate_limit_remaining: normalized.rateLimitRemaining,
-          rate_limit_reset: normalized.rateLimitReset,
-          request_url: normalized.requestUrl,
-          error_message: normalized.errorMessage,
-          failover_provider: normalized.failoverProvider,
-          created_at: normalized.createdAt
-        }])
+        body: JSON.stringify([providerFetchLogDbRow(normalized)])
       });
     } catch (err) {
       console.warn('Could not persist provider fetch log to Supabase:', err);
     }
 
   return normalized;
+}
+
+// Bulk-persist accumulated fetch-log entries in one POST (Phase 1 batching).
+// Falls back to individual posts on failure; never throws, so logging can
+// never break a sync run. Returns the number of entries accepted for write.
+export async function flushProviderFetchLogs(env, entries) {
+  if (!entries?.length) return 0;
+  const normalized = entries.map(normalizeProviderFetchLog);
+  for (const entry of normalized) providerFetchLogsMemory.unshift(entry);
+  if (providerFetchLogsMemory.length > MAX_PROVIDER_FETCH_LOGS) {
+    providerFetchLogsMemory.length = MAX_PROVIDER_FETCH_LOGS;
+  }
+  const rows = normalized.map(providerFetchLogDbRow);
+  try {
+    const res = await fetch(supabaseUrl(env, 'news_provider_logs'), {
+      method: 'POST',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify(rows)
+    });
+    if (res.ok) return rows.length;
+  } catch (err) {
+    console.warn('Could not bulk-persist provider fetch logs, falling back to individual posts:', err);
+  }
+  for (const row of rows) {
+    try {
+      await fetch(supabaseUrl(env, 'news_provider_logs'), {
+        method: 'POST',
+        headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+        body: JSON.stringify([row])
+      });
+    } catch (err) {
+      console.warn('Could not persist provider fetch log to Supabase:', err);
+    }
+  }
+  return rows.length;
 }
 
 export function getNewsProviderFetchLogs({
@@ -1479,33 +1535,64 @@ export async function claimNewsProviderSync(env, provider, updatedBy) {
   return result;
 }
 
-export async function upsertNewsStories(env, provider, category, stories) {
-  if (!stories.length) return { savedCount: 0, duplicatesSkipped: 0 };
+function buildStoryRows(provider, category, stories) {
   const seenUrls = new Set();
-  const uniqueStories = [];
+  const rows = [];
   let duplicatesSkipped = 0;
-  for (const story of stories) {
+  for (const story of stories || []) {
     if (!story?.link || seenUrls.has(story.link)) {
       duplicatesSkipped++;
       continue;
     }
     seenUrls.add(story.link);
-    uniqueStories.push(story);
+    rows.push({
+      provider,
+      category,
+      title: story.title,
+      article_url: story.link,
+      image_url: story.image || null,
+      description: story.description || null,
+      content: story.content || null,
+      published_at: story.pubDate || null,
+      source_name: story.source || null,
+      provider_country: story.providerCountry || null,
+      fetched_at: new Date().toISOString()
+    });
   }
-  if (!uniqueStories.length) return { savedCount: 0, duplicatesSkipped };
-  const rows = uniqueStories.map(story => ({
-    provider,
-    category,
-    title: story.title,
-    article_url: story.link,
-    image_url: story.image || null,
-    description: story.description || null,
-    content: story.content || null,
-    published_at: story.pubDate || null,
-    source_name: story.source || null,
-    provider_country: story.providerCountry || null,
-    fetched_at: new Date().toISOString()
-  }));
+  return { rows, duplicatesSkipped };
+}
+
+export async function upsertNewsStories(env, provider, category, stories) {
+  if (!stories.length) return { savedCount: 0, duplicatesSkipped: 0 };
+  const { rows: uniqueRows, duplicatesSkipped } = buildStoryRows(provider, category, stories);
+  if (!uniqueRows.length) return { savedCount: 0, duplicatesSkipped };
+  const query = new URLSearchParams({
+    on_conflict: 'provider,category,article_url'
+  });
+  const response = await fetch(supabaseUrl(env, STORIES_TABLE, query), {
+    method: 'POST',
+    headers: supabaseHeaders(env, {
+      Prefer: 'resolution=merge-duplicates,return=minimal'
+    }),
+    body: JSON.stringify(uniqueRows)
+  });
+  if (!response.ok) throw new Error(`Saving ${provider}/${category} stories failed (HTTP ${response.status})`);
+  return { savedCount: uniqueRows.length, duplicatesSkipped };
+}
+
+// Batch variant (Phase 1 batching): one POST for a provider's stories across
+// several categories. Rows already carry provider+category, so the upsert
+// conflict target is unchanged and semantics match per-category upserts.
+// Callers fall back to per-category upsertNewsStories on failure.
+export async function upsertNewsStoriesBatch(env, provider, categoryStories) {
+  const rows = [];
+  let duplicatesSkipped = 0;
+  for (const { category, stories } of categoryStories || []) {
+    const built = buildStoryRows(provider, category, stories);
+    rows.push(...built.rows);
+    duplicatesSkipped += built.duplicatesSkipped;
+  }
+  if (!rows.length) return { savedCount: 0, duplicatesSkipped };
   const query = new URLSearchParams({
     on_conflict: 'provider,category,article_url'
   });
@@ -1516,7 +1603,7 @@ export async function upsertNewsStories(env, provider, category, stories) {
     }),
     body: JSON.stringify(rows)
   });
-  if (!response.ok) throw new Error(`Saving ${provider}/${category} stories failed (HTTP ${response.status})`);
+  if (!response.ok) throw new Error(`Saving ${provider} stories failed (HTTP ${response.status})`);
   return { savedCount: rows.length, duplicatesSkipped };
 }
 
