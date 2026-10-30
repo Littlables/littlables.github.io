@@ -76,6 +76,7 @@ import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEm
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 import { computeAdaptiveDelayMs } from './feed-utils.mjs';
+import { startSyncRun, updateSyncRun, finishSyncRun, isSyncRunHeartbeatDue } from './provider-sync-runs.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_FLUX, AI_USAGE_MODEL_SDXL, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
@@ -333,8 +334,23 @@ async function executeProviderSync(provider, updatedBy, env, {
     return queuedCount;
   };
 
+  const runId = await startSyncRun(env, { trigger: triggerSource, provider, pairsTotal: categories.length });
+  let runLastHeartbeatMs = 0;
+  let runLastHeartbeatProvider = null;
+  let runLastPairTelemetry = null;
+
   try {
     for (const [index, category] of categories.entries()) {
+      if (runId && isSyncRunHeartbeatDue({ lastHeartbeatMs: runLastHeartbeatMs, lastProvider: runLastHeartbeatProvider, provider })) {
+        await updateSyncRun(env, runId, {
+          pairs_done: index,
+          current_provider: provider,
+          current_category: category,
+          last_telemetry: runLastPairTelemetry
+        });
+        runLastHeartbeatMs = Date.now();
+        runLastHeartbeatProvider = provider;
+      }
       // Adaptive pacing (Phase 1): fixed pauses ignore what the provider
       // actually reports. Slow down as quota drains, wait out short resets,
       // and defer the provider's remaining pairs when the reset is distant
@@ -519,6 +535,12 @@ async function executeProviderSync(provider, updatedBy, env, {
           }
         }
       }
+      runLastPairTelemetry = lastTelemetry ? {
+        httpStatus: lastTelemetry.httpStatus ?? null,
+        durationMs: lastTelemetry.durationMs ?? null,
+        rateLimitRemaining: lastTelemetry.rateLimitRemaining ?? null,
+        rateLimitReset: lastTelemetry.rateLimitReset ?? null
+      } : null;
     }
 
     // Flush batched writes (Phase 1): one upsert POST for the provider,
@@ -573,6 +595,7 @@ async function executeProviderSync(provider, updatedBy, env, {
         : 'failed';
     const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
     await finishNewsProviderSync(env, provider, { status, storiesSaved, error: errorMessage });
+    if (runId) await finishSyncRun(env, runId, { status, pairsDone: categories.length, summary: { storiesSaved, errors } });
 
     return {
       httpStatus: 200,
@@ -594,6 +617,7 @@ async function executeProviderSync(provider, updatedBy, env, {
     } catch (saveError) {
       console.error(`Could not save failed status for ${provider}:`, saveError);
     }
+    if (runId) await finishSyncRun(env, runId, { status: 'failed', pairsDone: categories.length, summary: { storiesSaved, errors: [message] } });
     throw err;
   }
 }
@@ -758,6 +782,10 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     };
   }
 
+  // Live run tracking: one row for the whole sweep, heartbeated as pairs
+  // complete, so a stuck sweep shows exactly where it died.
+  const runId = await startSyncRun(env, { trigger: triggerSource, provider: null });
+
   await loadProviderCooldownsFromDbIfStale(env);
 
   const providers = getNewsProviders(env).filter(p => p.configured);
@@ -772,6 +800,11 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
   // hardcoded force: false here even for admin sync-all); only the
   // single-provider manual path accepts force.
   const pairs = buildInterleavedPairs(providers.map(p => p.id));
+  if (runId) await updateSyncRun(env, runId, { pairs_total: pairs.length });
+  let runPairsDone = 0;
+  let runLastHeartbeatMs = 0;
+  let runLastHeartbeatProvider = null;
+  let runLastPairTelemetry = null;
   const providerState = new Map();
   const getState = (providerId) => {
     if (!providerState.has(providerId)) {
@@ -817,6 +850,16 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
   for (const { provider: providerId, category } of pairs) {
     const config = getNewsProviderConfig(providerId);
     const st = getState(providerId);
+    if (runId && isSyncRunHeartbeatDue({ lastHeartbeatMs: runLastHeartbeatMs, lastProvider: runLastHeartbeatProvider, provider: providerId })) {
+      await updateSyncRun(env, runId, {
+        pairs_done: runPairsDone,
+        current_provider: providerId,
+        current_category: category,
+        last_telemetry: runLastPairTelemetry
+      });
+      runLastHeartbeatMs = Date.now();
+      runLastHeartbeatProvider = providerId;
+    }
     if (st.done) continue;
 
     // Skip providers in an active cooldown (state was refreshed from the
@@ -1034,6 +1077,13 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
       }
     }
     st.attempted.add(category);
+    runPairsDone++;
+    runLastPairTelemetry = lastTelemetry ? {
+      httpStatus: lastTelemetry.httpStatus ?? null,
+      durationMs: lastTelemetry.durationMs ?? null,
+      rateLimitRemaining: lastTelemetry.rateLimitRemaining ?? null,
+      rateLimitReset: lastTelemetry.rateLimitReset ?? null
+    } : null;
   }
   } catch (err) {
     sweepError = err;
@@ -1194,6 +1244,18 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
     }
   } catch (err) {
     console.error('Scheduled AI story curation check failed:', err);
+  }
+
+  if (runId) {
+    await finishSyncRun(env, runId, {
+      status: overallStatus,
+      pairsDone: pairs.length,
+      summary: {
+        totalStoriesSaved,
+        rateLimitedCount,
+        providers: results.map(r => ({ provider: r.provider, status: r.status, storiesSaved: r.storiesSaved ?? 0 }))
+      }
+    });
   }
 
   console.info(JSON.stringify({

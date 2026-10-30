@@ -68,9 +68,9 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /'\?provider=' \+ encodeURIComponent\(state\.activeProvider\)/);
   assert.match(page, /providerFilterEl\.addEventListener\('change', \(\) => \{\s*state\.activeProvider = providerFilterEl\.value;\s*refreshData\(\);/);
   assert.match(page, /textContent = state\.busy\.has\(provider\.id\) \? 'Updating…' : 'Update'/);
-  assert.match(page, /id="providers-toggle"[^>]*aria-expanded="false" aria-controls="providers"/);
-  assert.match(page, /id="providers" class="providers"[^>]*hidden/);
-  assert.match(page, /providersEl\.hidden = !expanded/);
+  assert.match(page, /id="providers-toggle"[^>]*aria-expanded="false" aria-controls="providers-body"/);
+  assert.match(page, /id="providers-body"[^>]*hidden/);
+  assert.match(page, /id="providers" class="providers"/);
   assert.match(page, /preview-dialog/);
   assert.match(page, /Add to approved stories/);
   assert.match(page, /Save &amp; approve|Save & approve/);

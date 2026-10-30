@@ -8,6 +8,7 @@ import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_BGE } from '
 const KEYWORD_VECTOR_MODEL = `${EMBEDDING_MODEL}:kwv${KEYWORD_DESCRIPTIONS_VERSION}`;
 
 export const STORIES_TABLE = 'news_stories';
+export const SYNC_RUNS_TABLE = 'provider_sync_runs';
 const SYNC_TABLE = 'news_provider_sync';
 
 export function supabaseHeaders(env, extra = {}) {
@@ -1061,6 +1062,26 @@ export async function getNewsProviderFetchLogsFromDb(env, {
   }
 }
 
+// Recent sync runs for the admin panel run strip. Fail-open: if the table
+// is missing (migration not yet applied) the strip just shows nothing.
+export async function getRecentSyncRuns(env, limit = 5) {
+  try {
+    const query = new URLSearchParams({
+      select: 'id,trigger,provider,status,started_at,finished_at,pairs_total,pairs_done,current_provider,current_category,last_activity_at,last_telemetry,summary',
+      order: 'started_at.desc',
+      limit: String(limit)
+    });
+    const res = await fetch(supabaseUrl(env, SYNC_RUNS_TABLE, query), {
+      headers: supabaseHeaders(env)
+    });
+    if (!res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
@@ -1234,6 +1255,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
       };
     }),
     autoSync: getAutoSyncState(),
+    runs: await getRecentSyncRuns(env),
     providerLogs: getNewsProviderFetchLogs({ limit: 100 }),
     aiCuration: await ensureAndGetAiCurationSnapshot(env, {
       recentRows,

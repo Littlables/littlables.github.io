@@ -511,7 +511,7 @@ test('admin snapshot includes exact total, latest ten, and provider status', asy
     assert.equal(snapshot.providers[0].status, 'succeeded');
     assert.equal(snapshot.providers[0].stories_saved, 7);
     assert.equal(snapshot.providers[0].total_stories_saved, 17);
-    assert.equal(requests.length, 15);
+    assert.equal(requests.length, 16);
     assert.ok(requests.every(({ options }) => options.headers.apikey === env.SUPABASE_SECRET_KEY));
     assert.equal(requests.find(({ url }) => url.searchParams.get('decision_at') === 'not.is.null').url.searchParams.get('limit'), null);
     assert.ok(requests.some(({ url }) =>

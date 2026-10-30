@@ -1461,7 +1461,7 @@ export function getAdminPage() {
     <section aria-labelledby="providers-title" class="admin-card-section" data-section-id="providers">
       <div class="section-header">
         <h2 id="providers-title">
-          <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers" data-section-toggle="providers">
+          <button id="providers-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="providers-body" data-section-toggle="providers">
             <span id="providers-arrow" class="section-arrow" aria-hidden="true">▼</span>
             <span>News providers</span>
           </button>
@@ -1471,44 +1471,35 @@ export function getAdminPage() {
           <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
         </div>
       </div>
-      <div id="providers" class="providers" aria-live="polite" hidden style="margin-top: .85rem;"></div>
-    </section>
-
-    <!-- 6B. PROVIDER FETCH & RATE-LIMIT LOGS SECTION -->
-    <section aria-labelledby="logs-title" class="admin-card-section" data-section-id="logs">
-      <div class="section-header">
-        <h2 id="logs-title">
-          <button id="logs-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="logs-body" data-section-toggle="logs">
-            <span id="logs-arrow" class="section-arrow" aria-hidden="true">▼</span>
-            <span>Provider Fetch &amp; Rate-Limit Logs <span id="logs-count"></span></span>
-          </button>
-        </h2>
-        <div class="section-controls">
-          <button id="refresh-logs-btn" type="button" class="secondary small-btn">Refresh logs</button>
-          <button id="clear-logs-btn" type="button" class="secondary small-btn">Clear logs</button>
-          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
-          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+      <div id="providers-body" hidden>
+        <div id="providers" class="providers" aria-live="polite" style="margin-top: .85rem;"></div>
+        <div class="logs-nested" style="margin-top: 1rem;">
+          <div style="display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;">
+            <button id="logs-nested-toggle" type="button" class="secondary small-btn" aria-expanded="false" aria-controls="logs-body">Provider fetch logs <span id="logs-count"></span></button>
+            <button id="refresh-logs-btn" type="button" class="secondary small-btn">Refresh logs</button>
+            <button id="clear-logs-btn" type="button" class="secondary small-btn">Clear logs</button>
+          </div>
+          <div id="logs-body" class="section-body" hidden>
+            <div id="logs-summary" class="log-summary-strip"></div>
+            <div class="filter-bar">
+              <nav id="logs-status-tabs" class="category-tabs" aria-label="Filter fetch logs by status" style="margin: 0;"></nav>
+              <label class="provider-toolbar" for="logs-provider-filter">
+                Provider
+                <select id="logs-provider-filter" class="provider-filter">
+                  <option value="all">All providers</option>
+                </select>
+              </label>
+              <label class="provider-toolbar" for="logs-category-filter">
+                Topic
+                <select id="logs-category-filter" class="provider-filter">
+                  <option value="all">All topics</option>
+                </select>
+              </label>
+            </div>
+            <div id="provider-logs-list" class="log-list" aria-live="polite"></div>
+            <div id="logs-pagination" class="pagination-bar"></div>
+          </div>
         </div>
-      </div>
-      <div id="logs-body" class="section-body" hidden>
-        <div id="logs-summary" class="log-summary-strip"></div>
-        <div class="filter-bar">
-          <nav id="logs-status-tabs" class="category-tabs" aria-label="Filter fetch logs by status" style="margin: 0;"></nav>
-          <label class="provider-toolbar" for="logs-provider-filter">
-            Provider
-            <select id="logs-provider-filter" class="provider-filter">
-              <option value="all">All providers</option>
-            </select>
-          </label>
-          <label class="provider-toolbar" for="logs-category-filter">
-            Topic
-            <select id="logs-category-filter" class="provider-filter">
-              <option value="all">All topics</option>
-            </select>
-          </label>
-        </div>
-        <div id="provider-logs-list" class="log-list" aria-live="polite"></div>
-        <div id="logs-pagination" class="pagination-bar"></div>
       </div>
     </section>
 
@@ -1718,6 +1709,8 @@ export function getAdminPage() {
     const state = {
       busy: new Set(),
       syncingAll: false,
+      syncPollActive: false,
+      runs: [],
       togglingAutoSync: false,
       curatingAi: false,
       togglingAiSchedule: false,
@@ -1878,8 +1871,7 @@ export function getAdminPage() {
       { id: 'search', label: 'Search', body: 'search-body', defaultOpen: true },
       { id: 'ads', label: 'Ads', body: 'ads-section', defaultOpen: true },
       { id: 'custom', label: 'Custom', body: 'custom-body', defaultOpen: true },
-      { id: 'providers', label: 'Providers', body: 'providers', defaultOpen: false },
-      { id: 'logs', label: 'Logs', body: 'logs-body', defaultOpen: false },
+      { id: 'providers', label: 'Providers', body: 'providers-body', defaultOpen: false },
       { id: 'decisions', label: 'History', body: 'decisions-body', defaultOpen: false },
       { id: 'banned', label: 'Banned', body: 'banned-body', defaultOpen: false },
       { id: 'analytics', label: 'Analytics', body: 'analytics-body', defaultOpen: false },
@@ -2264,11 +2256,7 @@ export function getAdminPage() {
       if (!toggleBtn || !arrowEl || !bodyEl) return;
       toggleBtn.setAttribute('aria-expanded', String(expanded));
       arrowEl.textContent = expanded ? '▲' : '▼';
-      if (sectionId === 'providers') {
-        providersEl.hidden = !expanded;
-      } else {
-        bodyEl.hidden = !expanded;
-      }
+      bodyEl.hidden = !expanded;
       if (persist) {
         try {
           const saved = JSON.parse(localStorage.getItem(STORAGE_COLLAPSED_KEY) || '{}');
@@ -2578,8 +2566,61 @@ export function getAdminPage() {
       return body;
     }
 
+    function runTriggerLabel(run) {
+      return {
+        cron: 'Hourly cron',
+        admin_sync_all: 'Sync all',
+        stale_check: 'Stale check',
+        manual: 'Single update'
+      }[run.trigger] || run.trigger || 'Sync';
+    }
+
+    function runProviderName(providerId) {
+      return state.providers.find((p) => p.id === providerId)?.name || providerId;
+    }
+
+    function buildRunStrip() {
+      const runs = state.runs || [];
+      if (!runs.length) return null;
+      const active = runs.find((r) => r.status === 'running');
+      const strip = document.createElement('div');
+      strip.className = 'auto-sync-bar';
+      const info = document.createElement('div');
+      info.className = 'auto-sync-info';
+      const title = document.createElement('div');
+      title.className = 'auto-sync-title';
+      const meta = document.createElement('div');
+      meta.className = 'auto-sync-meta tabular-nums';
+      if (active) {
+        title.textContent = '🔄 Live run: ' + runTriggerLabel(active) + (active.provider ? ' · ' + runProviderName(active.provider) : '');
+        const parts = [];
+        if (active.pairs_total) parts.push(active.pairs_done + '/' + active.pairs_total + ' pairs');
+        if (active.current_provider) {
+          const catLabel = categories.find((c) => c.id === active.current_category)?.label || active.current_category || '';
+          parts.push('now: ' + runProviderName(active.current_provider) + (catLabel ? ' / ' + catLabel : ''));
+        }
+        if (active.last_activity_at) parts.push('last activity ' + formatElapsed(Date.parse(active.last_activity_at)) + ' ago');
+        const t = active.last_telemetry || {};
+        if (t.rateLimitRemaining != null) parts.push('remaining: ' + t.rateLimitRemaining);
+        if (t.rateLimitReset) parts.push('reset: ' + formatDateTime(new Date(t.rateLimitReset)));
+        meta.textContent = parts.join(' · ') || 'Starting…';
+      } else {
+        const last = runs[0];
+        title.textContent = 'Last run: ' + runTriggerLabel(last) + (last.provider ? ' · ' + runProviderName(last.provider) : '') + ' · ' + last.status;
+        const saved = last.summary?.totalStoriesSaved ?? last.summary?.storiesSaved ?? null;
+        meta.textContent = (saved !== null ? saved + ' stories saved · ' : '') +
+          formatDateTime(new Date(last.finished_at || last.started_at));
+      }
+      info.append(title, meta);
+      strip.append(info);
+      return strip;
+    }
+
     function renderProviders(providers) {
       providersEl.replaceChildren();
+
+      const runStrip = buildRunStrip();
+      if (runStrip) providersEl.append(runStrip);
 
       const autoBar = document.createElement('div');
       autoBar.className = 'auto-sync-bar';
@@ -2700,6 +2741,13 @@ export function getAdminPage() {
             ? formatDateTime(new Date(startedMs)) + '; ' + formatElapsed(startedMs)
             : provider.started_at);
           statusExtras.push(runningSince);
+        }
+        const activeRunForCard = (state.runs || []).find((r) => r.status === 'running' && r.current_provider === provider.id);
+        if (activeRunForCard?.current_category) {
+          const fetching = document.createElement('p');
+          fetching.className = 'provider-running-since muted';
+          fetching.textContent = 'Fetching: ' + (categories.find((c) => c.id === activeRunForCard.current_category)?.label || activeRunForCard.current_category);
+          statusExtras.push(fetching);
         }
         if (provider.last_error) {
           const lastError = document.createElement('p');
@@ -4617,6 +4665,8 @@ export function getAdminPage() {
           state.providerLogs = data.providerLogs.logs || [];
           state.providerLogsSummary = data.providerLogs.summary || state.providerLogsSummary;
         }
+        if (data.runs) state.runs = data.runs;
+        if (!state.runs.some((r) => r.status === 'running') && !state.providers.some((p) => p.status === 'running')) state.syncPollActive = false;
         syncSearchResultsWithKnownLists();
         renderProviders(data.providers);
         renderProviderFilter();
@@ -4744,6 +4794,7 @@ export function getAdminPage() {
     async function updateProvider(providerId, force = false) {
       if (state.busy.has(providerId)) return;
       state.busy.add(providerId);
+      state.syncPollActive = true;
       renderProviders(state.providers);
       messageEl.className = 'muted';
       messageEl.textContent = 'Updating ' + providerId + (force ? ' (forced)…' : '…');
@@ -4823,6 +4874,7 @@ export function getAdminPage() {
     async function syncAllProvidersNow() {
       if (state.syncingAll) return;
       state.syncingAll = true;
+      state.syncPollActive = true;
       renderProviders(state.providers);
       messageEl.className = 'muted';
       messageEl.textContent = 'Running full sync across all configured providers…';
@@ -5075,6 +5127,13 @@ export function getAdminPage() {
     }
 
     document.getElementById('refresh').addEventListener('click', refreshData);
+    document.getElementById('logs-nested-toggle').addEventListener('click', () => {
+      const body = document.getElementById('logs-body');
+      const btn = document.getElementById('logs-nested-toggle');
+      const expanded = body.hidden;
+      body.hidden = !expanded;
+      btn.setAttribute('aria-expanded', String(expanded));
+    });
     document.getElementById('refresh-logs-btn').addEventListener('click', refreshLogsOnly);
     document.getElementById('clear-logs-btn').addEventListener('click', clearAllLogs);
     document.getElementById('logs-provider-filter').addEventListener('change', (e) => {
@@ -7060,7 +7119,7 @@ export function getAdminPage() {
 
     setInterval(refreshStoryAges, 1000);
     setInterval(() => {
-      if (state.providers.some((provider) => provider.status === 'running')) refreshData();
+      if (state.providers.some((provider) => provider.status === 'running') || (state.runs || []).some((r) => r.status === 'running') || state.syncPollActive) refreshData();
     }, 15000);
     setInterval(checkStaleHourlySync, 60000);
   </script>
