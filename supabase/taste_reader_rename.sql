@@ -55,59 +55,90 @@ begin
   end if;
 end $$;
 
+-- Unique constraint (table renames do not rename explicitly named
+-- unique constraints either, so rename this one too). The same rename
+-- also lives in supabase/classification_constraint_rename.sql, which
+-- sorts before story_* and frees the old name before the step 1 file
+-- re-creates its tables on a re-run; this copy makes a fresh database
+-- end with the new name after its first run.
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'classification_run_items_run_position_key'
+      and conrelid = to_regclass('public.taste_reader_run_items')
+  ) and not exists (
+    select 1 from pg_constraint
+    where conname = 'taste_reader_run_items_run_position_key'
+      and conrelid = to_regclass('public.taste_reader_run_items')
+  ) then
+    alter table public.taste_reader_run_items
+      rename constraint classification_run_items_run_position_key
+      to taste_reader_run_items_run_position_key;
+  end if;
+end $$;
+
 -- Indexes (table renames do not rename indexes, so rename them too)
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_runs_user_created_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_runs_user_created_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_runs_user_created_idx') then
     alter index public.classification_runs_user_created_idx rename to taste_reader_runs_user_created_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_run_items_run_position_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_run_items_run_position_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_run_items_run_position_idx') then
     alter index public.classification_run_items_run_position_idx rename to taste_reader_run_items_run_position_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_run_items_user_content_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_run_items_user_content_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_run_items_user_content_idx') then
     alter index public.classification_run_items_user_content_idx rename to taste_reader_run_items_user_content_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_word_scores_user_word_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_word_scores_user_word_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_word_scores_user_word_idx') then
     alter index public.classification_word_scores_user_word_idx rename to taste_reader_word_scores_user_word_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_word_scores_content_user_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_word_scores_content_user_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_word_scores_content_user_idx') then
     alter index public.classification_word_scores_content_user_idx rename to taste_reader_word_scores_content_user_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_word_scores_run_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_word_scores_run_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_word_scores_run_idx') then
     alter index public.classification_word_scores_run_idx rename to taste_reader_word_scores_run_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_notes_user_content_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_notes_user_content_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_notes_user_content_idx') then
     alter index public.classification_notes_user_content_idx rename to taste_reader_notes_user_content_idx;
   end if;
 end $$;
 
 do $$
 begin
-  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_notes_run_idx') then
+  if exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'classification_notes_run_idx')
+     and not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'taste_reader_notes_run_idx') then
     alter index public.classification_notes_run_idx rename to taste_reader_notes_run_idx;
   end if;
 end $$;
@@ -130,3 +161,17 @@ create view public.taste_reader_keyword_weights as
   group by user_id, word_normalized;
 
 grant select on public.taste_reader_keyword_weights to service_role;
+
+-- Stray old-prefix tables: on a re-run, the step 1 file recreates
+-- classification_* tables (they were renamed away, so IF NOT EXISTS
+-- does not skip them). They are empty by construction — the worker
+-- only ever writes taste_reader_* — and this drop runs AFTER the
+-- renames above, so a database that has never been renamed loses
+-- nothing: its tables were just renamed, not dropped. Dropping the
+-- strays here keeps every future re-run clean.
+-- Children first: the stray child tables reference the stray runs
+-- table, so dropping runs first would fail on the foreign keys.
+drop table if exists public.classification_run_items;
+drop table if exists public.classification_word_scores;
+drop table if exists public.classification_notes;
+drop table if exists public.classification_runs;
