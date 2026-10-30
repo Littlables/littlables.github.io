@@ -1709,6 +1709,7 @@ export function getAdminPage() {
     const state = {
       busy: new Set(),
       syncingAll: false,
+      unstickingAll: false,
       syncPollActive: false,
       runs: [],
       togglingAutoSync: false,
@@ -2698,7 +2699,15 @@ export function getAdminPage() {
       syncAllBtn.textContent = state.syncingAll ? 'Syncing all…' : 'Sync all providers now';
       syncAllBtn.addEventListener('click', syncAllProvidersNow);
 
-      autoActions.append(toggleAutoBtn, syncAllBtn);
+      const unstickAllBtn = document.createElement('button');
+      unstickAllBtn.id = 'unstick-all-providers';
+      unstickAllBtn.type = 'button';
+      unstickAllBtn.className = 'secondary small-btn';
+      unstickAllBtn.disabled = state.unstickingAll || (!state.providers.some((p) => p.status === 'running') && !(state.runs || []).some((r) => r.status === 'running'));
+      unstickAllBtn.textContent = state.unstickingAll ? 'Unsticking…' : 'Unstick all';
+      unstickAllBtn.addEventListener('click', unstickAllProviders);
+
+      autoActions.append(toggleAutoBtn, syncAllBtn, unstickAllBtn);
       autoBar.append(autoInfo, autoActions);
       providersEl.append(autoBar);
 
@@ -4911,6 +4920,28 @@ export function getAdminPage() {
         messageEl.textContent = 'Sync all providers failed: ' + error.message;
       } finally {
         state.syncingAll = false;
+        renderProviders(state.providers);
+      }
+    }
+
+    async function unstickAllProviders() {
+      if (state.unstickingAll) return;
+      state.unstickingAll = true;
+      renderProviders(state.providers);
+      messageEl.className = 'muted';
+      messageEl.textContent = 'Clearing stuck sync locks…';
+      try {
+        const res = await request('/admin/api/providers/unstick-all', { method: 'POST' });
+        await refreshData();
+        const providersN = res.providersReset?.length || 0;
+        const runsN = res.runsClosed?.length || 0;
+        messageEl.className = 'success';
+        messageEl.textContent = 'Unstuck ' + providersN + ' provider' + (providersN === 1 ? '' : 's') + ' and closed ' + runsN + ' stuck run' + (runsN === 1 ? '' : 's') + '.';
+      } catch (error) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Unstick all failed: ' + error.message;
+      } finally {
+        state.unstickingAll = false;
         renderProviders(state.providers);
       }
     }

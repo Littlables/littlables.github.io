@@ -1691,6 +1691,43 @@ export async function resetNewsProviderSync(env, provider, resetBy) {
   return { provider, reset: wasStuck, previousStatus: rows[0]?.status ?? 'never' };
 }
 
+export async function unstickAllProviderSyncs(env, resetBy) {
+  // Clear every stuck "running" provider lock AND every open run row in
+  // one call, so the panel stops showing a ghost live run after a wedge.
+  // Harmless when nothing is stuck. Does not stop a live crawl: a chain
+  // that is still running rewrites its rows when it finishes.
+  const providersReset = [];
+  const runsClosed = [];
+  const syncQuery = new URLSearchParams({ status: 'eq.running', select: 'provider,status,started_at' });
+  const syncResponse = await fetch(supabaseUrl(env, SYNC_TABLE, syncQuery), { headers: supabaseHeaders(env) });
+  const syncRows = await readRows(syncResponse, 'Running provider sync state lookup');
+  for (const row of syncRows) {
+    const result = await resetNewsProviderSync(env, row.provider, resetBy);
+    if (result.reset) providersReset.push(row.provider);
+  }
+  const runsQuery = new URLSearchParams({ status: 'eq.running', select: 'id,summary' });
+  const runsResponse = await fetch(supabaseUrl(env, SYNC_RUNS_TABLE, runsQuery), { headers: supabaseHeaders(env) });
+  const runRows = await readRows(runsResponse, 'Open sync run lookup');
+  for (const row of runRows) {
+    const patchQuery = new URLSearchParams({ id: `eq.${row.id}` });
+    const response = await fetch(supabaseUrl(env, SYNC_RUNS_TABLE, patchQuery), {
+      method: 'PATCH',
+      headers: supabaseHeaders(env, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        current_provider: null,
+        current_category: null,
+        last_activity_at: new Date().toISOString(),
+        summary: { ...(row.summary || {}), unstuck: true, unstuckBy: resetBy }
+      })
+    });
+    if (!response.ok) throw new Error(`Closing sync run ${row.id} failed (HTTP ${response.status})`);
+    runsClosed.push(row.id);
+  }
+  return { ok: true, providersReset, runsClosed };
+}
+
 export function buildKeywordOrFilter(queryText) {
   const raw = String(queryText || '')
     .trim()

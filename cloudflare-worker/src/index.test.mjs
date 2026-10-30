@@ -70,6 +70,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /textContent = state\.busy\.has\(provider\.id\) \? 'Updating…' : 'Update'/);
   assert.match(page, /id="providers-toggle"[^>]*aria-expanded="false" aria-controls="providers-body"/);
   assert.match(page, /id="providers-body"[^>]*hidden/);
+  assert.match(page, /unstick-all-providers/);
+  assert.match(page, /\/admin\/api\/providers\/unstick-all/);
   assert.match(page, /id="providers" class="providers"/);
   assert.match(page, /id="logs-nested-toggle"/);
   assert.match(page, /Live run:/);
@@ -1709,6 +1711,66 @@ test('hourly sweep runs provider chains concurrently so a slow provider does not
     assert.equal(gnewsAllReleased, true);
   } finally {
     updateAiCurationConfig({ enabled: true });
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('admin unstick-all resets running providers and closes open runs', async () => {
+  const originalFetch = globalThis.fetch;
+  const providerPatches = [];
+  const runPatches = [];
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input));
+    const method = options?.method || 'GET';
+    if (url.hostname === 'supabase.example') {
+      if (url.pathname.endsWith('/news_provider_sync')) {
+        if (method === 'GET') {
+          if (url.searchParams.get('status') === 'running') {
+            return Response.json([{ provider: 'gnews', status: 'running', started_at: '2026-10-30T03:20:04Z' }]);
+          }
+          return Response.json([{ provider: 'gnews', status: 'running' }]);
+        }
+        providerPatches.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname.endsWith('/provider_sync_runs')) {
+        if (method === 'GET') {
+          return Response.json([{ id: 'run-1', summary: { inProgress: true, providers: [] } }]);
+        }
+        runPatches.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+      }
+    }
+    throw new Error(`Unexpected fetch: ${url.href}`);
+  };
+  try {
+    const cookie = (await adminCookie()).split(';')[0];
+    const env = {
+      ...authEnv,
+      SUPABASE_URL: 'https://supabase.example',
+      SUPABASE_SECRET_KEY: 'service-secret',
+      SUMMARY_RATE_LIMITER: { limit: async () => ({ success: true }) }
+    };
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/providers/unstick-all', {
+        method: 'POST',
+        headers: { Origin: 'https://worker.example', Cookie: cookie }
+      }),
+      env
+    );
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.deepEqual(data.providersReset, ['gnews']);
+    assert.deepEqual(data.runsClosed, ['run-1']);
+    assert.equal(providerPatches.length, 1);
+    assert.equal(providerPatches[0].status, 'failed');
+    assert.equal(providerPatches[0].started_at, null);
+    assert.equal(runPatches.length, 1);
+    assert.equal(runPatches[0].status, 'failed');
+    assert.equal(runPatches[0].current_provider, null);
+    assert.equal(runPatches[0].summary.inProgress, true);
+    assert.equal(runPatches[0].summary.unstuck, true);
+  } finally {
     globalThis.fetch = originalFetch;
   }
 });

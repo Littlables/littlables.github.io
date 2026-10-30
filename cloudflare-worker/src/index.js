@@ -16,6 +16,7 @@ import {
   claimNewsProviderSync,
   finishNewsProviderSync,
   resetNewsProviderSync,
+  unstickAllProviderSyncs,
   approveNewsStory,
   createApprovedCustomNewsStory,
   banNewsStory,
@@ -1832,6 +1833,21 @@ async function serveAdmin(request, env) {
     } catch (err) {
       console.error('News admin provider reset failed:', err);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Could not reset provider sync state' }, 502);
+    }
+  }
+
+  if (url.pathname === '/admin/api/providers/unstick-all' && request.method === 'POST') {
+    try {
+      if (!isSameOrigin(request)) {
+        return jsonResponse({ error: 'Provider unstick must be requested from the admin origin' }, 403);
+      }
+      const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin:${identity.login}` });
+      if (!limit.success) return jsonResponse({ error: 'Admin update rate limit exceeded' }, 429);
+      const result = await unstickAllProviderSyncs(env, identity.login);
+      return jsonResponse(result);
+    } catch (err) {
+      console.error('News admin unstick-all failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not unstick provider sync state' }, 502);
     }
   }
 
