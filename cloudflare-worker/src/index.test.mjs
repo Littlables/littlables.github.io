@@ -71,6 +71,8 @@ test('admin page requires an authenticated GitHub session', async () => {
   assert.match(page, /id="providers-toggle"[^>]*aria-expanded="false" aria-controls="providers-body"/);
   assert.match(page, /id="providers-body"[^>]*hidden/);
   assert.match(page, /id="providers" class="providers"/);
+  assert.match(page, /id="logs-nested-toggle"/);
+  assert.match(page, /Live run:/);
   assert.match(page, /preview-dialog/);
   assert.match(page, /Add to approved stories/);
   assert.match(page, /Save &amp; approve|Save & approve/);

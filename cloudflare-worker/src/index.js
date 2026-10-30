@@ -76,7 +76,7 @@ import { validateStoryCategories, classifyStoryKeywords, embedText, getKeywordEm
 import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriveStoryRegion } from './interest-keywords.mjs';
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 import { computeAdaptiveDelayMs } from './feed-utils.mjs';
-import { startSyncRun, updateSyncRun, finishSyncRun, isSyncRunHeartbeatDue } from './provider-sync-runs.mjs';
+import { startSyncRun, updateSyncRun, finishSyncRun, isSyncRunHeartbeatDue, summarizeProviderProgress } from './provider-sync-runs.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
 import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_FLUX, AI_USAGE_MODEL_SDXL, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
@@ -346,7 +346,11 @@ async function executeProviderSync(provider, updatedBy, env, {
           pairs_done: index,
           current_provider: provider,
           current_category: category,
-          last_telemetry: runLastPairTelemetry
+          last_telemetry: runLastPairTelemetry,
+          summary: {
+            inProgress: true,
+            providers: [summarizeProviderProgress(provider, index, pendingLogs)]
+          }
         });
         runLastHeartbeatMs = Date.now();
         runLastHeartbeatProvider = provider;
@@ -595,7 +599,7 @@ async function executeProviderSync(provider, updatedBy, env, {
         : 'failed';
     const errorMessage = errors.length ? errors.join('; ').slice(0, 2000) : null;
     await finishNewsProviderSync(env, provider, { status, storiesSaved, error: errorMessage });
-    if (runId) await finishSyncRun(env, runId, { status, pairsDone: categories.length, summary: { storiesSaved, errors } });
+    if (runId) await finishSyncRun(env, runId, { status, pairsDone: categories.length, summary: { storiesSaved, errors, providers: [{ provider, status, storiesSaved }] } });
 
     return {
       httpStatus: 200,
@@ -617,7 +621,7 @@ async function executeProviderSync(provider, updatedBy, env, {
     } catch (saveError) {
       console.error(`Could not save failed status for ${provider}:`, saveError);
     }
-    if (runId) await finishSyncRun(env, runId, { status: 'failed', pairsDone: categories.length, summary: { storiesSaved, errors: [message] } });
+    if (runId) await finishSyncRun(env, runId, { status: 'failed', pairsDone: categories.length, summary: { storiesSaved, errors: [message], providers: [{ provider, status: 'failed', storiesSaved }] } });
     throw err;
   }
 }
@@ -855,7 +859,14 @@ async function runHourlyAutoSync(env, triggerSource = 'cron', updatedBy = 'hourl
         pairs_done: runPairsDone,
         current_provider: providerId,
         current_category: category,
-        last_telemetry: runLastPairTelemetry
+        last_telemetry: runLastPairTelemetry,
+        summary: {
+          inProgress: true,
+          providers: providers.map(p => {
+            const pst = getState(p.id);
+            return summarizeProviderProgress(p.id, pst.attempted.size, pst.pendingLogs);
+          })
+        }
       });
       runLastHeartbeatMs = Date.now();
       runLastHeartbeatProvider = providerId;

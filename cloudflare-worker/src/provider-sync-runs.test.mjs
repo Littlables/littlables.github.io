@@ -5,6 +5,7 @@ import {
   updateSyncRun,
   finishSyncRun,
   isSyncRunHeartbeatDue,
+  summarizeProviderProgress,
   SYNC_RUN_HEARTBEAT_MIN_MS
 } from './provider-sync-runs.mjs';
 
@@ -98,4 +99,19 @@ test('heartbeat is due on provider change or after 30s, not before', () => {
   assert.equal(isSyncRunHeartbeatDue({ lastHeartbeatMs: null, lastProvider: 'gnews', provider: 'gnews', nowMs: 2000 }), true);
   assert.equal(isSyncRunHeartbeatDue({ lastHeartbeatMs: 1000, lastProvider: 'gnews', provider: 'gnews', nowMs: 1000 + 29_999 }), false);
   assert.equal(isSyncRunHeartbeatDue({ lastHeartbeatMs: 1000, lastProvider: 'gnews', provider: 'gnews', nowMs: 1000 + 30_000 }), true);
+});
+
+test('provider progress summarizes attempted pairs and the last pair result', () => {
+  assert.deepEqual(
+    summarizeProviderProgress('gnews', 3, [
+      { status: 'succeeded', category: 'all' },
+      { status: 'succeeded', category: 'childcare' },
+      { status: 'failed', category: 'animals' }
+    ]),
+    { provider: 'gnews', pairs: 3, lastStatus: 'failed', lastCategory: 'animals' }
+  );
+  assert.deepEqual(
+    summarizeProviderProgress('reddit', 0, []),
+    { provider: 'reddit', pairs: 0, lastStatus: null, lastCategory: null }
+  );
 });

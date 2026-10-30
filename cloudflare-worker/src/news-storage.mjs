@@ -1082,6 +1082,16 @@ export async function getRecentSyncRuns(env, limit = 5) {
   }
 }
 
+// Logs for the admin panel: the database is the source of truth (it
+// survives worker redeploys), with the in-memory ring as fallback for
+// entries whose DB write failed. Reading the ring alone blanks the list
+// after every redeploy.
+async function getSnapshotProviderLogs(env) {
+  const db = await getNewsProviderFetchLogsFromDb(env, { limit: 100 });
+  if (db.logs.length) return db;
+  return getNewsProviderFetchLogs({ limit: 100 });
+}
+
 export async function getNewsAdminSnapshot(env, providers, pendingProvider = null) {
   const storyCountQuery = new URLSearchParams({ select: 'id' });
   const recentQuery = new URLSearchParams({
@@ -1256,7 +1266,7 @@ export async function getNewsAdminSnapshot(env, providers, pendingProvider = nul
     }),
     autoSync: getAutoSyncState(),
     runs: await getRecentSyncRuns(env),
-    providerLogs: getNewsProviderFetchLogs({ limit: 100 }),
+    providerLogs: await getSnapshotProviderLogs(env),
     aiCuration: await ensureAndGetAiCurationSnapshot(env, {
       recentRows,
       bannedRows,

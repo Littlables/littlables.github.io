@@ -69,3 +69,16 @@ export async function finishSyncRun(env, runId, { status, pairsDone = null, summ
   if (pairsDone !== null) patch.pairs_done = pairsDone;
   return updateSyncRun(env, runId, patch);
 }
+
+// Per-provider progress snapshot for the run strip's provider list.
+// pendingLogs is the provider's buffered log entries (most recent last);
+// attemptedCount is how many of its pairs the run has attempted so far.
+export function summarizeProviderProgress(provider, attemptedCount, pendingLogs = []) {
+  const last = pendingLogs.length ? pendingLogs[pendingLogs.length - 1] : null;
+  return {
+    provider,
+    pairs: attemptedCount,
+    lastStatus: last?.status ?? null,
+    lastCategory: last?.category ?? null
+  };
+}

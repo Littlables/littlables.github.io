@@ -2579,6 +2579,26 @@ export function getAdminPage() {
       return state.providers.find((p) => p.id === providerId)?.name || providerId;
     }
 
+    function buildRunProviderList(run) {
+      const entries = run.summary?.providers;
+      if (!Array.isArray(entries) || !entries.length) return null;
+      const list = document.createElement('div');
+      list.className = 'auto-sync-meta';
+      entries.forEach((entry) => {
+        const line = document.createElement('div');
+        if (run.status === 'running') {
+          const catLabel = entry.lastCategory ? (categories.find((c) => c.id === entry.lastCategory)?.label || entry.lastCategory) : '';
+          line.textContent = runProviderName(entry.provider) + ' ' + entry.pairs + '/' + categories.length +
+            (entry.lastStatus ? ' · last: ' + entry.lastStatus + (catLabel ? ' (' + catLabel + ')' : '') : '');
+        } else {
+          line.textContent = runProviderName(entry.provider) + ' ' + entry.status +
+            (entry.storiesSaved != null ? ' · ' + entry.storiesSaved + ' saved' : '');
+        }
+        list.append(line);
+      });
+      return list;
+    }
+
     function buildRunStrip() {
       const runs = state.runs || [];
       if (!runs.length) return null;
@@ -2599,7 +2619,7 @@ export function getAdminPage() {
           const catLabel = categories.find((c) => c.id === active.current_category)?.label || active.current_category || '';
           parts.push('now: ' + runProviderName(active.current_provider) + (catLabel ? ' / ' + catLabel : ''));
         }
-        if (active.last_activity_at) parts.push('last activity ' + formatElapsed(Date.parse(active.last_activity_at)) + ' ago');
+        if (active.last_activity_at) parts.push('last activity ' + formatElapsed(Date.parse(active.last_activity_at)));
         const t = active.last_telemetry || {};
         if (t.rateLimitRemaining != null) parts.push('remaining: ' + t.rateLimitRemaining);
         if (t.rateLimitReset) parts.push('reset: ' + formatDateTime(new Date(t.rateLimitReset)));
@@ -2612,6 +2632,8 @@ export function getAdminPage() {
           formatDateTime(new Date(last.finished_at || last.started_at));
       }
       info.append(title, meta);
+      const providerList = buildRunProviderList(active || runs[0]);
+      if (providerList) info.append(providerList);
       strip.append(info);
       return strip;
     }
