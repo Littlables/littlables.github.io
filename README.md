@@ -87,6 +87,11 @@ All AI model calls go through Cloudflare Workers AI (`env.AI.run`). The site mak
 - **Trigger:** Visitor playroom/space pages with no pills selected
 - **What it does:** Embeds the playroom description (plus space names) and finds the most similar interests (cosine similarity ≥ 0.35, top 5) so the page still shows relevant stories instead of an empty feed.
 
+### Live usage counts
+- **Storage:** `supabase/ai_usage_daily.sql` — one row per UTC day per model per use (`usage_date`, `model`, `usage_key`, `calls`, `errors`). No prompts, story ids, user ids, or IPs are stored, and the table stays tiny (at most ~15 rows a day), so no retention job is needed.
+- **Counting:** `cloudflare-worker/src/ai-usage-log.mjs` — each call site tallies in memory and flushes once per request or run via the `increment_ai_usage` RPC (one extra subrequest at most, batched across all uses). `calls` counts successful invocations, `errors` counts failed ones. A flush never throws: if logging fails, the feature still works and the counts just gap.
+- **Display:** `GET /admin/api/ai-usage` (admin-session + same-origin gated) returns the last 30 days (up to 90 via `?days=`); the admin panel's "AI usage" section shows Today and Last 7 days per row plus a totals line for the visible rows. Counts start the day the migration deploys — there is no backfill of past usage.
+
 ## Cloudflare Worker news providers
 
 The Worker serves saved stories from Supabase; it does not call news providers on public feed requests. Provider metadata, category mappings, required credentials, and update pacing are centralized in `cloudflare-worker/src/news-provider-config.mjs`. Each adapter in `cloudflare-worker/src/feeds/` owns its provider request and response parsing. Shared timeouts, bounded retries, response-size limits, URL validation, and story normalization are in `cloudflare-worker/src/feed-utils.mjs`.

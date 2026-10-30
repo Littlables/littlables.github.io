@@ -1450,3 +1450,33 @@ test('image check reports missing and broken images with pagination', async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test('admin ai-usage endpoint returns daily counter rows', async () => {
+  const originalFetch = globalThis.fetch;
+  const cookie = await adminCookie();
+  const env = { ...authEnv, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SECRET_KEY: 'test-key' };
+  const rows = [
+    { usage_date: '2026-10-29', model: 'llama', usage_key: 'curation', calls: 7, errors: 0 },
+    { usage_date: '2026-10-28', model: 'bge', usage_key: 'validation', calls: 3, errors: 1 }
+  ];
+  let seenUrl = '';
+  globalThis.fetch = async (url) => {
+    seenUrl = String(url);
+    return { ok: true, json: async () => rows };
+  };
+  try {
+    const response = await worker.fetch(
+      new Request('https://worker.example/admin/api/ai-usage?days=30', {
+        headers: { Origin: 'https://worker.example', Cookie: cookie.split(';')[0] }
+      }),
+      env
+    );
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.deepEqual(data.rows, rows);
+    assert.match(seenUrl, /ai_usage_daily/);
+    assert.match(seenUrl, /usage_date=gte\./);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

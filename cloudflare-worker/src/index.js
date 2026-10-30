@@ -74,6 +74,7 @@ import { getInterestKeyword, INTEREST_KEYWORDS, normalizeInterestKeywords, deriv
 import { getNextSyncBatch, PAIRS_PER_RUN } from './staggered-sync.mjs';
 import { stageHalloweenBatch } from './halloween-batch.mjs';
 import { matchAdsToStory, rankAdsByEmbeddingSimilarity } from './ad-keyword-matcher.mjs';
+import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_FLUX, AI_USAGE_MODEL_SDXL, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
 
 const MAX_REQUEST_BYTES = 64_000;
 const MAX_PAGE_BYTES = 1_000_000;
@@ -913,6 +914,7 @@ async function serveAdmin(request, env) {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Summary generation must be requested from the admin origin' }, 403);
     }
+    const usage = createAiUsageCounter();
     try {
       const payload = await readAdminStoryPayload(request);
       if (payload instanceof Response) return payload;
@@ -922,9 +924,12 @@ async function serveAdmin(request, env) {
       }
       const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-summary:${identity.login}` });
       if (!limit.success) return jsonResponse({ error: 'Summary generation rate limit exceeded' }, 429);
-      return jsonResponse({ summary: await generateAdminSummary(payload, env) });
+      const summary = await generateAdminSummary(payload, env, usage);
+      await usage.flush(env);
+      return jsonResponse({ summary });
     } catch (err) {
       console.error('Admin AI summary generation failed:', err);
+      await usage.flush(env);
       return jsonResponse({
         error: err instanceof Error ? err.message : 'Could not generate an AI summary'
       }, 502);
@@ -935,6 +940,7 @@ async function serveAdmin(request, env) {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Image generation must be requested from the admin origin' }, 403);
     }
+    const usage = createAiUsageCounter();
     try {
       const payload = await readAdminStoryPayload(request);
       if (payload instanceof Response) return payload;
@@ -944,9 +950,12 @@ async function serveAdmin(request, env) {
       }
       const limit = await env.SUMMARY_RATE_LIMITER.limit({ key: `admin-image:${identity.login}` });
       if (!limit.success) return jsonResponse({ error: 'Image generation rate limit exceeded' }, 429);
-      return jsonResponse(await generateAdminStoryImage(payload, request.url, env));
+      const image = await generateAdminStoryImage(payload, request.url, env, usage);
+      await usage.flush(env);
+      return jsonResponse(image);
     } catch (err) {
       console.error('Admin AI image generation failed:', err);
+      await usage.flush(env);
       return jsonResponse({
         error: err instanceof Error ? err.message : 'Could not generate an AI image'
       }, 502);
@@ -1090,6 +1099,7 @@ async function serveAdmin(request, env) {
     if (!env.AI) {
       return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
     }
+    const usage = createAiUsageCounter();
     try {
       const storyId = llmKwMatch[1];
       const storyQuery = new URLSearchParams({ id: `eq.${storyId}`, select: 'id,title,description' });
@@ -1113,14 +1123,23 @@ async function serveAdmin(request, env) {
         'a story about a broken office globe is about history, not outer space.\n\n' +
         `${keywordList}\n\n` +
         'Respond with ONLY a JSON array of keyword ids, e.g. ["space", "science"]. If none fit well, respond with [].';
-      const aiRes = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
-        messages: [
-          { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
-          { role: 'user', content: prompt },
-        ],
-        max_tokens: 200,
-        temperature: 0.1,
-      });
+      let aiRes;
+      try {
+        aiRes = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+          messages: [
+            { role: 'system', content: 'You tag news stories with topic keywords. You always respond with only a JSON array of keyword ids, no other text.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 200,
+          temperature: 0.1,
+        });
+        usage.add(AI_USAGE_MODEL_LLAMA, 'ai-tags', 1);
+        await usage.flush(env);
+      } catch (err) {
+        usage.add(AI_USAGE_MODEL_LLAMA, 'ai-tags', 0, 1);
+        await usage.flush(env);
+        throw err;
+      }
       // Extract usable text from the model response. Workers AI returns an
       // OpenAI-compatible object for this model: the text lives in
       // choices[0].message.content, while `response` is itself an object.
@@ -1370,6 +1389,29 @@ async function serveAdmin(request, env) {
     return jsonResponse(await getAnalyticsStats(env, { type, country, region, limit }));
   }
 
+  if (url.pathname === '/admin/api/ai-usage' && request.method === 'GET') {
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'AI usage must be requested from the admin origin' }, 403);
+    }
+    try {
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days')) || 30));
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+      const query = new URLSearchParams({
+        select: 'usage_date,model,usage_key,calls,errors',
+        usage_date: `gte.${cutoff}`,
+        order: 'usage_date.desc',
+        limit: '5000'
+      });
+      const res = await fetch(supabaseUrl(env, 'ai_usage_daily', query), { headers: supabaseHeaders(env) });
+      if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status}`);
+      const rows = await res.json();
+      return jsonResponse({ rows: Array.isArray(rows) ? rows : [] });
+    } catch (err) {
+      console.error('AI usage fetch failed:', err);
+      return jsonResponse({ error: err instanceof Error ? err.message : 'Could not load AI usage' }, 502);
+    }
+  }
+
   if (url.pathname === '/admin/api/logs/clear' && request.method === 'POST') {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Log clearing must be requested from the admin origin' }, 403);
@@ -1525,6 +1567,7 @@ async function serveAdmin(request, env) {
     if (!isSameOrigin(request)) {
       return jsonResponse({ error: 'Must be requested from the admin origin' }, 403);
     }
+    const usage = createAiUsageCounter();
     try {
       const body = await request.json().catch(() => ({}));
       const storyId = body.id;
@@ -1550,8 +1593,11 @@ async function serveAdmin(request, env) {
       }
       const vector = await embedText(env, text);
       if (!vector) {
+        usage.add(AI_USAGE_MODEL_BGE, 'tagging', 0, 1);
+        await usage.flush(env);
         return jsonResponse({ error: 'Failed to embed story text', id: storyId }, 500);
       }
+      usage.add(AI_USAGE_MODEL_BGE, 'tagging', 1);
       const matches = classifyStoryKeywords(vector, keywordVectors);
       const keywords = matches.map(m => m.id);
 
@@ -1566,6 +1612,7 @@ async function serveAdmin(request, env) {
       );
       if (!saveRes.ok) throw new Error('Save failed: ' + saveRes.status);
 
+      await usage.flush(env);
       return jsonResponse({
         id: storyId,
         keywords,
@@ -1578,6 +1625,7 @@ async function serveAdmin(request, env) {
         }
       });
     } catch (err) {
+      await usage.flush(env);
       return jsonResponse({ error: err.message || 'Auto-tag failed' }, 500);
     }
   }
@@ -1588,6 +1636,7 @@ async function serveAdmin(request, env) {
     if (!env.AI) {
       return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
     }
+    const usage = createAiUsageCounter();
     try {
       // Parse optional limit (default: process all unvalidated)
       let body = {};
@@ -1669,7 +1718,7 @@ async function serveAdmin(request, env) {
         const stories = await res.json();
         if (!stories.length) break;
 
-        const results = await validateStoryCategories(env, stories, { keywordVectors });
+        const results = await validateStoryCategories(env, stories, { keywordVectors, usage });
 
         // Store the embedding predictions. For category mismatches, auto-apply
         // the AI's pick as the display override — Katie reviews them in the
@@ -1745,6 +1794,8 @@ async function serveAdmin(request, env) {
         if (stories.length < BATCH) break;
       }
 
+      await usage.flush(env);
+
       return jsonResponse({
         validated: totalValidated,
         stored: totalStored,
@@ -1773,6 +1824,7 @@ async function serveAdmin(request, env) {
       });
     } catch (err) {
       console.error('Category validation failed:', err);
+      await usage.flush(env);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Validation failed' }, 502);
     }
   }
@@ -1857,6 +1909,7 @@ async function serveAdmin(request, env) {
     if (!env.AI) {
       return jsonResponse({ error: 'Workers AI not available' }, 503);
     }
+    const usage = createAiUsageCounter();
     try {
       const payload = await request.json().catch(() => ({}));
       const ads = Array.isArray(payload.ads) ? payload.ads : [];
@@ -1883,6 +1936,8 @@ async function serveAdmin(request, env) {
         }
         try {
           const vector = await embedText(env, text);
+          if (vector) usage.add(AI_USAGE_MODEL_BGE, 'ad-auto-tag', 1);
+          else usage.add(AI_USAGE_MODEL_BGE, 'ad-auto-tag', 0, 1);
           const matches = classifyStoryKeywords(vector, keywordVectors);
           results.push({
             id: ad.id,
@@ -1920,12 +1975,14 @@ async function serveAdmin(request, env) {
         console.error('ad_keyword_tags save error:', saveErr.message);
       }
 
+      await usage.flush(env);
       return jsonResponse({
         results,
         done: newOffset >= ads.length,
         progress: { done: newOffset, total: ads.length }
       });
     } catch (err) {
+      await usage.flush(env);
       return jsonResponse({ error: err instanceof Error ? err.message : 'Auto-tag failed' }, 500);
     }
   }
@@ -2270,7 +2327,7 @@ function isReadableArticleText(text) {
     !/\b(?:enable javascript|verify you are human|access denied|request blocked|checking your browser|robot or human)\b/i.test(text);
 }
 
-async function generateAdminSummary(story, env) {
+async function generateAdminSummary(story, env, usage = null) {
   const suppliedText = [story.description, story.content]
     .map(value => extractPageText(decodeHtml(value)))
     .filter(Boolean)
@@ -2308,7 +2365,9 @@ async function generateAdminSummary(story, env) {
       max_tokens: 220,
       temperature: 0.2
     });
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'summaries', 1);
   } catch (err) {
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'summaries', 0, 1);
     console.error('Workers AI summary generation failed:', err);
     const details = err instanceof Error ? `: ${err.message.slice(0, 250)}` : '';
     throw new Error(`Workers AI could not generate the summary${details}`);
@@ -2388,7 +2447,7 @@ async function matchImageFromEdgeCache(cacheKey) {
   return null;
 }
 
-async function buildLittlablesImagePrompt(story, env) {
+async function buildLittlablesImagePrompt(story, env, usage = null) {
   const suppliedText = [story.aiSummary, story.description, story.content]
     .map(value => extractPageText(decodeHtml(value || '')))
     .filter(Boolean)
@@ -2431,10 +2490,12 @@ async function buildLittlablesImagePrompt(story, env) {
       max_tokens: 120,
       temperature: 0.6
     });
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'scene', 1);
     if (typeof generated?.response === 'string') {
       sceneDescription = generated.response.trim().replace(/\s*\n+\s*/g, ' ').slice(0, 320);
     }
   } catch (err) {
+    if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'scene', 0, 1);
     console.warn('Could not refine image prompt with LLM, using story details directly:', err);
   }
 
@@ -2444,7 +2505,7 @@ async function buildLittlablesImagePrompt(story, env) {
   return `Create a fun image based around the story details that fit the theme of Littlables: ${coreScene}. Whimsical, warm, colorful family-friendly storybook illustration, cozy and uplifting Littlables aesthetic, charming characters and scenery, soft lighting, no text, no words, no watermarks.`.slice(0, 650);
 }
 
-async function runWorkersAiImageModel(prompt, seed, env) {
+async function runWorkersAiImageModel(prompt, seed, env, usage = null) {
   let rawResult;
   try {
     rawResult = await env.AI.run(IMAGE_MODEL, {
@@ -2452,14 +2513,18 @@ async function runWorkersAiImageModel(prompt, seed, env) {
       num_steps: 8,
       ...(Number.isFinite(seed) ? { seed } : {})
     });
+    if (usage) usage.add(AI_USAGE_MODEL_FLUX, 'image', 1);
   } catch (primaryErr) {
+    if (usage) usage.add(AI_USAGE_MODEL_FLUX, 'image', 0, 1);
     console.warn(`Primary image model (${IMAGE_MODEL}) failed, trying fallback:`, primaryErr);
     try {
       rawResult = await env.AI.run(FALLBACK_IMAGE_MODEL, {
         prompt,
         ...(Number.isFinite(seed) ? { seed } : {})
       });
+      if (usage) usage.add(AI_USAGE_MODEL_SDXL, 'image', 1);
     } catch {
+      if (usage) usage.add(AI_USAGE_MODEL_SDXL, 'image', 0, 1);
       console.error('Workers AI image generation failed:', primaryErr);
       const details = primaryErr instanceof Error ? `: ${primaryErr.message.slice(0, 250)}` : '';
       throw new Error(`Workers AI could not generate the image${details}`);
@@ -2490,10 +2555,10 @@ async function runWorkersAiImageModel(prompt, seed, env) {
   };
 }
 
-async function generateAdminStoryImage(story, requestUrl, env) {
-  const prompt = await buildLittlablesImagePrompt(story, env);
+async function generateAdminStoryImage(story, requestUrl, env, usage = null) {
+  const prompt = await buildLittlablesImagePrompt(story, env, usage);
   const seed = Math.floor(Math.random() * 1_000_000);
-  const generated = await runWorkersAiImageModel(prompt, seed, env);
+  const generated = await runWorkersAiImageModel(prompt, seed, env, usage);
 
   const imageUrlObj = new URL('/ai-image', requestUrl);
   imageUrlObj.searchParams.set('prompt', prompt);
@@ -2541,13 +2606,16 @@ async function serveAiStoryImage(request, env) {
     }
   }
 
+  const usage = createAiUsageCounter();
   try {
-    const generated = await runWorkersAiImageModel(prompt, seed, env);
+    const generated = await runWorkersAiImageModel(prompt, seed, env, usage);
     rememberGeneratedImage(cacheKey, generated);
     await putImageInEdgeCache(cacheKey, generated);
+    await usage.flush(env);
     return createImageResponse(generated);
   } catch (err) {
     console.error('Public AI story image generation failed:', err);
+    await usage.flush(env);
     return jsonResponse({
       error: err instanceof Error ? err.message : 'Unable to generate story image'
     }, 502);
@@ -2790,6 +2858,7 @@ export default {
     // Frontend looks up ad content by ID from its JSON cache.
     // Response: { matches: { [storyIndex]: [adId, ...] } }
     if (request.method === 'POST' && pathname === '/ads/match') {
+      const usage = createAiUsageCounter();
       try {
         if (!env.AI) throw new Error('Workers AI not available');
         const body = await request.json().catch(() => ({}));
@@ -2812,6 +2881,8 @@ export default {
             if (text) {
               try {
                 storyVector = await embedText(env, text);
+                if (storyVector) usage.add(AI_USAGE_MODEL_BGE, 'ad-match', 1);
+                else usage.add(AI_USAGE_MODEL_BGE, 'ad-match', 0, 1);
                 const matches = classifyStoryKeywords(storyVector, keywordVectors);
                 for (const m of matches) {
                   kws.push(m.id);
@@ -2891,8 +2962,10 @@ export default {
           }
         });
 
+        await usage.flush(env);
         return jsonResponse({ matches });
       } catch (err) {
+        await usage.flush(env);
         return jsonResponse({ matches: {}, error: err.message });
       }
     }

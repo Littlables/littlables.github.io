@@ -17,6 +17,7 @@
  */
 
 import { INTEREST_KEYWORDS } from './interest-keywords.mjs';
+import { createAiUsageCounter, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
 
 export const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
 
@@ -149,6 +150,11 @@ export async function getKeywordEmbeddings(env) {
   INTEREST_KEYWORDS.forEach((kw, i) => {
     if (vectors[i]) map.set(kw.id, vectors[i]);
   });
+  // Cold-start cache fill: one embedding call per keyword description. Count
+  // it under warmup (same row as the stored-vector backfill) and flush at once.
+  const warmupUsage = createAiUsageCounter();
+  warmupUsage.add(AI_USAGE_MODEL_BGE, 'warmup', map.size, INTEREST_KEYWORDS.length - map.size);
+  await warmupUsage.flush(env);
   if (map.size === 0) return null;
   cachedKeywordEmbeddings = map;
   return map;
@@ -318,7 +324,16 @@ export async function validateStoryCategories(env, stories, options = {}) {
       }
     });
     // Batch embed in single AI call
-    const vectors = textsToEmbed.length > 0 ? await embedTexts(env, textsToEmbed) : [];
+    let vectors = [];
+    if (textsToEmbed.length > 0) {
+      try {
+        vectors = await embedTexts(env, textsToEmbed);
+        options.usage?.add(AI_USAGE_MODEL_BGE, 'validation', 1);
+      } catch (err) {
+        options.usage?.add(AI_USAGE_MODEL_BGE, 'validation', 0, 1);
+        throw err;
+      }
+    }
     const vectorByIndex = {};
     textIndices.forEach((storyIdx, vecIdx) => {
       vectorByIndex[storyIdx] = vectors[vecIdx];

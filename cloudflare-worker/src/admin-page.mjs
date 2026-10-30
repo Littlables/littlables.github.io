@@ -1907,18 +1907,34 @@ export function getAdminPage() {
       bge: '@cf/baai/bge-base-en-v1.5'
     };
     const AI_USAGE_ROWS = [
-      { name: 'Story curation', models: ['llama'], triggers: ['auto', 'admin'], what: 'Picks up to 5 stories per category for the editor to approve, based on the taste profile and approval history. Recommendations to the editor, never shown to visitors.', cost: '1 call per category, up to 7 per run · 3 slots a day (08:00, 13:00, 18:00) plus manual Curate buttons' },
-      { name: 'Admin story summaries', models: ['llama'], triggers: ['admin'], what: 'Writes one accurate paragraph summarizing a story for the admin review workflow. May scrape the article text first.', cost: '1 call per click · rate-limited per GitHub user' },
-      { name: 'Image scene description', models: ['llama'], triggers: ['admin'], what: 'Writes the 1-2 sentence scene prompt used to render an AI image. If it fails, the image still renders from the story details.', cost: '1 call per image created · 0 calls on failure' },
-      { name: 'Image rendering', models: ['flux', 'sdxl'], triggers: ['admin', 'visitor'], what: 'Renders the AI image. Created from the admin panel; served publicly by /ai-image, which is edge and memory cached.', cost: '1 image call per unique prompt and seed · fallback model only when FLUX fails · repeat loads cost 0 calls' },
-      { name: 'AI tags keyword correction', models: ['llama'], triggers: ['admin'], what: 'Reads a story title and description and picks up to 3 keywords by meaning, correcting embedding misfires. The button on each validation row.', cost: '1 call per click' },
-      { name: 'Category validation', models: ['bge'], triggers: ['admin'], what: 'Batch-embeds unapproved stories and flags where the embedding-predicted category disagrees with the query-assigned category.', cost: '1 batch call per group of stories' },
-      { name: 'Interest keyword tagging', models: ['bge'], triggers: ['admin'], what: 'Tags stories with up to 3 interest keywords. Runs inside the validation run, reusing the story embedding, so it adds no extra calls. Single-story auto-tag is also available.', cost: '0 extra calls inside validation · 1 embed per auto-tag click' },
-      { name: 'Keyword vector warmup', models: ['bge'], triggers: ['admin'], what: 'Backfills the stored keyword description vectors used by all embedding features. Runs inside the Validate flow.', cost: 'Batch embeds, 25 vectors per round · status check costs 0 calls' },
-      { name: 'Ad auto-tag', models: ['bge'], triggers: ['admin'], what: 'Tags ads with interest keywords so they can match stories.', cost: '15 ads per click, loops until done' },
-      { name: 'Ad matching', models: ['bge'], triggers: ['visitor'], what: 'Matches ads to stories on the public site. The frontend sends untagged stories from the current feed and gets ranked ad IDs back.', cost: 'Batch embeds per feed load that has untagged stories, up to 20 stories' },
-      { name: 'Playroom description fallback', models: ['bge'], triggers: ['visitor'], what: 'When a playroom has no pills selected, embeds the playroom description to find the most similar interests.', cost: '1 embed per playroom or space load with no pills' }
+      { id: 'curation', name: 'Story curation', models: ['llama'], triggers: ['auto', 'admin'], what: 'Picks up to 5 stories per category for the editor to approve, based on the taste profile and approval history. Recommendations to the editor, never shown to visitors.', cost: '1 call per category, up to 7 per run · 3 slots a day (08:00, 13:00, 18:00) plus manual Curate buttons' },
+      { id: 'summaries', name: 'Admin story summaries', models: ['llama'], triggers: ['admin'], what: 'Writes one accurate paragraph summarizing a story for the admin review workflow. May scrape the article text first.', cost: '1 call per click · rate-limited per GitHub user' },
+      { id: 'scene', name: 'Image scene description', models: ['llama'], triggers: ['admin'], what: 'Writes the 1-2 sentence scene prompt used to render an AI image. If it fails, the image still renders from the story details.', cost: '1 call per image created · 0 calls on failure' },
+      { id: 'image', name: 'Image rendering', models: ['flux', 'sdxl'], triggers: ['admin', 'visitor'], what: 'Renders the AI image. Created from the admin panel; served publicly by /ai-image, which is edge and memory cached.', cost: '1 image call per unique prompt and seed · fallback model only when FLUX fails · repeat loads cost 0 calls' },
+      { id: 'ai-tags', name: 'AI tags keyword correction', models: ['llama'], triggers: ['admin'], what: 'Reads a story title and description and picks up to 3 keywords by meaning, correcting embedding misfires. The button on each validation row.', cost: '1 call per click' },
+      { id: 'validation', name: 'Category validation', models: ['bge'], triggers: ['admin'], what: 'Batch-embeds unapproved stories and flags where the embedding-predicted category disagrees with the query-assigned category.', cost: '1 batch call per group of stories' },
+      { id: 'tagging', name: 'Interest keyword tagging', models: ['bge'], triggers: ['admin'], what: 'Tags stories with up to 3 interest keywords. Runs inside the validation run, reusing the story embedding, so it adds no extra calls. Single-story auto-tag is also available.', cost: '0 extra calls inside validation · 1 embed per auto-tag click' },
+      { id: 'warmup', name: 'Keyword vector warmup', models: ['bge'], triggers: ['admin'], what: 'Warms up keyword vectors for all embedding features: the stored backfill (25 per round, inside the Validate flow) plus the in-memory cache on cold starts.', cost: 'Batch embeds, 25 vectors per round · status check costs 0 calls' },
+      { id: 'ad-auto-tag', name: 'Ad auto-tag', models: ['bge'], triggers: ['admin'], what: 'Tags ads with interest keywords so they can match stories.', cost: '15 ads per click, loops until done' },
+      { id: 'ad-match', name: 'Ad matching', models: ['bge'], triggers: ['visitor'], what: 'Matches ads to stories on the public site. The frontend sends untagged stories from the current feed and gets ranked ad IDs back.', cost: 'Batch embeds per feed load that has untagged stories, up to 20 stories' },
+      { id: 'playroom-fallback', name: 'Playroom description fallback', models: ['bge'], triggers: ['visitor'], what: 'When a playroom has no pills selected, embeds the playroom description to find the most similar interests.', cost: '1 embed per playroom or space load with no pills' }
     ];
+    let aiUsageCounts = null;
+    function aiUsageTotals(rows) {
+      const today = new Date().toISOString().slice(0, 10);
+      const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      let todayCalls = 0;
+      let weekCalls = 0;
+      let weekErrors = 0;
+      rows.forEach(function (r) {
+        if (r.usage_date >= weekStart) {
+          weekCalls += r.calls || 0;
+          weekErrors += r.errors || 0;
+          if (r.usage_date === today) todayCalls += r.calls || 0;
+        }
+      });
+      return { today: todayCalls, week: weekCalls, errorsWeek: weekErrors };
+    }
     function renderAiUsage() {
       const container = document.getElementById('ai-usage-rows');
       const countEl = document.getElementById('ai-usage-count');
@@ -1933,6 +1949,19 @@ export function getAdminPage() {
         return modelOk && triggerOk;
       });
       container.replaceChildren();
+      if (aiUsageCounts) {
+        let totalToday = 0;
+        let totalWeek = 0;
+        visible.forEach(function (row) {
+          const totals = aiUsageTotals(aiUsageCounts.filter(function (r) { return r.usage_key === row.id; }));
+          totalToday += totals.today;
+          totalWeek += totals.week;
+        });
+        const totalsLine = document.createElement('p');
+        totalsLine.className = 'muted';
+        totalsLine.textContent = 'Live counts for the visible rows — Today: ' + totalToday + ' calls · Last 7 days: ' + totalWeek + ' calls.';
+        container.appendChild(totalsLine);
+      }
       visible.forEach(function (row) {
         const div = document.createElement('div');
         div.style.padding = '0.6rem 0';
@@ -1953,6 +1982,13 @@ export function getAdminPage() {
         div.appendChild(title);
         div.appendChild(what);
         div.appendChild(cost);
+        if (aiUsageCounts) {
+          const totals = aiUsageTotals(aiUsageCounts.filter(function (r) { return r.usage_key === row.id; }));
+          const counts = document.createElement('div');
+          counts.className = 'muted';
+          counts.textContent = 'Today: ' + totals.today + ' calls · Last 7 days: ' + totals.week + ' calls' + (totals.errorsWeek > 0 ? ' · ' + totals.errorsWeek + ' failed (7d)' : '');
+          div.appendChild(counts);
+        }
         container.appendChild(div);
       });
       if (visible.length === 0) {
@@ -1969,6 +2005,15 @@ export function getAdminPage() {
       if (modelFilter) modelFilter.addEventListener('change', renderAiUsage);
       if (triggerFilter) triggerFilter.addEventListener('change', renderAiUsage);
       renderAiUsage();
+      fetch('/admin/api/ai-usage?days=30', { credentials: 'same-origin' }).then(function (res) {
+        if (!res.ok) return null;
+        return res.json();
+      }).then(function (data) {
+        if (data && Array.isArray(data.rows)) {
+          aiUsageCounts = data.rows;
+          renderAiUsage();
+        }
+      }).catch(function () { /* counts stay hidden when the endpoint is unavailable */ });
     })();
 
     function sectionById(id) {

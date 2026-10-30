@@ -12,6 +12,7 @@ TEST_FILES=(
   "cloudflare-worker/src/news-storage.test.mjs"
   "cloudflare-worker/src/embedding-classifier.test.mjs"
   "cloudflare-worker/src/staggered-sync.test.mjs"
+  "cloudflare-worker/src/ai-usage-log.test.mjs"
 )
 
 TOTAL_PASS=0

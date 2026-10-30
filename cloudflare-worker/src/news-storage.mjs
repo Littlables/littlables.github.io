@@ -1,6 +1,7 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
 import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion } from './interest-keywords.mjs';
 import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
+import { createAiUsageCounter, AI_USAGE_MODEL_LLAMA, AI_USAGE_MODEL_BGE } from './ai-usage-log.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
 // are sharpened, old vectors stop matching and get recomputed.
@@ -468,6 +469,10 @@ export async function getPersistedKeywordEmbeddings(env) {
         console.warn('Keyword embeddings upsert failed:', upsertError);
       }
     }
+    const warmupUsage = createAiUsageCounter();
+    const warmupSucceeded = vectors.filter((v) => Boolean(v)).length;
+    warmupUsage.add(AI_USAGE_MODEL_BGE, 'warmup', warmupSucceeded, chunk.length - warmupSucceeded);
+    await warmupUsage.flush(env);
   }
 
   const done = map.size;
@@ -2124,7 +2129,7 @@ export function extractAiText(res, depth = 0) {
   return '';
 }
 
-async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}) {
+async function selectCategoryPicksWithAi(env, category, candidates, signals, tasteProfile, engagementSignals = {}, usage = null) {
   // First pre-score all candidates deterministically
   const scoredCandidates = candidates.map(story => {
     const { score, reason } = scoreCandidateStory(story, signals, tasteProfile, engagementSignals);
@@ -2167,6 +2172,7 @@ async function selectCategoryPicksWithAi(env, category, candidates, signals, tas
         max_tokens: 450,
         temperature: 0.25
       });
+      if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'curation', 1);
 
       const rawText = extractAiText(response).trim();
       if (!rawText) {
@@ -2212,6 +2218,7 @@ async function selectCategoryPicksWithAi(env, category, candidates, signals, tas
         }
       }
     } catch (err) {
+      if (usage) usage.add(AI_USAGE_MODEL_LLAMA, 'curation', 0, 1);
       console.warn(`AI LLM curation fallback used for category ${category}:`, err);
     }
   }
@@ -2291,6 +2298,10 @@ export async function runAiStoryCuration(env, {
       aiCuration: getAiCurationState()
     };
   }
+
+  // AI usage counting: one batched flush at the end of the run covers every
+  // per-category LLM call (see ai-usage-log.mjs).
+  const usage = createAiUsageCounter();
 
   // Refresh learned signals if rows are available or fetch them from Supabase
   let recentRows = preloadedRecentRows;
@@ -2379,7 +2390,8 @@ export async function runAiStoryCuration(env, {
       dedupedCandidates,
       learnedSignalsCache,
       aiTasteProfileMemory,
-      engagementSignals
+      engagementSignals,
+      usage
     );
 
     stagedByCategory[category] = pickedForCategory.length;
@@ -2417,6 +2429,8 @@ export async function runAiStoryCuration(env, {
   aiCurationStateMemory.lastSummary = `Staged ${totalStagedInRun} AI-picked stories across ${NEWS_CATEGORIES.length} categories for ${getSlotLabel(targetSlot)}`;
   aiCurationStateMemory.updatedAt = curatedAt;
   aiCurationStateMemory.updatedBy = updatedBy;
+
+  await usage.flush(env);
 
   return {
     skipped: false,
@@ -3041,6 +3055,10 @@ export async function getPlayroomFeed(env, playroomId, spaceId, username, slug) 
     if (descText && env.AI) {
       try {
         const descVector = await embedText(env, descText);
+        const fallbackUsage = createAiUsageCounter();
+        if (descVector) fallbackUsage.add(AI_USAGE_MODEL_BGE, 'playroom-fallback', 1);
+        else fallbackUsage.add(AI_USAGE_MODEL_BGE, 'playroom-fallback', 0, 1);
+        await fallbackUsage.flush(env);
         const { vectors } = await getPersistedKeywordEmbeddings(env);
         if (vectors && descVector) {
           const scored = [];
