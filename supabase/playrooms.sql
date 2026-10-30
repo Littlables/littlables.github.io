@@ -127,7 +127,7 @@ BEGIN
   FROM public.profiles
   WHERE id = target_user_id;
 
-  IF user_membership IN ('member', 'plus', 'premium') THEN
+  IF user_membership IN ('member', 'plus', 'premium', 'admin') THEN
     RETURN QUERY SELECT 25, 10, 15;
   ELSE
     RETURN QUERY SELECT 5, 1, 5;

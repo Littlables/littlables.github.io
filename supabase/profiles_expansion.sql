@@ -60,26 +60,37 @@ END $$;
 
 -- Membership tier ('free' by default; paid tiers unlock higher space & playroom limits)
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS membership TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'profiles_membership_check'
   ) THEN
-    ALTER TABLE public.profiles ADD CONSTRAINT profiles_membership_check
-      CHECK (membership IN ('free', 'member', 'plus', 'premium'));
+    ALTER TABLE public.profiles DROP CONSTRAINT profiles_membership_check;
   END IF;
+  ALTER TABLE public.profiles ADD CONSTRAINT profiles_membership_check
+    CHECK (membership IN ('free', 'member', 'plus', 'premium', 'admin'));
 END $$;
 
--- Prevent regular authenticated users from changing their own membership column from the browser;
--- only service_role / postgres (e.g. billing webhooks or SQL admin) can update membership.
+-- Prevent regular authenticated users from setting or changing their own membership or is_admin columns
+-- via INSERT or UPDATE from the browser; only service_role / postgres can grant elevated privileges.
 CREATE OR REPLACE FUNCTION public.protect_profile_membership()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF NEW.membership IS DISTINCT FROM OLD.membership
-     AND COALESCE(auth.role(), '') = 'authenticated'
+  IF COALESCE(auth.role(), '') = 'authenticated'
      AND current_user NOT IN ('postgres', 'service_role', 'supabase_admin') THEN
-    NEW.membership := OLD.membership;
+    IF TG_OP = 'INSERT' THEN
+      NEW.membership := 'free';
+      NEW.is_admin := false;
+    ELSIF TG_OP = 'UPDATE' THEN
+      IF NEW.membership IS DISTINCT FROM OLD.membership THEN
+        NEW.membership := OLD.membership;
+      END IF;
+      IF NEW.is_admin IS DISTINCT FROM OLD.is_admin THEN
+        NEW.is_admin := OLD.is_admin;
+      END IF;
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -87,7 +98,7 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS protect_profile_membership_trigger ON public.profiles;
 CREATE TRIGGER protect_profile_membership_trigger
-  BEFORE UPDATE ON public.profiles
+  BEFORE INSERT OR UPDATE ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.protect_profile_membership();
 
 -- Centralized membership limits lookup used by boards & playrooms triggers
@@ -100,7 +111,7 @@ BEGIN
   FROM public.profiles
   WHERE id = target_user_id;
 
-  IF user_membership IN ('member', 'plus', 'premium') THEN
+  IF user_membership IN ('member', 'plus', 'premium', 'admin') THEN
     RETURN QUERY SELECT 25, 10, 15;
   ELSE
     RETURN QUERY SELECT 5, 1, 5;
@@ -108,10 +119,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
--- Storage bucket for avatar uploads
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('avatars', 'avatars', true)
-ON CONFLICT (id) DO NOTHING;
+-- Storage bucket for avatar uploads (2 MB limit, safe image MIME types only)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  2097152,
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE
+SET file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- Avatar storage policies
 DROP POLICY IF EXISTS "Avatar images are publicly readable" ON storage.objects;
