@@ -16,7 +16,7 @@
  * Model: @cf/baai/bge-base-en-v1.5 (768-dim, English, strong on semantic similarity)
  */
 
-import { INTEREST_KEYWORDS } from './interest-keywords.mjs';
+import { INTEREST_KEYWORDS, COUNTRY_KEYWORD_TO_ISO } from './interest-keywords.mjs';
 
 export const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
 
@@ -158,6 +158,30 @@ export async function getKeywordEmbeddings(env) {
 export const KEYWORD_MATCH_THRESHOLD = 0.45;
 /** Max keywords auto-tagged per story. */
 export const KEYWORD_MAX_PER_STORY = 3;
+
+/**
+ * ISO country code → country interest id (inverse of
+ * COUNTRY_KEYWORD_TO_ISO). Provider country data is authoritative, so a
+ * match unshifts at 0.95 confidence. Shared by validation and the
+ * post-ingest tag pass so both tag countries identically.
+ */
+export const PROVIDER_COUNTRY_TO_INTEREST = Object.freeze(
+  Object.fromEntries(
+    Object.entries(COUNTRY_KEYWORD_TO_ISO).map(([interestId, iso]) => [iso, interestId])
+  )
+);
+
+/**
+ * Prepend the provider-country interest (confidence 0.95) when the provider
+ * supplied a country and that interest is not already matched, capped at
+ * maxKeywords. Returns a new array; the input is unchanged when there is
+ * no country match.
+ */
+export function applyProviderCountryInterest(matches, providerCountry, maxKeywords = KEYWORD_MAX_PER_STORY) {
+  const interestId = PROVIDER_COUNTRY_TO_INTEREST[(providerCountry || '').toUpperCase()];
+  if (!interestId || matches.some(m => m.id === interestId)) return matches;
+  return [{ id: interestId, label: interestId, confidence: 0.95 }, ...matches].slice(0, maxKeywords);
+}
 
 /**
  * Tag a story with interest keywords via embedding similarity.
@@ -366,26 +390,7 @@ export async function validateStoryCategories(env, stories, options = {}) {
         if (needsKeywords) {
           keywordMatches = classifyStoryKeywords(storyVector, keywordVectors);
           // If provider gave us a country, ensure the corresponding country interest is tagged.
-          // Maps ISO → interest ID (reverse of COUNTRY_KEYWORD_TO_ISO).
-          const providerCountry = (story.provider_country || '').toUpperCase();
-          if (providerCountry) {
-            const isoToInterest = {
-              'US': 'country-us', 'GB': 'country-uk', 'CA': 'country-canada',
-              'AU': 'country-australia', 'NZ': 'country-nz', 'IE': 'country-ireland',
-              'FR': 'country-france', 'DE': 'country-germany', 'IT': 'country-italy',
-              'ES': 'country-spain', 'NL': 'country-netherlands', 'SE': 'country-sweden',
-              'CN': 'country-china', 'JP': 'country-japan', 'IN': 'country-india',
-              'KR': 'country-korea', 'MX': 'country-mexico', 'BR': 'country-brazil',
-              'ZA': 'country-south-africa', 'EG': 'country-egypt',
-            };
-            const interestId = isoToInterest[providerCountry];
-            if (interestId && !keywordMatches.some(m => m.id === interestId)) {
-              // Add with high confidence (provider data is authoritative)
-              keywordMatches.unshift({ id: interestId, label: interestId, confidence: 0.95 });
-              // Keep max 3
-              keywordMatches = keywordMatches.slice(0, 3);
-            }
-          }
+          keywordMatches = applyProviderCountryInterest(keywordMatches, story.provider_country);
         }
         return {
           id: story.id,

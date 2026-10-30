@@ -56,6 +56,7 @@ import {
   getAiCurationState,
   updateAiCurationConfig,
   runAiStoryCuration,
+  runInterestTagPass,
   bulkDecideNewsStories,
   recordEngagementEvent,
   recordBoardEvent,
@@ -1582,6 +1583,32 @@ async function serveAdmin(request, env) {
     }
   }
 
+  // Post-ingest interest tag pass (manual run of the cron tag pass).
+  // POST /admin/api/stories/tag-untagged { limit }
+  // Tags NULL-keyword stories in bulk; loops client-side until done.
+  // Same admin-session + same-origin gates as the other story endpoints.
+  // Termination is bounded by attempts, never by remaining: the result's
+  // done flag is true when the NULL queue drains or a run stalls (zero
+  // rows processed with rows selected), so the client stops instead of
+  // spinning while rows keep failing.
+  if (url.pathname === '/admin/api/stories/tag-untagged' && request.method === 'POST') {
+    if (!env.AI) {
+      return jsonResponse({ error: 'Workers AI is not configured for this Worker' }, 503);
+    }
+    if (!isSameOrigin(request)) {
+      return jsonResponse({ error: 'Tag pass must be requested from the admin origin' }, 403);
+    }
+    try {
+      const body = await request.json().catch(() => ({}));
+      const limit = Math.min(Math.max(Number(body.limit) || 200, 1), 1000);
+      const result = await runInterestTagPass(env, { limit, triggerSource: 'admin:tag-pass' });
+      return jsonResponse(result);
+    } catch (err) {
+      console.error('Tag pass failed:', err);
+      return jsonResponse({ error: err.message || 'Tag pass failed' }, 502);
+    }
+  }
+
   // Validate story categories via embedding classifier (prototype).
   // Classifies unapproved stories and flags mismatches for review.
   if (url.pathname === '/admin/api/stories/validate-categories' && request.method === 'POST') {
@@ -2633,14 +2660,6 @@ export default {
     }
     if ((request.method === 'POST' || request.method === 'GET') && pathname === '/api/space/emoji') {
       try {
-        if (env.SUMMARY_RATE_LIMITER) {
-          const limit = await env.SUMMARY_RATE_LIMITER.limit({
-            key: `space-emoji:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
-          });
-          if (!limit.success) {
-            return jsonResponse({ emoji: '✨', matches: [], error: 'Rate limit exceeded' }, 429);
-          }
-        }
         let name = '';
         let description = '';
         let slug = '';
@@ -2800,14 +2819,6 @@ export default {
     if (request.method === 'POST' && pathname === '/ads/match') {
       try {
         if (!env.AI) throw new Error('Workers AI not available');
-        if (env.SUMMARY_RATE_LIMITER) {
-          const limit = await env.SUMMARY_RATE_LIMITER.limit({
-            key: `ads-match:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
-          });
-          if (!limit.success) {
-            return jsonResponse({ matches: {}, error: 'Rate limit exceeded' }, 429);
-          }
-        }
         const body = await request.json().catch(() => ({}));
         const stories = Array.isArray(body.stories) ? body.stories.slice(0, 20) : [];
         if (!stories.length) return jsonResponse({ matches: {} });
@@ -2954,6 +2965,20 @@ export default {
       return;
     }
     const cronPattern = event?.cron || '0 * * * *';
+    // Interest tag pass trigger (10 * * * *): tag-only run, never a sync.
+    // Branch FIRST: any non-staggered pattern otherwise falls through to a
+    // full hourly sync, which this trigger must not do.
+    if (cronPattern === '10 * * * *') {
+      const tagTask = runInterestTagPass(env, { triggerSource: 'cron:tag-pass' }).catch((err) => {
+        console.error('Interest tag pass failed:', err);
+      });
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(tagTask);
+      } else {
+        await tagTask;
+      }
+      return;
+    }
     // Drain due retry jobs first (same provider retried after cooldown),
     // then run the normal sync. Sequential to stay under the subrequest budget.
     const task = (async () => {

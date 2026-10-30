@@ -22,6 +22,7 @@ import {
   getPersistedKeywordEmbeddings,
   getKeywordVectorStatus,
   clearKeywordVectorCache,
+  runInterestTagPass,
   sortItemsByDayReactions,
   undoNewsStoryDecision,
   updateNewsStory,
@@ -1424,4 +1425,224 @@ test('AI curation uses choices-style model responses instead of silently falling
   assert.equal(topPick.storyId, 2);
   assert.equal(topPick.score, 95);
   assert.equal(topPick.reason, 'AI picked this one');
+});
+
+test('runInterestTagPass tags NULL rows in bulk, unshifts country, marks empty processed', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  const firstKw = INTEREST_KEYWORDS[0].id;
+  const keywordRows = INTEREST_KEYWORDS.map((kw) => ({
+    keyword_id: kw.id,
+    embedding: kw.id === firstKw ? [1, 0] : [0, 1],
+    model: '@cf/baai/bge-base-en-v1.5:kwv12',
+  }));
+  const stories = [
+    { id: 1, title: 'Dino story', description: 'A dinosaur tale', provider_country: 'US' },
+    { id: 2, title: '', description: '', provider_country: null },
+    { id: 3, title: 'Unlucky story', description: 'Embed will fail', provider_country: null },
+  ];
+  const captured = [];
+  let aiCalls = 0;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    captured.push({ url, options });
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      return Response.json(keywordRows);
+    }
+    if (url.pathname === '/rest/v1/news_stories' && options.method === 'POST') {
+      return Response.json([]);
+    }
+    if (url.pathname === '/rest/v1/news_stories') {
+      return Response.json(stories.slice(0, Number(url.searchParams.get('limit') || 200)));
+    }
+    if (url.pathname === '/rest/v1/news_provider_logs') {
+      return Response.json([]);
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: {
+      run: async (model, { text }) => {
+        aiCalls++;
+        // Batch embed: only one vector comes back, so later stories pad to null.
+        if (Array.isArray(text)) return { data: [[1, 0]] };
+        return { data: [1, 0] };
+      },
+    },
+  };
+  try {
+    const result = await runInterestTagPass(aiEnv, { triggerSource: 'cron:tag-pass' });
+    assert.equal(aiCalls, 1, 'one batch embed call for the whole run');
+    assert.equal(result.tagged, 1);
+    assert.equal(result.processed, 2);
+    assert.equal(result.attempted, 3);
+    assert.equal(result.done, true);
+    assert.equal(result.stalled, false);
+    assert.equal(result.remaining, 1, 'failed story still NULL');
+    assert.equal(result.failedBatches, 0);
+
+    const select = captured.find((c) => c.url.pathname === '/rest/v1/news_stories' && c.options.method !== 'POST');
+    assert.equal(select.url.searchParams.get('interest_keywords'), 'is.null', 'only NULL rows selected');
+    assert.equal(select.url.searchParams.get('removed'), 'eq.false');
+    assert.equal(select.url.searchParams.get('order'), 'fetched_at.desc');
+    assert.equal(select.url.searchParams.get('limit'), '200');
+
+    const upsert = captured.find((c) => c.url.pathname === '/rest/v1/news_stories' && c.options.method === 'POST');
+    assert.equal(upsert.url.searchParams.get('on_conflict'), 'id');
+    assert.match(upsert.options.headers.Prefer, /resolution=merge-duplicates/);
+    const upserted = JSON.parse(upsert.options.body);
+    assert.equal(upserted.length, 2, 'failed story excluded from the write');
+    const expectedFirst = firstKw === 'country-us' ? ['country-us'] : ['country-us', firstKw];
+    assert.deepEqual(upserted.find((u) => u.id === 1).interest_keywords, expectedFirst);
+    assert.deepEqual(upserted.find((u) => u.id === 2).interest_keywords, [], 'empty text marked processed');
+    assert.equal(upserted.some((u) => u.id === 3), false, 'failed embed stays NULL');
+
+    const log = captured.find((c) => c.url.pathname === '/rest/v1/news_provider_logs');
+    const logBody = JSON.parse(log.options.body)[0];
+    assert.equal(logBody.provider, 'tag-pass');
+    assert.equal(logBody.trigger_source, 'cron:tag-pass');
+    assert.equal(logBody.stories_saved, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('runInterestTagPass caps per run and reports more remaining', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  const keywordRows = INTEREST_KEYWORDS.map((kw) => ({
+    keyword_id: kw.id,
+    embedding: [1, 0],
+    model: '@cf/baai/bge-base-en-v1.5:kwv12',
+  }));
+  const stories = [
+    { id: 1, title: 'A', description: '', provider_country: null },
+    { id: 2, title: 'B', description: '', provider_country: null },
+  ];
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') return Response.json(keywordRows);
+    if (url.pathname === '/rest/v1/news_stories' && options.method === 'POST') return Response.json([]);
+    if (url.pathname === '/rest/v1/news_stories') {
+      return Response.json(stories.slice(0, Number(url.searchParams.get('limit') || 200)));
+    }
+    if (url.pathname === '/rest/v1/news_provider_logs') return Response.json([]);
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = { ...env, AI: { run: async () => ({ data: [[1, 0]] }) } };
+  try {
+    const result = await runInterestTagPass(aiEnv, { limit: 2 });
+    assert.equal(result.attempted, 2);
+    assert.equal(result.processed, 1, 'second story padded to a null vector and left NULL');
+    assert.equal(result.tagged, 1);
+    assert.equal(result.done, false, 'hit the cap, more rows may remain');
+    assert.equal(result.remaining, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('runInterestTagPass returns nothing to tag when the NULL queue is empty', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      return Response.json(INTEREST_KEYWORDS.map((kw) => ({
+        keyword_id: kw.id,
+        embedding: [1, 0],
+        model: '@cf/baai/bge-base-en-v1.5:kwv12',
+      })));
+    }
+    if (url.pathname === '/rest/v1/news_stories') return Response.json([]);
+    if (url.pathname === '/rest/v1/news_provider_logs') return Response.json([]);
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = { ...env, AI: { run: async () => { throw new Error('must not be called'); } } };
+  try {
+    const result = await runInterestTagPass(aiEnv);
+    assert.deepEqual(
+      { attempted: result.attempted, done: result.done, remaining: result.remaining, processed: result.processed },
+      { attempted: 0, done: true, remaining: 0, processed: 0 }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('runInterestTagPass skips the run without AI calls when vectors are incomplete', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  const fetchedPaths = [];
+  let aiCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    fetchedPaths.push(url.pathname);
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      return Response.json(
+        INTEREST_KEYWORDS.slice(0, 10).map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [1, 0],
+          model: '@cf/baai/bge-base-en-v1.5:kwv12',
+        }))
+      );
+    }
+    if (url.pathname === '/rest/v1/news_provider_logs') return Response.json([]);
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => { aiCalls++; return { data: [[1, 0]] }; } },
+  };
+  try {
+    const result = await runInterestTagPass(aiEnv);
+    assert.equal(result.skipped, 'keyword-vectors-incomplete');
+    assert.equal(result.done, true);
+    assert.equal(aiCalls, 0, 'no backfill inside the tag pass');
+    assert.equal(fetchedPaths.includes('/rest/v1/news_stories'), false, 'no stories selected');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
+});
+
+test('getPersistedKeywordEmbeddings with allowBackfill false never calls AI', async () => {
+  clearKeywordVectorCache();
+  const { INTEREST_KEYWORDS } = await import('./interest-keywords.mjs');
+  const originalFetch = globalThis.fetch;
+  let aiCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/rest/v1/keyword_embeddings') {
+      return Response.json(
+        INTEREST_KEYWORDS.slice(0, 10).map((kw) => ({
+          keyword_id: kw.id,
+          embedding: [1, 0],
+          model: '@cf/baai/bge-base-en-v1.5:kwv12',
+        }))
+      );
+    }
+    throw new Error('unexpected fetch: ' + url.pathname);
+  };
+  const aiEnv = {
+    ...env,
+    AI: { run: async () => { aiCalls++; return { data: [[1, 0]] }; } },
+  };
+  try {
+    const result = await getPersistedKeywordEmbeddings(aiEnv, { allowBackfill: false });
+    assert.equal(result.complete, false);
+    assert.equal(result.vectors, null);
+    assert.equal(aiCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearKeywordVectorCache();
+  }
 });

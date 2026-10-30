@@ -12,6 +12,8 @@ import {
   getCategoryEmbeddings,
   getKeywordEmbeddings,
   classifyStoryKeywords,
+  applyProviderCountryInterest,
+  PROVIDER_COUNTRY_TO_INTEREST,
   clearEmbeddingCache,
   CATEGORY_DESCRIPTIONS,
   EMBEDDING_MODEL,
@@ -215,5 +217,48 @@ describe('embedding-classifier', () => {
     assert.equal(alreadyTagged.keywordsClassified, false, 'stories with keywords are not re-tagged');
     assert.deepEqual(alreadyTagged.keywordMatches, []);
     clearEmbeddingCache();
+  });
+});
+
+describe('applyProviderCountryInterest', () => {
+  it('maps 20 ISO codes to country interests', () => {
+    assert.equal(Object.keys(PROVIDER_COUNTRY_TO_INTEREST).length, 20);
+    assert.equal(PROVIDER_COUNTRY_TO_INTEREST.US, 'country-us');
+    assert.equal(PROVIDER_COUNTRY_TO_INTEREST.GB, 'country-uk');
+    assert.equal(PROVIDER_COUNTRY_TO_INTEREST.EG, 'country-egypt');
+  });
+
+  it('unshifts the country interest at 0.95 when missing', () => {
+    const matches = [{ id: 'dinosaurs', label: 'dinosaurs', confidence: 0.9 }];
+    const out = applyProviderCountryInterest(matches, 'US');
+    assert.deepEqual(out, [
+      { id: 'country-us', label: 'country-us', confidence: 0.95 },
+      { id: 'dinosaurs', label: 'dinosaurs', confidence: 0.9 },
+    ]);
+    assert.equal(matches.length, 1, 'input is not mutated');
+  });
+
+  it('does not duplicate a country interest that is already matched', () => {
+    const matches = [{ id: 'country-us', label: 'country-us', confidence: 0.8 }];
+    assert.deepEqual(applyProviderCountryInterest(matches, 'US'), matches);
+  });
+
+  it('caps at max keywords, dropping the lowest match', () => {
+    const matches = [
+      { id: 'a', label: 'a', confidence: 0.9 },
+      { id: 'b', label: 'b', confidence: 0.8 },
+      { id: 'c', label: 'c', confidence: 0.7 },
+    ];
+    const out = applyProviderCountryInterest(matches, 'FR');
+    assert.equal(out.length, 3);
+    assert.equal(out[0].id, 'country-france');
+    assert.equal(out[2].id, 'b', 'lowest match dropped');
+  });
+
+  it('leaves matches unchanged for unknown or missing country codes', () => {
+    const matches = [{ id: 'dinosaurs', label: 'dinosaurs', confidence: 0.9 }];
+    assert.deepEqual(applyProviderCountryInterest(matches, 'XX'), matches);
+    assert.deepEqual(applyProviderCountryInterest(matches, ''), matches);
+    assert.deepEqual(applyProviderCountryInterest(matches, null), matches);
   });
 });

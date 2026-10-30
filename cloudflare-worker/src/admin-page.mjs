@@ -1287,6 +1287,12 @@ export function getAdminPage() {
           </button>
           <span id="validate-categories-status" class="admin-hint"></span>
         </div>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin: 0 0 1rem; flex-wrap: wrap;">
+          <button id="tag-untagged-btn" class="sign-in-button primary-button" type="button" style="width: auto; padding: 0.6rem 1.2rem;">
+            Tag Untagged Stories
+          </button>
+          <span id="tag-untagged-status" class="admin-hint"></span>
+        </div>
         <div id="validate-categories-results" aria-live="polite"></div>
       </div>
     </section>
@@ -1634,6 +1640,46 @@ export function getAdminPage() {
         <div id="check-images-results" aria-live="polite"></div>
       </div>
     </section>
+    <!-- AI USAGE SECTION -->
+    <section aria-labelledby="ai-usage-title" class="admin-card-section" data-section-id="ai-usage">
+      <div class="section-header">
+        <h2 id="ai-usage-title">
+          <button id="ai-usage-toggle" class="section-toggle" type="button" aria-expanded="false" aria-controls="ai-usage-body" data-section-toggle="ai-usage">
+            <span id="ai-usage-arrow" class="section-arrow" aria-hidden="true">▼</span>
+            <span>🤖 AI usage <span id="ai-usage-count"></span></span>
+          </button>
+        </h2>
+        <div class="section-controls">
+          <button type="button" class="icon-btn move-up-btn" aria-label="Move section up" title="Move up">↑</button>
+          <button type="button" class="icon-btn move-down-btn" aria-label="Move section down" title="Move down">↓</button>
+        </div>
+      </div>
+      <div id="ai-usage-body" class="section-body" hidden>
+        <p class="admin-hint">Every AI model call the site makes, all through Cloudflare Workers AI. Use the filters to narrow by model or by what triggers the call. Live call counts are not tracked yet — this is the catalog of what runs and why.</p>
+        <div class="filter-bar">
+          <label class="provider-toolbar" for="ai-usage-model-filter">
+            Model
+            <select id="ai-usage-model-filter" class="provider-filter">
+              <option value="all">All models</option>
+              <option value="llama">llama-3.2-3b-instruct</option>
+              <option value="flux">flux-1-schnell</option>
+              <option value="sdxl">stable-diffusion-xl-lightning</option>
+              <option value="bge">bge-base-en-v1.5</option>
+            </select>
+          </label>
+          <label class="provider-toolbar" for="ai-usage-trigger-filter">
+            Trigger
+            <select id="ai-usage-trigger-filter" class="provider-filter">
+              <option value="all">All triggers</option>
+              <option value="admin">Admin panel</option>
+              <option value="auto">Automatic / scheduled</option>
+              <option value="visitor">Visitor pages</option>
+            </select>
+          </label>
+        </div>
+        <div id="ai-usage-rows" aria-live="polite"></div>
+      </div>
+    </section>
   </main>
 
   <!-- UNIFIED PREVIEW DIALOG (Single Close Button inside Preview Actions) -->
@@ -1844,6 +1890,7 @@ export function getAdminPage() {
       { id: 'banned', label: 'Banned', body: 'banned-body', defaultOpen: false },
       { id: 'analytics', label: 'Analytics', body: 'analytics-body', defaultOpen: false },
       { id: 'broken-images', label: 'Broken Images', body: 'broken-images-body', defaultOpen: false },
+      { id: 'ai-usage', label: 'AI usage', body: 'ai-usage-body', defaultOpen: false },
     ];
     const sectionTargets = Object.fromEntries(
       SECTIONS.map((s) => [s.id, {
@@ -1853,6 +1900,82 @@ export function getAdminPage() {
         defaultOpen: s.defaultOpen,
       }])
     );
+
+
+    /* ── AI usage catalog ──────────────────────────────────────────────
+       One entry per AI model call the site makes. The dashboard renders
+       this list and filters it; the README "AI / LLM usage" section
+       documents the same calls for contributors. Keep both in sync. */
+    const AI_USAGE_MODELS = {
+      llama: '@cf/meta/llama-3.2-3b-instruct',
+      flux: '@cf/black-forest-labs/flux-1-schnell',
+      sdxl: '@cf/bytedance/stable-diffusion-xl-lightning',
+      bge: '@cf/baai/bge-base-en-v1.5'
+    };
+    const AI_USAGE_ROWS = [
+      { name: 'Story curation', models: ['llama'], triggers: ['auto', 'admin'], what: 'Picks up to 5 stories per category for the editor to approve, based on the taste profile and approval history. Recommendations to the editor, never shown to visitors.', cost: '1 call per category, up to 7 per run · 3 slots a day (08:00, 13:00, 18:00) plus manual Curate buttons' },
+      { name: 'Admin story summaries', models: ['llama'], triggers: ['admin'], what: 'Writes one accurate paragraph summarizing a story for the admin review workflow. May scrape the article text first.', cost: '1 call per click · rate-limited per GitHub user' },
+      { name: 'Image scene description', models: ['llama'], triggers: ['admin'], what: 'Writes the 1-2 sentence scene prompt used to render an AI image. If it fails, the image still renders from the story details.', cost: '1 call per image created · 0 calls on failure' },
+      { name: 'Image rendering', models: ['flux', 'sdxl'], triggers: ['admin', 'visitor'], what: 'Renders the AI image. Created from the admin panel; served publicly by /ai-image, which is edge and memory cached.', cost: '1 image call per unique prompt and seed · fallback model only when FLUX fails · repeat loads cost 0 calls' },
+      { name: 'AI tags keyword correction', models: ['llama'], triggers: ['admin'], what: 'Reads a story title and description and picks up to 3 keywords by meaning, correcting embedding misfires. The button on each validation row.', cost: '1 call per click' },
+      { name: 'Category validation', models: ['bge'], triggers: ['admin'], what: 'Batch-embeds unapproved stories and flags where the embedding-predicted category disagrees with the query-assigned category.', cost: '1 batch call per group of stories' },
+      { name: 'Interest keyword tagging', models: ['bge'], triggers: ['admin'], what: 'Tags stories with up to 3 interest keywords. Runs inside the validation run, reusing the story embedding, so it adds no extra calls. Single-story auto-tag is also available.', cost: '0 extra calls inside validation · 1 embed per auto-tag click' },
+      { name: 'Keyword vector warmup', models: ['bge'], triggers: ['admin'], what: 'Backfills the stored keyword description vectors used by all embedding features. Runs inside the Validate flow.', cost: 'Batch embeds, 25 vectors per round · status check costs 0 calls' },
+      { name: 'Ad auto-tag', models: ['bge'], triggers: ['admin'], what: 'Tags ads with interest keywords so they can match stories.', cost: '15 ads per click, loops until done' },
+      { name: 'Ad matching', models: ['bge'], triggers: ['visitor'], what: 'Matches ads to stories on the public site. The frontend sends untagged stories from the current feed and gets ranked ad IDs back.', cost: 'Batch embeds per feed load that has untagged stories, up to 20 stories' },
+      { name: 'Playroom description fallback', models: ['bge'], triggers: ['visitor'], what: 'When a playroom has no pills selected, embeds the playroom description to find the most similar interests.', cost: '1 embed per playroom or space load with no pills' }
+    ];
+    function renderAiUsage() {
+      const container = document.getElementById('ai-usage-rows');
+      const countEl = document.getElementById('ai-usage-count');
+      if (!container) return;
+      const modelFilter = document.getElementById('ai-usage-model-filter');
+      const triggerFilter = document.getElementById('ai-usage-trigger-filter');
+      const model = modelFilter ? modelFilter.value : 'all';
+      const trigger = triggerFilter ? triggerFilter.value : 'all';
+      const visible = AI_USAGE_ROWS.filter(function (row) {
+        const modelOk = model === 'all' || row.models.indexOf(model) !== -1;
+        const triggerOk = trigger === 'all' || row.triggers.indexOf(trigger) !== -1;
+        return modelOk && triggerOk;
+      });
+      container.replaceChildren();
+      visible.forEach(function (row) {
+        const div = document.createElement('div');
+        div.style.padding = '0.6rem 0';
+        div.style.borderTop = '1px solid var(--news-border, #334155)';
+        const title = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = row.name;
+        title.appendChild(name);
+        const badge = document.createElement('span');
+        badge.className = 'muted';
+        badge.textContent = ' · ' + row.models.map(function (m) { return AI_USAGE_MODELS[m]; }).join(', ');
+        title.appendChild(badge);
+        const what = document.createElement('div');
+        what.textContent = row.what;
+        const cost = document.createElement('div');
+        cost.className = 'muted';
+        cost.textContent = row.cost;
+        div.appendChild(title);
+        div.appendChild(what);
+        div.appendChild(cost);
+        container.appendChild(div);
+      });
+      if (visible.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'admin-hint';
+        empty.textContent = 'No AI calls match these filters.';
+        container.appendChild(empty);
+      }
+      if (countEl) countEl.textContent = '(' + visible.length + ' of ' + AI_USAGE_ROWS.length + ')';
+    }
+    (function initAiUsageFilters() {
+      const modelFilter = document.getElementById('ai-usage-model-filter');
+      const triggerFilter = document.getElementById('ai-usage-trigger-filter');
+      if (modelFilter) modelFilter.addEventListener('change', renderAiUsage);
+      if (triggerFilter) triggerFilter.addEventListener('change', renderAiUsage);
+      renderAiUsage();
+    })();
 
     function sectionById(id) {
       return adminSectionsEl.querySelector(':scope > section[data-section-id="' + id + '"]');
@@ -1894,6 +2017,7 @@ export function getAdminPage() {
       logs: () => document.getElementById('logs-count')?.textContent?.trim(),
       decisions: () => document.getElementById('history-count')?.textContent?.trim(),
       banned: () => document.getElementById('banned-count')?.textContent?.trim(),
+      'ai-usage': () => document.getElementById('ai-usage-count')?.textContent?.trim(),
     };
     /* Hamburger section menu: vertical list in current DOM order, with live
        counts pulled from the section headers so they never drift out of sync.
@@ -6539,6 +6663,63 @@ export function getAdminPage() {
           validateBtn.disabled = false;
           validateBtn.textContent = 'Validate Categories';
           // Refresh the unclassified count (and panel data) after the run.
+          refreshData();
+        }
+      });
+    }
+
+    // Post-ingest tag pass, manual run: tags stories whose interest keywords
+    // are still NULL, via POST /admin/api/stories/tag-untagged. Loops until
+    // the endpoint reports done, bounded by MAX_ROUNDS — never by remaining
+    // alone, so a stalled run stops instead of spinning while rows fail.
+    const tagUntaggedBtn = document.getElementById('tag-untagged-btn');
+    const tagUntaggedStatus = document.getElementById('tag-untagged-status');
+    if (tagUntaggedBtn) {
+      tagUntaggedBtn.addEventListener('click', async () => {
+        tagUntaggedBtn.disabled = true;
+        tagUntaggedBtn.textContent = 'Tagging…';
+        const LIMIT_PER_CALL = 200;
+        const MAX_ROUNDS = 12;
+        let totalTagged = 0;
+        let totalProcessed = 0;
+        let rounds = 0;
+        let skippedRun = false;
+        let stalledRun = false;
+        let finished = false;
+        try {
+          while (rounds < MAX_ROUNDS) {
+            rounds += 1;
+            if (tagUntaggedStatus) tagUntaggedStatus.textContent = 'Tagging… (' + totalProcessed + ' processed)';
+            const res = await fetch('/admin/api/stories/tag-untagged', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit: LIMIT_PER_CALL }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Tag pass failed');
+            totalTagged += data.tagged || 0;
+            totalProcessed += data.processed || 0;
+            if (data.skipped) { skippedRun = true; break; }
+            if (data.stalled) { stalledRun = true; break; }
+            if (data.done) { finished = true; break; }
+          }
+          if (tagUntaggedStatus) {
+            if (skippedRun) {
+              tagUntaggedStatus.textContent = 'Tagging skipped: keyword vectors are still warming up. Try again in a bit.';
+            } else if (stalledRun) {
+              tagUntaggedStatus.textContent = 'Tagging stalled: no stories could be tagged this run. Try again later.';
+            } else {
+              let msg = 'Tagged ' + totalTagged + ' stories (' + totalProcessed + ' processed)';
+              if (!finished) msg += ' — stopped after ' + MAX_ROUNDS + ' rounds; run again to continue';
+              tagUntaggedStatus.textContent = msg + '.';
+            }
+          }
+        } catch (err) {
+          if (tagUntaggedStatus) tagUntaggedStatus.textContent = 'Error: ' + (err.message || 'Tag pass failed');
+        } finally {
+          tagUntaggedBtn.disabled = false;
+          tagUntaggedBtn.textContent = 'Tag Untagged Stories';
+          // Refresh panel data after the run (also after partial progress).
           refreshData();
         }
       });

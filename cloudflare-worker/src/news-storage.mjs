@@ -1,6 +1,6 @@
 import { NEWS_CATEGORIES } from './news-provider-config.mjs';
 import { normalizeInterestKeywords, INTEREST_KEYWORD_IDS, INTEREST_KEYWORDS, KEYWORD_DESCRIPTIONS_VERSION, EXCLUDED_KEYWORD_IDS, SPACE_DEFINITIONS, deriveStoryRegion } from './interest-keywords.mjs';
-import { embedText, EMBEDDING_MODEL, cosineSimilarity } from './embedding-classifier.mjs';
+import { embedText, embedTexts, EMBEDDING_MODEL, cosineSimilarity, classifyStoryKeywords, applyProviderCountryInterest } from './embedding-classifier.mjs';
 
 // Stored keyword vectors are keyed by description version: when descriptions
 // are sharpened, old vectors stop matching and get recomputed.
@@ -374,6 +374,11 @@ let cachedKeywordVectors = null;
  * All-or-nothing: `vectors` is null until EVERY keyword has a vector, so
  * stories are never tagged against a partial keyword set.
  *
+ * Pass `{ allowBackfill: false }` to load only: no AI calls are made, and
+ * incomplete vectors return `vectors: null` so the caller can skip its run.
+ * The post-ingest tag pass uses this — it must never backfill inside its
+ * own budget.
+ *
  * @returns {Promise<{vectors: Map<string,number[]>|null, complete: boolean, done: number, total: number}>}
  */
 /**
@@ -406,7 +411,7 @@ export async function getKeywordVectorStatus(env) {
   return { complete: done === total, done, total };
 }
 
-export async function getPersistedKeywordEmbeddings(env) {
+export async function getPersistedKeywordEmbeddings(env, { allowBackfill = true } = {}) {
   const total = INTEREST_KEYWORDS.length;
   if (cachedKeywordVectors) {
     return { vectors: cachedKeywordVectors, complete: true, done: total, total };
@@ -436,9 +441,11 @@ export async function getPersistedKeywordEmbeddings(env) {
     console.warn('Keyword embeddings lookup failed:', lookupError);
   }
 
-  // 2. Backfill ONE chunk of missing vectors per call.
+  // 2. Backfill ONE chunk of missing vectors per call — unless the caller
+  // opted out (the post-ingest tag pass must never backfill inside its own
+  // budget; it skips the run instead when vectors are incomplete).
   const missing = INTEREST_KEYWORDS.filter((kw) => !map.has(kw.id));
-  const chunk = missing.slice(0, KEYWORD_EMBED_CHUNK);
+  const chunk = allowBackfill ? missing.slice(0, KEYWORD_EMBED_CHUNK) : [];
   let upsertError = null;
   let upserted = 0;
   if (chunk.length > 0) {
@@ -484,6 +491,148 @@ export async function getPersistedKeywordEmbeddings(env) {
 /** Clear the in-memory keyword vector cache (useful for tests). */
 export function clearKeywordVectorCache() {
   cachedKeywordVectors = null;
+}
+
+/** Stories embedded per bulk AI call in the post-ingest tag pass. */
+export const TAG_PASS_BATCH_SIZE = 50;
+/** Max stories tagged per tag-pass run (cron or manual). */
+export const TAG_PASS_DEFAULT_LIMIT = 200;
+
+/**
+ * Post-ingest interest tag pass (Design B).
+ *
+ * Tags stories whose interest_keywords is still NULL: embeds title +
+ * description in batches, classifies locally against the persisted keyword
+ * vectors, applies the provider-country unshift, and writes tags back with
+ * one bulk upsert per batch. Only NULL rows are ever written, so manual
+ * keyword edits and Halloween batch hand-set tags are never overwritten,
+ * and `upsertNewsStories` stays untouched.
+ *
+ * Fail-open everywhere: incomplete keyword vectors skip the run (no
+ * backfill inside this pass); a failed batch leaves its rows NULL for the
+ * next run; successfully embedded rows with zero matches are written as []
+ * (marks processed) so they never retry. A row stays NULL after a pass
+ * ONLY when its embed failed — there is no per-story poison pill, and the
+ * run itself is a single bounded pass, never a loop over the same rows.
+ *
+ * @returns {Promise<{tagged: number, processed: number, attempted: number,
+ *   done: boolean, stalled: boolean, remaining: number|null,
+ *   failedBatches: number, skipped?: string}>}
+ *   tagged = rows written with >=1 keyword; processed = rows written
+ *   (tags or []); attempted = rows selected; done = true when the NULL
+ *   queue is drained (selected < limit) or the run stalled (processed 0
+ *   with rows selected); remaining = rows still NULL when drained, null
+ *   when more rows may remain beyond the cap; skipped = reason when the
+ *   run exited before selecting (vectors incomplete).
+ */
+export async function runInterestTagPass(env, { limit = TAG_PASS_DEFAULT_LIMIT, triggerSource = 'manual' } = {}) {
+  const maxRows = Math.min(Math.max(Number(limit) || TAG_PASS_DEFAULT_LIMIT, 1), 1000);
+  const logRun = async (result) => {
+    await recordNewsProviderFetchLog(env, {
+      provider: 'tag-pass',
+      providerLabel: 'Interest tag pass',
+      category: 'all',
+      triggerSource,
+      status: result.skipped ? 'skipped' : result.stalled ? 'failed' : 'succeeded',
+      itemsFetched: result.attempted,
+      storiesSaved: result.processed,
+      errorMessage: result.skipped
+        ? `Tag pass skipped: ${result.skipped}`
+        : result.failedBatches > 0
+          ? `${result.failedBatches} batch(es) failed; those rows stay NULL for the next run`
+          : null,
+    });
+  };
+
+  // 1. Vector gate — load only, never backfill inside this pass.
+  const { vectors: keywordVectors, complete } = await getPersistedKeywordEmbeddings(env, { allowBackfill: false });
+  if (!complete || !keywordVectors) {
+    const result = { tagged: 0, processed: 0, attempted: 0, done: true, stalled: false, remaining: null, failedBatches: 0, skipped: 'keyword-vectors-incomplete' };
+    await logRun(result);
+    return result;
+  }
+
+  // 2. Select untagged, non-removed rows, newest first. NULL is the cursor:
+  // a row stays NULL until tagged, so the next run resumes where this one
+  // stopped and a first-run backlog drains over successive runs.
+  const params = new URLSearchParams({
+    select: 'id,title,description,provider_country',
+    interest_keywords: 'is.null',
+    removed: 'eq.false',
+    order: 'fetched_at.desc',
+    limit: String(maxRows),
+  });
+  const res = await fetch(supabaseUrl(env, STORIES_TABLE, params), {
+    headers: supabaseHeaders(env),
+  });
+  const rows = await readRows(res, 'Tag pass story lookup');
+  if (!rows.length) {
+    const result = { tagged: 0, processed: 0, attempted: 0, done: true, stalled: false, remaining: 0, failedBatches: 0 };
+    await logRun(result);
+    return result;
+  }
+
+  // 3-6. Embed each batch, classify locally, bulk-write tags.
+  let tagged = 0;
+  let processed = 0;
+  let failedBatches = 0;
+  for (let start = 0; start < rows.length; start += TAG_PASS_BATCH_SIZE) {
+    const batch = rows.slice(start, start + TAG_PASS_BATCH_SIZE);
+    const texts = batch.map((s) => `${s.title || ''} ${s.description || ''}`.trim());
+    let vectors;
+    try {
+      vectors = await embedTexts(env, texts);
+    } catch (err) {
+      console.error(`Tag pass embed failed for batch starting at ${start}:`, err?.message || err);
+      failedBatches++;
+      continue;
+    }
+    const upserts = [];
+    batch.forEach((story, i) => {
+      const text = texts[i];
+      if (!text) {
+        // No text to embed: mark processed so it is never retried.
+        upserts.push({ id: story.id, interest_keywords: [] });
+        return;
+      }
+      const vector = vectors[i];
+      if (!vector) return; // Embed failed for this story: stays NULL.
+      const matches = applyProviderCountryInterest(
+        classifyStoryKeywords(vector, keywordVectors),
+        story.provider_country
+      );
+      upserts.push({ id: story.id, interest_keywords: matches.map((m) => m.id) });
+    });
+    if (!upserts.length) continue;
+    try {
+      const upsertParams = new URLSearchParams({ on_conflict: 'id' });
+      const upsertRes = await fetch(supabaseUrl(env, STORIES_TABLE, upsertParams), {
+        method: 'POST',
+        headers: supabaseHeaders(env, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+        body: JSON.stringify(upserts),
+      });
+      if (!upsertRes.ok) throw new Error(`HTTP ${upsertRes.status}`);
+      processed += upserts.length;
+      tagged += upserts.filter((u) => u.interest_keywords.length > 0).length;
+    } catch (err) {
+      console.error(`Tag pass upsert failed for batch starting at ${start}:`, err?.message || err);
+      failedBatches++;
+    }
+  }
+
+  const drained = rows.length < maxRows;
+  const stalled = processed === 0 && rows.length > 0;
+  const result = {
+    tagged,
+    processed,
+    attempted: rows.length,
+    done: drained || stalled,
+    stalled,
+    remaining: drained ? rows.length - processed : null,
+    failedBatches,
+  };
+  await logRun(result);
+  return result;
 }
 
 /**
