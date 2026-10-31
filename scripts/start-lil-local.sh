@@ -99,10 +99,21 @@ ollama_model="${ollama_model:-llama3.2:3b}"
 
 echo "Starting littlables at http://127.0.0.1:3000"
 echo "The local Lil API will listen on http://127.0.0.1:3010"
+
+# Start the logger first (it runs in background and won't block)
+echo "Starting forever logger..."
+cd scripts && node lil-forever-logger.js &
+LOGGER_PID=$!
+
 if command -v curl >/dev/null 2>&1 && curl --silent --fail --max-time 2 "${ollama_base_url%/}/api/tags" >/dev/null; then
   echo "Ollama API is reachable at ${ollama_base_url} (configured model: ${ollama_model})."
 else
   echo "Ollama is not reachable at ${ollama_base_url}. The server will start, but Lil answers need Ollama running with ${ollama_model} installed." >&2
 fi
 
-exec ./node_modules/.bin/tsx server.ts
+# Start the main server after logger is up
+exec ./node_modules/.bin/tsx server.ts &
+SERVER_PID=$!
+
+echo "Main server PID: $SERVER_PID"
+wait $SERVER_PID
