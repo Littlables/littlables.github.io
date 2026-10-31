@@ -3072,7 +3072,7 @@ async function matchImageFromEdgeCache(cacheKey) {
   return null;
 }
 
-async function buildLittlablesImagePrompt(story, env, usage = null) {
+async function buildLilImagePrompt(story, env, usage = null) {
   const suppliedText = [story.aiSummary, story.description, story.content]
     .map(value => extractPageText(decodeHtml(value || '')))
     .filter(Boolean)
@@ -3181,7 +3181,7 @@ async function runWorkersAiImageModel(prompt, seed, env, usage = null) {
 }
 
 async function generateAdminStoryImage(story, requestUrl, env, usage = null) {
-  const prompt = await buildLittlablesImagePrompt(story, env, usage);
+  const prompt = await buildLilImagePrompt(story, env, usage);
   const seed = Math.floor(Math.random() * 1_000_000);
   const generated = await runWorkersAiImageModel(prompt, seed, env, usage);
 
@@ -3292,6 +3292,56 @@ export default {
         return jsonResponse({ items: feed.items, count: feed.items.length });
       } catch (err) {
         return jsonResponse({ items: [], count: 0, error: err.message }, 500);
+      }
+    }
+    // Lil runs on the admin's Ollama laptop. The Worker verifies site admin
+    // access first, then forwards only this request to the private tunnel origin.
+    if (request.method === 'POST' && pathname === '/api/lil/search') {
+      try {
+        const contentLength = Number(request.headers.get('Content-Length') || 0);
+        if (contentLength > 16_384) return jsonResponse({ error: 'Lil request is too large.' }, 413);
+        if (env.SUMMARY_RATE_LIMITER) {
+          const limit = await env.SUMMARY_RATE_LIMITER.limit({
+            key: `lil:${request.headers.get('CF-Connecting-IP') || 'unknown'}`
+          });
+          if (!limit.success) return jsonResponse({ error: 'Lil rate limit exceeded; try again shortly' }, 429);
+        }
+
+        const auth = await verifyTasteReaderAdmin(env, request);
+        if (auth.error) return jsonResponse({ error: auth.error }, auth.status);
+
+        const payload = await request.json().catch(() => null);
+        const query = typeof payload?.query === 'string' ? payload.query.trim() : '';
+        if (!query) return jsonResponse({ error: 'Please provide a search question or topic.' }, 400);
+        if (query.length > 500) return jsonResponse({ error: 'Lil questions must be 500 characters or fewer.' }, 400);
+
+        const configuredOrigin = String(env.LIL_API_ORIGIN || '').trim();
+        if (!configuredOrigin) return jsonResponse({ error: 'Lil laptop connection is not configured.' }, 503);
+
+        let apiOrigin;
+        try {
+          apiOrigin = new URL(configuredOrigin);
+        } catch {
+          return jsonResponse({ error: 'Lil laptop connection has an invalid URL.' }, 503);
+        }
+        if (apiOrigin.protocol !== 'https:' || apiOrigin.username || apiOrigin.password || apiOrigin.pathname !== '/') {
+          return jsonResponse({ error: 'Lil laptop connection must be an HTTPS origin.' }, 503);
+        }
+
+        const upstream = await fetch(`${apiOrigin.origin}/api/lil/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: request.headers.get('Authorization') || ''
+          },
+          body: JSON.stringify({ query }),
+          signal: AbortSignal.timeout(125_000)
+        });
+        const result = await upstream.json().catch(() => ({ error: 'Lil laptop returned an invalid response.' }));
+        return jsonResponse(result, upstream.status);
+      } catch (err) {
+        console.error('Lil laptop request failed:', err);
+        return jsonResponse({ error: 'Could not reach Lil on the Ollama laptop. Check that the laptop and tunnel are online.' }, 502);
       }
     }
     // Taste Reader step 2: manual selection run for the gated site page.

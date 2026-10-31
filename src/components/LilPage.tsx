@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
+import { NEWS_CONFIG } from '../constants/config';
 
 export interface LilSource {
   title: string;
@@ -13,6 +14,8 @@ export interface LilSearchResult {
   searchQueries: string[];
   sources: LilSource[];
   apiKeyNotice?: string;
+  provider?: string;
+  model?: string;
   timestamp: number;
 }
 
@@ -28,6 +31,10 @@ const SUGGESTED_PROMPTS = [
   { icon: '🎨', query: 'What are creative hands-on arts and science experiments kids can do at home?' },
   { icon: '🦕', query: 'What recent dinosaur or ancient fossil discoveries were made this year?' },
 ];
+
+const LIL_SEARCH_URL = import.meta.env.DEV
+  ? '/api/lil/search'
+  : `${NEWS_CONFIG.workerUrl.replace(/\/$/, '')}/api/lil/search`;
 
 export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
   const [query, setQuery] = useState('');
@@ -73,7 +80,7 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
         }
       }
 
-      const response = await fetch('/api/lil/search', {
+      const response = await fetch(LIL_SEARCH_URL, {
         method: 'POST',
         headers,
         body: JSON.stringify({ query: trimmed }),
@@ -91,6 +98,8 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
         searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
         sources: Array.isArray(data.sources) ? data.sources : [],
         apiKeyNotice: data.apiKeyNotice,
+        provider: data.provider || 'ollama',
+        model: data.model || 'llama3.2:3b',
         timestamp: Date.now(),
       };
 
@@ -225,7 +234,7 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
         </button>
         <div className="lil-nav-badge">
           <span className="lil-nav-badge-dot" />
-          <span>Google Search Grounded • Gemini 3.8 Flash</span>
+          <span>Lil AI • Curiosity and discovery</span>
         </div>
       </nav>
 
@@ -237,8 +246,7 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
         </div>
         <h1 className="lil-hero-title">Ask Lil</h1>
         <p className="lil-hero-subtitle">
-          Real-time curiosities, news, science, and learning powered by{' '}
-          <strong>Gemini 3.8 Flash</strong> with live <strong>Google Search data</strong>.
+          Ask about curiosities, science, news, and learning with Lil, your friendly discovery guide.
         </p>
       </header>
 
@@ -318,7 +326,7 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
           <div className="lil-loading-header">
             <span className="lil-loading-pulse-ring" />
             <span className="lil-loading-text">
-              Lil is searching the web with <strong>Google Search</strong>…
+              Lil is thinking…
             </span>
           </div>
           <div className="lil-loading-shimmer-bar short" />
@@ -352,10 +360,10 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
           <header className="lil-result-header">
             <div className="lil-result-meta-top">
               <span className="lil-result-badge">
-                <span className="lil-result-badge-icon">🌐</span>
-                Google Search Grounded
+                <span className="lil-result-badge-icon">🖥️</span>
+                {currentResult.provider === 'ollama' ? 'Local Ollama' : currentResult.provider || 'Ollama'}
               </span>
-              <span className="lil-result-model-badge">gemini-3.8-flash</span>
+              <span className="lil-result-model-badge">{currentResult.model || 'llama3.2:3b'}</span>
             </div>
             <h2 className="lil-result-query">"{currentResult.query}"</h2>
           </header>
@@ -392,8 +400,7 @@ export const LilPage: React.FC<LilPageProps> = ({ onHome }) => {
           {currentResult.sources && currentResult.sources.length > 0 && (
             <aside className="lil-sources-section">
               <h3 className="lil-sources-heading">
-                <span>📚 Grounding Sources ({currentResult.sources.length})</span>
-                <span className="lil-sources-verified-label">✓ Verified by Google Search</span>
+                <span>📚 Sources ({currentResult.sources.length})</span>
               </h3>
               <div className="lil-sources-grid">
                 {currentResult.sources.map((source, idx) => (

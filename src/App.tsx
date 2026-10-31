@@ -308,20 +308,21 @@ export const App: React.FC = () => {
     if (typeof window === 'undefined') return;
     const handlePopState = () => {
       const urlLil = parseLilFromUrl();
-      if (urlLil && !isAdmin) {
-        setLilRoute(false);
-      } else {
-        setLilRoute(urlLil);
-        if (urlLil) {
+      if (urlLil) {
+        if (!isAdmin && !checkingAdmin) {
+          setLilRoute(false);
+        } else {
+          setLilRoute(true);
           setAboutRoute(false);
           setTasteReaderRoute(false);
           setPlayroomOrSpaceRoute(null);
           setSpaceRoute(null);
           setPlayroomSpaceRoute(null);
           setProfileRoute(null);
-          return;
         }
+        return;
       }
+      setLilRoute(false);
       const urlTasteReader = parseTasteReaderFromUrl();
       setTasteReaderRoute(urlTasteReader);
       if (urlTasteReader) {
@@ -387,7 +388,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [category, isAdmin]);
+  }, [category, isAdmin, checkingAdmin]);
 
   const activeCategoryRef = React.useRef<NewsCategory>(category);
   activeCategoryRef.current = category;

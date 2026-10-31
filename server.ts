@@ -1,9 +1,14 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
-import { createServer as createViteServer } from 'vite';
+import { createServer as createViteServer, loadEnv } from 'vite';
 import { SUPABASE_CONFIG } from './src/constants/config';
+
+// Load local-only provider settings for the Node API, preserving shell/host values.
+Object.assign(process.env, {
+  ...loadEnv(process.env.NODE_ENV || 'development', process.cwd(), ''),
+  ...process.env,
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,8 +17,25 @@ const MAX_LIL_QUERY_LENGTH = 500;
 const LIL_RATE_LIMIT_WINDOW_MS = 60_000;
 const LIL_RATE_LIMIT_MAX_REQUESTS = 15;
 const lilRateLimitMap = new Map<string, number[]>();
+const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+const DEFAULT_OLLAMA_MODEL = 'llama3.2:3b';
 
 const DEFAULT_ADMIN_EMAILS = ['katie.lyn.counts@gmail.com'];
+let lilRequestLogId = 0;
+
+function logLilRequests(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const requestId = ++lilRequestLogId;
+  const startedAt = Date.now();
+  const requestPath = req.originalUrl;
+
+  console.info(`[Lil API] -> #${requestId} ${req.method} ${requestPath}`);
+  res.on('finish', () => {
+    console.info(
+      `[Lil API] <- #${requestId} ${req.method} ${requestPath} ${res.statusCode} (${Date.now() - startedAt}ms)`
+    );
+  });
+  next();
+}
 
 function getAllowedAdminEmails(): Set<string> {
   const extra = String(process.env.VITE_ADMIN_EMAILS || process.env.ADMIN_EMAILS || '')
@@ -68,7 +90,7 @@ async function verifyAdminBearerToken(authHeader: string | undefined): Promise<b
     }
 
     const profileRes = await fetch(
-      `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=username,membership,is_admin,role`,
+      `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=username,membership,is_admin`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -81,7 +103,7 @@ async function verifyAdminBearerToken(authHeader: string | undefined): Promise<b
       const profile = Array.isArray(rows) ? rows[0] : null;
       if (
         profile &&
-        (profile.is_admin === true || profile.role === 'admin' || profile.membership === 'admin')
+        (profile.is_admin === true || profile.membership === 'admin')
       ) {
         return true;
       }
@@ -92,179 +114,10 @@ async function verifyAdminBearerToken(authHeader: string | undefined): Promise<b
   }
 }
 
-function getCuratedLilResponse(query: string, notice: string) {
-  const lower = query.toLowerCase();
-
-  if (
-    lower.includes('space') ||
-    lower.includes('webb') ||
-    lower.includes('jwst') ||
-    lower.includes('telescope') ||
-    lower.includes('planet') ||
-    lower.includes('galaxy')
-  ) {
-    return {
-      answer:
-        "### 🌌 Spectacular Recent Cosmic Discoveries!\n\nThe James Webb Space Telescope (JWST) and international astronomical teams have revealed breathtaking new discoveries:\n\n* **Super-Early Monster Galaxies**: Astronomers identified luminous galaxies that formed just 300 million years after the Big Bang, offering clues to how the very first stars ignited.\n* **Exoplanet Atmospheric Insights**: JWST detected water vapor, carbon dioxide, and clouds on distant exoplanets like WASP-39b, advancing our search for habitable worlds.\n* **Dazzling Stellar Nurseries**: Infrared cameras pierced through cosmic dust clouds in the Tarantula and Eagle Nebulas, revealing baby stars bursting into life.\n\n✨ *Keep looking up — our universe is full of wonders!*",
-      searchQueries: [
-        'James Webb Space Telescope latest findings',
-        'JWST early universe galaxies discoveries',
-        'NASA exoplanet atmosphere research',
-      ],
-      sources: [
-        {
-          title: 'NASA James Webb Space Telescope Discoveries',
-          url: 'https://science.nasa.gov/mission/webb/',
-          domain: 'science.nasa.gov',
-        },
-        {
-          title: 'ESA Webb Space Science Portal',
-          url: 'https://www.esa.int/Science_Exploration/Space_Science/Webb',
-          domain: 'esa.int',
-        },
-        {
-          title: 'Space.com JWST News & Images',
-          url: 'https://www.space.com/james-webb-space-telescope',
-          domain: 'space.com',
-        },
-      ],
-      apiKeyNotice: notice,
-    };
-  }
-
-  if (
-    lower.includes('animal') ||
-    lower.includes('species') ||
-    lower.includes('wildlife') ||
-    lower.includes('frog') ||
-    lower.includes('ocean') ||
-    lower.includes('sea')
-  ) {
-    return {
-      answer:
-        "### 🐾 Astonishing Recent Animal Discoveries!\n\nBiologists and ocean explorers around the world continue to discover incredible new species across our planet:\n\n* **Bioluminescent Deep-Sea Wonders**: Submersible dives in the deep Pacific and Galápagos trenches discovered glowing jellyfish and glass octopuses adapted to pitch-black high pressures.\n* **Vocal Treefrogs in Mist Forests**: Field researchers in Ecuador and Madagascar discovered miniature treefrogs with unique, bird-like musical trills.\n* **Vibrant Twilight-Reef Fish**: Underwater reef expeditions using rebreather equipment identified colorful fairy wrasses swimming in deep, twilight coral zones.\n\n🌿 *Nature is endlessly creative, with thousands of species still waiting to be found!*",
-      searchQueries: [
-        'New animal species discoveries 2026',
-        'Deep sea ocean expedition new species',
-        'Biodiversity cloud forest species findings',
-      ],
-      sources: [
-        {
-          title: 'National Geographic Wildlife & Species News',
-          url: 'https://www.nationalgeographic.com/animals',
-          domain: 'nationalgeographic.com',
-        },
-        {
-          title: 'World Wildlife Fund Biodiversity Highlights',
-          url: 'https://www.worldwildlife.org',
-          domain: 'worldwildlife.org',
-        },
-        {
-          title: 'BBC Science Focus Nature Discoveries',
-          url: 'https://www.sciencefocus.com/nature',
-          domain: 'sciencefocus.com',
-        },
-      ],
-      apiKeyNotice: notice,
-    };
-  }
-
-  if (
-    lower.includes('robot') ||
-    lower.includes('ai') ||
-    lower.includes('school') ||
-    lower.includes('tech') ||
-    lower.includes('library')
-  ) {
-    return {
-      answer:
-        "### 🤖 How Friendly Helpers and Tech Are Transforming Learning!\n\nTechnology is evolving in gentle, collaborative ways to help children, classrooms, and nature reserves thrive:\n\n* **Reading Companion Robots**: Soft-voiced educational companions help young learners practice speech and reading aloud without anxiety.\n* **Wildlife Monitoring Rovers**: Autonomous camera rovers powered by gentle solar trackers survey bird sanctuaries with zero noise disturbance.\n* **Interactive Sensory Play**: Smart sensory tables in children's libraries turn tactile play into musical science discoveries.\n\n✨ *When technology is built with kindness, learning becomes an adventure!*",
-      searchQueries: [
-        'Friendly educational robotics in classrooms',
-        'Assistive reading tech for children',
-        'AI wildlife conservation tracking tools',
-      ],
-      sources: [
-        {
-          title: 'EdTech Magazine Innovations in Early Learning',
-          url: 'https://edtechmagazine.com',
-          domain: 'edtechmagazine.com',
-        },
-        {
-          title: 'MIT Technology Review - Robotics for Good',
-          url: 'https://www.technologyreview.com',
-          domain: 'technologyreview.com',
-        },
-        {
-          title: 'Conservation International Wildlife Tech',
-          url: 'https://www.conservation.org',
-          domain: 'conservation.org',
-        },
-      ],
-      apiKeyNotice: notice,
-    };
-  }
-
-  if (
-    lower.includes('dinosaur') ||
-    lower.includes('fossil') ||
-    lower.includes('ancient')
-  ) {
-    return {
-      answer:
-        "### 🦕 Incredible Recent Dinosaur & Fossil Discoveries!\n\nPaleontologists around the globe have uncovered astonishing prehistoric treasures:\n\n* **Feathered Raptors with Armored Scales**: High-tech laser scans of Cretaceous specimens in Patagonia revealed intricate feather patterns and vibrant pigments preserved in fine silt.\n* **Titanosaur Nesting Grounds**: Flocks of gentle long-necked titanosaurs laid clutch eggs in communal river plains across ancient Argentina and Mongolia.\n* **Miniature Flying Reptiles**: Delicate pterosaur fossils the size of sparrows were uncovered in limestone quarries, showing how tiny reptiles ruled Jurassic skies.\n\n🦴 *Every stone can hold a secret from millions of years ago!*",
-      searchQueries: [
-        'Dinosaur fossil discoveries this year',
-        'Patagonia titanosaur findings',
-        'Prehistoric animal fossils research',
-      ],
-      sources: [
-        {
-          title: 'Smithsonian National Museum of Natural History Paleontology',
-          url: 'https://naturalhistory.si.edu',
-          domain: 'naturalhistory.si.edu',
-        },
-        {
-          title: 'National Geographic Dinosaur Discoveries',
-          url: 'https://www.nationalgeographic.com/science',
-          domain: 'nationalgeographic.com',
-        },
-      ],
-      apiKeyNotice: notice,
-    };
-  }
-
-  const topicLabel = query.length > 50 ? `${query.slice(0, 50)}…` : query;
-  return {
-    answer: `### 🌟 Exploring "${topicLabel}" with Lil!\n\nHere is what our curiosity scoop knows about this topic:\n\n* **Curiosity in Action**: Asking questions is the greatest superpower for curious minds! Whether exploring science, nature, inventions, or world cultures, every discovery opens new paths.\n* **Real-Time Verification**: Lil connects with Google Search data to discover current facts from educational institutions, space agencies, and scientific journals.\n* **Keep Exploring**: Check out our coloring pages and printable activity worksheets, or visit our discovery playroom spaces to keep learning!\n\n✨ *Stay curious and keep asking questions!*`,
-    searchQueries: [
-      `Latest educational discoveries about ${topicLabel}`,
-      `Verified facts and news for ${topicLabel}`,
-    ],
-    sources: [
-      {
-        title: 'NASA Science Discoveries',
-        url: 'https://science.nasa.gov',
-        domain: 'science.nasa.gov',
-      },
-      {
-        title: 'National Geographic Education',
-        url: 'https://education.nationalgeographic.org',
-        domain: 'education.nationalgeographic.org',
-      },
-      {
-        title: 'Littlables Discovery Scoop',
-        url: 'https://littlables.com',
-        domain: 'littlables.com',
-      },
-    ],
-    apiKeyNotice: notice,
-  };
-}
-
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  const LIL_API_PORT = Number(process.env.LIL_API_PORT) || 3010;
 
   app.use(express.json({ limit: '16kb' }));
 
@@ -273,8 +126,9 @@ async function startServer() {
     res.json({ status: 'ok', service: 'littlables' });
   });
 
-  // Lil Search endpoint with Google Search Grounding (Admin-only)
-  app.post('/api/lil/search', async (req, res) => {
+  // Kept on the app server for local development. The dedicated listener below
+  // exposes only this same admin-checked endpoint to the Cloudflare Tunnel.
+  const lilSearchHandler = async (req: express.Request, res: express.Response) => {
     const clientIp =
       (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
       req.socket.remoteAddress ||
@@ -295,94 +149,61 @@ async function startServer() {
     }
 
     const prompt = query.trim().slice(0, MAX_LIL_QUERY_LENGTH);
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      const notice =
-        'Please check that a valid Gemini API key is configured in the Settings > Secrets panel for live search grounding.';
-      const fallback = getCuratedLilResponse(prompt, notice);
-      return res.json(fallback);
-    }
-
+    const ollamaBaseUrl = (process.env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_URL).replace(/\/+$/, '');
+    const ollamaModel = process.env.OLLAMA_MODEL || DEFAULT_OLLAMA_MODEL;
     try {
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
+      const ollamaResponse = await fetch(`${ollamaBaseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: ollamaModel,
+          stream: false,
+          messages: [
+            {
+              role: 'system',
+              content: "You are Lil, the friendly discovery guide at littlables. Give curious kids and families clear, accurate, age-appropriate answers. Use short headings and bullets when useful, explain unfamiliar ideas simply, and avoid frightening or inappropriate detail. You do not have live web access, so be clear when a question depends on recent news or changing facts; never invent current events or sources.",
+            },
+            { role: 'user', content: prompt },
+          ],
+          options: { temperature: 0.6 },
+        }),
+        signal: AbortSignal.timeout(120_000),
       });
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          systemInstruction:
-            "You are 'Lil', the friendly discovery guide and family-friendly journalist at Littlables (littlables.com) — a cozy news and exploration space for curious kids, families, and lifelong learners. Use real-time Google Search data to deliver up-to-date, accurate, captivating, and safe answers. Structure responses with clear headings, welcoming conversational intros, bulleted highlights, and encouraging takeaways. Use relevant emojis naturally. Never include inappropriate, violent, or distressing content.",
-          tools: [{ googleSearch: {} }],
-        },
-      });
-
-      const text = response.text || '';
-      const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
-      const webSearchQueries: string[] = groundingMetadata?.webSearchQueries || [];
-      const rawChunks = groundingMetadata?.groundingChunks || [];
-
-      const sources: { title: string; url: string; domain?: string }[] = [];
-      if (Array.isArray(rawChunks)) {
-        for (const chunk of rawChunks) {
-          const web = (chunk as any)?.web;
-          if (web?.uri) {
-            let domain = '';
-            try {
-              domain = new URL(web.uri).hostname.replace(/^www\./, '');
-            } catch {}
-            sources.push({
-              title: web.title || domain || web.uri,
-              url: web.uri,
-              domain,
-            });
-          }
-        }
+      if (!ollamaResponse.ok) {
+        const detail = await ollamaResponse.text().catch(() => '');
+        throw new Error(detail || `Ollama returned HTTP ${ollamaResponse.status}`);
       }
 
-      // Deduplicate sources by URL
-      const uniqueSources = Array.from(
-        new Map(sources.map((s) => [s.url, s])).values()
-      );
+      const ollamaData: any = await ollamaResponse.json();
+      const answer = String(ollamaData?.message?.content || '').trim();
+      if (!answer) throw new Error('Ollama returned an empty answer.');
 
       return res.json({
-        answer: text,
-        searchQueries: webSearchQueries,
-        sources: uniqueSources,
+        answer,
+        searchQueries: [],
+        sources: [],
+        provider: 'ollama',
+        model: ollamaData.model || ollamaModel,
+        apiKeyNotice: 'Lil is running locally with Ollama. Answers are generated from the model and are not checked against live web sources.',
       });
     } catch (err: any) {
-      console.warn('Gemini Search note:', err?.status || err?.message || 'Rate limit or service spike');
-      let message = err?.message || '';
-      if (typeof message === 'string' && message.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(message);
-          if (parsed?.error?.message) {
-            message = parsed.error.message;
-          }
-        } catch {}
-      }
-
-      let notice =
-        'Live search grounding is currently waiting on the Gemini API quota. You can attach a billing-enabled key in Settings > Secrets to unlock higher quotas.';
-
-      if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(message) || err?.status === 400 || err?.status === 403) {
-        notice =
-          'Gemini API key is not yet valid or active. Please check the API key in the Settings > Secrets panel.';
-      } else if (err?.status === 503 || /temporar|high demand/i.test(message)) {
-        notice =
-          'The Gemini model is currently experiencing high demand. Showing verified research below; feel free to try again shortly.';
-      }
-
-      const fallback = getCuratedLilResponse(prompt, notice);
-      return res.json(fallback);
+      const connectionHint = /fetch failed|ECONNREFUSED|ENOTFOUND|timed out|abort/i.test(String(err?.message || ''))
+        ? `Could not reach Ollama at ${ollamaBaseUrl}. Start Ollama and make sure the ${ollamaModel} model is installed.`
+        : `Ollama request failed: ${String(err?.message || 'Unknown error')}`;
+      return res.status(503).json({ error: connectionHint });
     }
+  };
+  app.post('/api/lil/search', logLilRequests, lilSearchHandler);
+
+  if (LIL_API_PORT === PORT) {
+    throw new Error('LIL_API_PORT must be different from PORT');
+  }
+  const lilApi = express();
+  lilApi.use(express.json({ limit: '16kb' }));
+  lilApi.post('/api/lil/search', logLilRequests, lilSearchHandler);
+  lilApi.listen(LIL_API_PORT, '127.0.0.1', () => {
+    console.log(`Lil API listening on http://127.0.0.1:${LIL_API_PORT} (local tunnel target)`);
   });
 
   const isProd = process.env.NODE_ENV === 'production';
