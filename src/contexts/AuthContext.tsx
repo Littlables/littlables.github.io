@@ -178,11 +178,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false;
     const userId = session.user.id;
-    client
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
+    Promise.resolve(
+      client
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle()
+    )
       .then(async ({ data }) => {
         if (cancelled) return;
         const meta = session.user.user_metadata || {};
@@ -208,7 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .single();
         if (!cancelled && created) setProfile(created as Profile);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.warn('Profile lookup failed:', error);
       })
       .finally(() => {
